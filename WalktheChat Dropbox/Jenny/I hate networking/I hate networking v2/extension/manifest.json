@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "I Hate Networking",
+  "version": "1.0.0",
+  "description": "Connect with Luma event attendees on LinkedIn",
+  "permissions": ["storage", "tabs", "alarms", "activeTab"],
+  "host_permissions": [
+    "https://*.lu.ma/*",
+    "https://luma.com/*",
+    "https://www.linkedin.com/*",
+    "https://*.supabase.co/*"
+  ],
+  "background": {
+    "service_worker": "dist/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.lu.ma/*", "https://luma.com/*"],
+      "js": ["dist/luma.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.linkedin.com/in/*"],
+      "js": ["dist/linkedin.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "I Hate Networking"
+  },
+  "externally_connectable": {
+    "matches": ["https://*.vercel.app/*", "http://localhost:3000/*"]
+  }
+}

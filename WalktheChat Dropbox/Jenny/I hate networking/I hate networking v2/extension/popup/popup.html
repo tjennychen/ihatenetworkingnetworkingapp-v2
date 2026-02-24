@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, sans-serif; width: 280px; padding: 16px; background: #fff; }
+    .header { font-size: 13px; font-weight: 700; color: #111; margin-bottom: 4px; }
+    .subtitle { font-size: 11px; color: #888; margin-bottom: 16px; }
+    .event-name { font-size: 13px; font-weight: 600; color: #111; margin-bottom: 2px; }
+    .attendee-count { font-size: 11px; color: #888; margin-bottom: 16px; }
+    button {
+      width: 100%; padding: 10px 14px; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 8px;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    .btn-primary { background: #4f46e5; color: #fff; }
+    .btn-secondary { background: #f3f4f6; color: #111; }
+    .not-luma { font-size: 12px; color: #888; text-align: center; padding: 12px 0; }
+    .login-prompt { font-size: 12px; color: #888; text-align: center; padding: 12px 0; }
+    .login-prompt a { color: #4f46e5; text-decoration: none; }
+    #status { font-size: 11px; color: #888; margin-top: 8px; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <div class="header">I Hate Networking</div>
+  <div id="content"></div>
+  <div id="status"></div>
+  <script src="../dist/popup.js"></script>
+</body>
+</html>
