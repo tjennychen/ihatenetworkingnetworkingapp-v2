@@ -1,4 +1,5 @@
 import { getSupabase } from '../lib/supabase'
+import { checkDailyLimit, getSentTodayCount } from '../lib/rate-limiter'
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
@@ -40,7 +41,6 @@ async function saveContacts(data: {
   const supabase = getSupabase()
   await supabase.auth.setSession(session)
 
-  // Upsert event
   const { data: event } = await supabase
     .from('events')
     .upsert({ user_id: session.user.id, luma_url: data.lumaUrl, name: data.eventName },
@@ -76,5 +76,67 @@ async function saveContacts(data: {
 }
 
 async function processNextQueueItem(): Promise<void> {
-  console.log('processNextQueueItem — implemented in Task 12')
+  const session = await getSession()
+  if (!session) return
+
+  const supabase = getSupabase()
+  await supabase.auth.setSession(session)
+
+  const sentToday = await getSentTodayCount(supabase, session.user.id)
+  const { canSend } = checkDailyLimit(sentToday)
+  if (!canSend) return
+
+  const { data: item } = await supabase
+    .from('connection_queue')
+    .select('*, contacts(linkedin_url, name)')
+    .eq('user_id', session.user.id)
+    .eq('status', 'pending')
+    .lte('scheduled_at', new Date().toISOString())
+    .order('scheduled_at', { ascending: true })
+    .limit(1)
+    .single()
+
+  if (!item) return
+  const linkedinUrl = (item.contacts as any)?.linkedin_url
+  if (!linkedinUrl) {
+    await supabase.from('connection_queue').update({ status: 'failed', error: 'no_linkedin_url' }).eq('id', item.id)
+    return
+  }
+
+  const tab = await chrome.tabs.create({ url: linkedinUrl, active: false })
+  await new Promise(r => setTimeout(r, 3000))
+
+  const result: { success: boolean; error?: string } = await new Promise(resolve => {
+    chrome.tabs.sendMessage(tab.id!, { type: 'CONNECT' }, response => {
+      resolve(response ?? { success: false, error: 'no_response' })
+    })
+  })
+
+  if (result.success) {
+    await supabase.from('connection_queue').update({
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+    }).eq('id', item.id)
+
+    await supabase.from('usage_logs').insert({
+      user_id: session.user.id,
+      action: 'connection_sent',
+    })
+  } else {
+    await supabase.from('connection_queue').update({
+      status: 'failed',
+      error: result.error ?? 'unknown',
+    }).eq('id', item.id)
+  }
+
+  chrome.tabs.remove(tab.id!)
+
+  // Schedule next item with 8–15 min random delay
+  const delayMinutes = 8 + Math.random() * 7
+  await supabase.from('connection_queue')
+    .update({ scheduled_at: new Date(Date.now() + delayMinutes * 60000).toISOString() })
+    .eq('user_id', session.user.id)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(1)
 }

@@ -11539,6 +11539,18 @@ ${suffix}`;
     return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }
 
+  // lib/rate-limiter.ts
+  var DAILY_LIMIT = 40;
+  function checkDailyLimit(sentToday) {
+    const remaining = Math.max(0, DAILY_LIMIT - sentToday);
+    return { canSend: sentToday < DAILY_LIMIT, remaining };
+  }
+  async function getSentTodayCount(supabase, userId) {
+    const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    const { count } = await supabase.from("connection_queue").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("status", "sent").gte("sent_at", `${today}T00:00:00Z`);
+    return count ?? 0;
+  }
+
   // background/service-worker.ts
   chrome.runtime.onInstalled.addListener(() => {
     chrome.alarms.create("checkQueue", { periodInMinutes: 0.5 });
@@ -11588,6 +11600,44 @@ ${suffix}`;
     return saved.length;
   }
   async function processNextQueueItem() {
-    console.log("processNextQueueItem \u2014 implemented in Task 12");
+    const session = await getSession();
+    if (!session) return;
+    const supabase = getSupabase();
+    await supabase.auth.setSession(session);
+    const sentToday = await getSentTodayCount(supabase, session.user.id);
+    const { canSend } = checkDailyLimit(sentToday);
+    if (!canSend) return;
+    const { data: item } = await supabase.from("connection_queue").select("*, contacts(linkedin_url, name)").eq("user_id", session.user.id).eq("status", "pending").lte("scheduled_at", (/* @__PURE__ */ new Date()).toISOString()).order("scheduled_at", { ascending: true }).limit(1).single();
+    if (!item) return;
+    const linkedinUrl = item.contacts?.linkedin_url;
+    if (!linkedinUrl) {
+      await supabase.from("connection_queue").update({ status: "failed", error: "no_linkedin_url" }).eq("id", item.id);
+      return;
+    }
+    const tab = await chrome.tabs.create({ url: linkedinUrl, active: false });
+    await new Promise((r) => setTimeout(r, 3e3));
+    const result = await new Promise((resolve) => {
+      chrome.tabs.sendMessage(tab.id, { type: "CONNECT" }, (response) => {
+        resolve(response ?? { success: false, error: "no_response" });
+      });
+    });
+    if (result.success) {
+      await supabase.from("connection_queue").update({
+        status: "sent",
+        sent_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).eq("id", item.id);
+      await supabase.from("usage_logs").insert({
+        user_id: session.user.id,
+        action: "connection_sent"
+      });
+    } else {
+      await supabase.from("connection_queue").update({
+        status: "failed",
+        error: result.error ?? "unknown"
+      }).eq("id", item.id);
+    }
+    chrome.tabs.remove(tab.id);
+    const delayMinutes = 8 + Math.random() * 7;
+    await supabase.from("connection_queue").update({ scheduled_at: new Date(Date.now() + delayMinutes * 6e4).toISOString() }).eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1);
   }
 })();
