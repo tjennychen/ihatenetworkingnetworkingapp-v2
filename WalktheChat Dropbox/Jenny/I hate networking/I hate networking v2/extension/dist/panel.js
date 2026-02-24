@@ -267,13 +267,52 @@
         ${state.queued} connections queued${state.queued > 0 ? ` &middot; ~${Math.ceil(state.queued / 40)} day(s) at 40/day` : ""}
       </div>
       <div class="ihn-launched-note">Chrome connects people automatically. You don't need to stay on this page.</div>
+      <button id="ihn-view-contacts" class="ihn-cta-btn ihn-cta-btn-primary" style="margin-top:12px">
+        View contacts &rarr;
+      </button>
       <button id="ihn-scan-another" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Scan another event</button>
     `;
+      panelEl?.querySelector("#ihn-view-contacts")?.addEventListener("click", () => {
+        if (state.type !== "launched") return;
+        state = { type: "contacts", queued: state.queued, eventId: state.eventId };
+        renderPanel();
+      });
       panelEl?.querySelector("#ihn-scan-another")?.addEventListener("click", () => {
         state = { type: "idle" };
         enrichedContacts = [];
         noteValue = "";
         closePanel();
+      });
+    } else if (state.type === "contacts") {
+      titleEl.textContent = "Contacts";
+      subtitleEl.textContent = "";
+      const leadsHtml = enrichedContacts.map((c) => {
+        const parts = c.name.trim().split(/\s+/);
+        const initials = ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
+        const hasLI = !!c.linkedInUrl;
+        const hasIG = !!c.instagramUrl;
+        const hasX = !!c.twitterUrl;
+        return `
+        <div class="ihn-lead-row">
+          <div class="ihn-lead-initials">${escHtml(initials)}</div>
+          <div class="ihn-lead-name">${escHtml(c.name)}</div>
+          <div class="ihn-lead-badges">
+            ${hasLI ? `<a href="${escHtml(c.linkedInUrl)}" target="_blank" class="ihn-badge ihn-badge-li">in</a>` : ""}
+            ${hasIG ? `<a href="${escHtml(c.instagramUrl)}" target="_blank" class="ihn-badge ihn-badge-ig">ig</a>` : ""}
+            ${hasX ? `<a href="${escHtml(c.twitterUrl)}" target="_blank" class="ihn-badge ihn-badge-x">x</a>` : ""}
+            ${!hasLI && !hasIG && !hasX ? '<span class="ihn-lead-none">\u2013</span>' : ""}
+          </div>
+        </div>
+      `;
+      }).join("");
+      body.innerHTML = `
+      <div class="ihn-leads-list" style="max-height:none">${leadsHtml || '<div style="padding:16px;color:#888">No contacts found.</div>'}</div>
+      <button id="ihn-back-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">&#8592; Back</button>
+    `;
+      panelEl?.querySelector("#ihn-back-btn")?.addEventListener("click", () => {
+        if (state.type !== "contacts") return;
+        state = { type: "launched", queued: state.queued, eventId: state.eventId };
+        renderPanel();
       });
     }
   }
