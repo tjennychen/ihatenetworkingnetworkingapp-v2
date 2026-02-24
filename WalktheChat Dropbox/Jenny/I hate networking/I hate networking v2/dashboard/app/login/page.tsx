@@ -20,6 +20,24 @@ export default function LoginPage() {
       setError(error.message)
       setLoading(false)
     } else {
+      // Send session to extension if installed
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        try {
+          const EXTENSION_ID = process.env.NEXT_PUBLIC_EXTENSION_ID ?? ''
+          const chromeExt = (globalThis as any).chrome
+          if (EXTENSION_ID && chromeExt?.runtime) {
+            chromeExt.runtime.sendMessage(EXTENSION_ID, {
+              type: 'SET_AUTH',
+              session: {
+                access_token:  session.access_token,
+                refresh_token: session.refresh_token,
+                user: { id: session.user.id, email: session.user.email },
+              }
+            })
+          }
+        } catch (_) { /* extension not installed — silent */ }
+      }
       router.push('/contacts')
     }
   }
