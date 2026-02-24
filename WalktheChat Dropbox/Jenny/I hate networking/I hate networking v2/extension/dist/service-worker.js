@@ -11566,6 +11566,12 @@ ${suffix}`;
     }
   });
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === "CHECK_LINKEDIN_LOGIN") {
+      chrome.cookies.get({ url: "https://www.linkedin.com", name: "li_at" }, (cookie) => {
+        sendResponse({ loggedIn: !!(cookie && cookie.value) });
+      });
+      return true;
+    }
     if (msg.type === "SAVE_CONTACTS") {
       saveContacts(msg.data).then((count) => sendResponse({ saved: count }));
       return true;
@@ -11573,12 +11579,45 @@ ${suffix}`;
     if (msg.type === "START_ENRICHMENT") {
       const tabId = sender.tab?.id ?? 0;
       const { lumaUrl, eventName, contacts } = msg.data;
-      saveEnrichedContacts({ tabId, lumaUrl, eventName, contacts }).then((result) => sendResponse(result));
+      saveEnrichedContacts({ tabId, lumaUrl, eventName, contacts }).then((result) => sendResponse(result)).catch((err) => {
+        console.error("[IHN] saveEnrichedContacts failed:", err);
+        sendResponse({ eventId: "", found: 0, total: contacts.length });
+      });
+      return true;
+    }
+    if (msg.type === "SIGN_IN") {
+      const { email, password } = msg.data;
+      const supabase = getSupabase();
+      supabase.auth.signInWithPassword({ email, password }).then(async ({ data, error }) => {
+        if (error || !data.session) {
+          sendResponse({ success: false, error: error?.message ?? "Login failed" });
+          return;
+        }
+        await chrome.storage.local.set({ session: data.session });
+        sendResponse({ success: true });
+      });
+      return true;
+    }
+    if (msg.type === "SIGN_UP") {
+      const { email, password } = msg.data;
+      const supabase = getSupabase();
+      supabase.auth.signUp({ email, password }).then(async ({ data, error }) => {
+        if (error) {
+          sendResponse({ success: false, error: error.message });
+          return;
+        }
+        if (data.session) {
+          await chrome.storage.local.set({ session: data.session });
+          sendResponse({ success: true, sessionReady: true });
+        } else {
+          sendResponse({ success: true, sessionReady: false });
+        }
+      });
       return true;
     }
     if (msg.type === "LAUNCH_CAMPAIGN") {
-      const { eventId, note } = msg.data;
-      launchCampaign({ eventId, note }).then((result) => sendResponse(result));
+      const { eventId, note, lumaUrl, eventName, contacts } = msg.data;
+      launchCampaign({ eventId, note, lumaUrl, eventName, contacts }).then((result) => sendResponse(result));
       return true;
     }
   });
@@ -11623,7 +11662,7 @@ ${suffix}`;
     const total = data.contacts.length;
     let found = 0;
     for (const contact of data.contacts) {
-      const { url, isHost, name, linkedInUrl } = contact;
+      const { url, isHost, name, linkedInUrl, instagramUrl } = contact;
       const firstName = name.split(" ")[0];
       const { data: saved } = await supabase.from("contacts").upsert(
         {
@@ -11634,6 +11673,7 @@ ${suffix}`;
           first_name: firstName,
           last_name: name.split(" ").slice(1).join(" "),
           linkedin_url: linkedInUrl,
+          instagram_url: instagramUrl || null,
           is_host: isHost
         },
         { onConflict: "event_id,luma_profile_url" }
@@ -11653,11 +11693,28 @@ ${suffix}`;
   }
   async function launchCampaign(data) {
     const session = await getSession();
-    if (!session) return { queued: 0 };
+    if (!session) return { queued: 0, eventId: "" };
     const supabase = getSupabase();
     await supabase.auth.setSession(session);
-    const { data: contacts } = await supabase.from("contacts").select("id, linkedin_url").eq("event_id", data.eventId).eq("user_id", session.user.id).not("linkedin_url", "eq", "");
-    if (!contacts?.length) return { queued: 0 };
+    let eventId = data.eventId;
+    if (!eventId && data.contacts?.length && data.lumaUrl) {
+      const saved = await saveEnrichedContacts({
+        tabId: 0,
+        lumaUrl: data.lumaUrl,
+        eventName: data.eventName ?? "",
+        contacts: data.contacts.map((c) => ({
+          url: c.url,
+          name: c.name,
+          linkedInUrl: c.linkedInUrl,
+          isHost: c.isHost,
+          instagramUrl: c.instagramUrl
+        }))
+      });
+      eventId = saved.eventId;
+    }
+    if (!eventId) return { queued: 0, eventId: "" };
+    const { data: contacts } = await supabase.from("contacts").select("id, linkedin_url").eq("event_id", eventId).eq("user_id", session.user.id).not("linkedin_url", "eq", "");
+    if (!contacts?.length) return { queued: 0, eventId };
     const queueItems = contacts.map((c) => ({
       user_id: session.user.id,
       contact_id: c.id,
@@ -11665,8 +11722,8 @@ ${suffix}`;
       note: data.note || ""
     }));
     await supabase.from("connection_queue").upsert(queueItems, { onConflict: "contact_id" });
-    await supabase.from("events").update({ campaign_status: "running" }).eq("id", data.eventId);
-    return { queued: contacts.length };
+    await supabase.from("events").update({ campaign_status: "running" }).eq("id", eventId);
+    return { queued: contacts.length, eventId };
   }
   async function processNextQueueItem() {
     const session = await getSession();

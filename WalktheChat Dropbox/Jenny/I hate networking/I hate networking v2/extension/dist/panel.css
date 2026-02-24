@@ -124,11 +124,14 @@
 }
 
 /* Results state */
+.ihn-results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.ihn-export-btn { background: none; border: 1px solid #444; border-radius: 4px; color: #aaa; font-size: 10px; padding: 2px 6px; cursor: pointer; font-family: inherit; }
+.ihn-export-btn:hover { border-color: #888; color: #eee; }
+
 .ihn-found-count {
   font-size: 22px;
   font-weight: 700;
   color: #4f46e5;
-  margin-bottom: 4px;
 }
 
 .ihn-found-label {
@@ -224,6 +227,86 @@
   cursor: not-allowed;
 }
 
+/* Leads list */
+.ihn-leads-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.ihn-lead-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.ihn-lead-row:last-child {
+  border-bottom: none;
+}
+
+.ihn-lead-initials {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #e0e7ff;
+  color: #4f46e5;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ihn-lead-name {
+  flex: 1;
+  font-size: 13px;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ihn-lead-badges {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ihn-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+}
+
+.ihn-badge-li {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.ihn-badge-ig {
+  background: #fce7f3;
+  color: #9d174d;
+}
+
+.ihn-badge-x {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.ihn-lead-none {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
 /* Launched state */
 .ihn-launched-icon {
   font-size: 36px;
@@ -239,7 +322,14 @@
 .ihn-launched-sub {
   font-size: 13px;
   color: #6b7280;
+  margin-bottom: 16px;
+}
+
+.ihn-launched-note {
+  font-size: 12px;
+  color: #9ca3af;
   margin-bottom: 24px;
+  line-height: 1.5;
 }
 
 .ihn-cta-btn {
@@ -276,4 +366,60 @@
 
 .ihn-cta-btn-secondary:hover {
   background: #f3f4f6;
+}
+
+/* Inline login form */
+.ihn-login-gate {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ihn-login-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 2px;
+}
+
+.ihn-login-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #111827;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.ihn-login-input:focus {
+  border-color: #4f46e5;
+}
+
+.ihn-login-error {
+  font-size: 12px;
+  color: #dc2626;
+  min-height: 16px;
+}
+
+.ihn-auth-toggle {
+  font-size: 12px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.ihn-auth-toggle-btn {
+  background: none;
+  border: none;
+  color: #4f46e5;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  text-decoration: underline;
 }
