@@ -6,8 +6,7 @@ import { useRouter } from 'next/navigation'
 import clsx from 'clsx'
 
 const links = [
-  { href: '/contacts',  label: 'Contacts' },
-  { href: '/campaigns', label: 'Campaigns' },
+  { href: '/campaigns', label: 'Contacts' },
   { href: '/stats',     label: 'Stats' },
   { href: '/post',      label: 'Post Generator' },
 ]
