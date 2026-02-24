@@ -1,3 +1,5 @@
+const DASHBOARD_URL = 'http://localhost:3000'
+
 // ── Inline scraping helpers (avoids importing luma.ts and its message listener) ─
 
 function parseGuestLinksFromDoc(doc: Document): string[] {
@@ -310,7 +312,7 @@ function renderPanel() {
         ${state.queued} connections queued${state.queued > 0 ? ` &middot; ~${Math.ceil(state.queued / 40)} day(s) at 40/day` : ''}
       </div>
       <div class="ihn-launched-note">Chrome connects people automatically. You don't need to stay on this page.</div>
-      <button id="ihn-scan-another" class="ihn-cta-btn ihn-cta-btn-secondary">Scan another event</button>
+      <button id="ihn-scan-another" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Scan another event</button>
     `
     panelEl?.querySelector('#ihn-scan-another')?.addEventListener('click', () => {
       state = { type: 'idle' }
@@ -339,10 +341,10 @@ function handleInlineLogin() {
   chrome.runtime.sendMessage(
     { type: msgType, data: { email: emailEl.value, password: passEl.value } },
     (result: { success: boolean; error?: string; sessionReady?: boolean }) => {
-      if (!result?.success) {
+      if (chrome.runtime.lastError || !result?.success) {
         btn.disabled = false
         btn.textContent = isSignup ? 'Create account' : 'Sign in'
-        errEl.textContent = result?.error ?? (isSignup ? 'Sign up failed' : 'Sign in failed')
+        errEl.textContent = result?.error ?? chrome.runtime.lastError?.message ?? (isSignup ? 'Sign up failed' : 'Sign in failed')
         return
       }
       if (isSignup && result.sessionReady === false) {
