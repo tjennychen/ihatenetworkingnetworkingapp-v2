@@ -68,6 +68,21 @@ async function scrapeLuma(): Promise<{
   return { eventName, hostProfileUrls, guestProfileUrls }
 }
 
+// ── Inline Luma profile parsers (run in content script = has cookies, no 403) ─
+
+function extractLinkedInUrlFromHtml(html: string): string {
+  const match = html.match(/href="(https:\/\/(?:www\.)?linkedin\.com\/(?:in|pub)\/[^"?#]+)[^"]*"/)
+  return match ? match[1] : ''
+}
+
+function extractDisplayNameFromHtml(html: string): string {
+  const titleMatch = html.match(/<title>\s*([^|<\n]+?)\s*(?:\||<)/)
+  if (titleMatch) return titleMatch[1].trim()
+  const ogMatch = html.match(/property="og:title"\s+content="([^"]+)"/)
+  if (ogMatch) return ogMatch[1].trim()
+  return ''
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 type PanelState =
@@ -78,7 +93,6 @@ type PanelState =
 
 let state: PanelState = { type: 'idle' }
 let panelEl: HTMLDivElement | null = null
-let btnEl: HTMLButtonElement | null = null
 let noteValue = ''
 const DEFAULT_NOTE = "Hi [first name], I was also at the event. I'd love to stay connected!"
 const MAX_NOTE = 300
@@ -204,14 +218,45 @@ async function handleImportClick() {
   renderPanel()
 
   const { eventName, hostProfileUrls, guestProfileUrls } = await scrapeLuma()
-  const total = hostProfileUrls.length + guestProfileUrls.length
-  state = { type: 'scanning', current: '…', done: 0, total, startTime: Date.now() }
-  renderPanel()
+  const allUrls = [
+    ...hostProfileUrls.map(u => ({ url: u, isHost: true })),
+    ...guestProfileUrls.map(u => ({ url: u, isHost: false })),
+  ]
+  const total = allUrls.length
+  const startTime = Date.now()
 
-  // Service worker will get tabId from sender.tab.id automatically
+  // Fetch each profile in content script — runs in Luma tab, cookies included, no 403
+  const enriched: { url: string; isHost: boolean; name: string; linkedInUrl: string }[] = []
+
+  for (let i = 0; i < allUrls.length; i++) {
+    const { url, isHost } = allUrls[i]
+    let displayName = ''
+    let linkedInUrl = ''
+
+    try {
+      const resp = await fetch(url, { credentials: 'include' })
+      if (resp.ok) {
+        const html = await resp.text()
+        displayName = extractDisplayNameFromHtml(html)
+        linkedInUrl = extractLinkedInUrlFromHtml(html)
+      }
+    } catch {
+      // network error — skip
+    }
+
+    const fallbackName = url.split('/').pop()?.replace(/-/g, ' ') ?? 'Unknown'
+    const name = displayName || fallbackName
+
+    enriched.push({ url, isHost, name, linkedInUrl })
+
+    state = { type: 'scanning', current: name, done: i + 1, total, startTime }
+    renderPanel()
+  }
+
+  // Hand off pre-enriched contacts to service worker for DB persistence
   chrome.runtime.sendMessage({
     type: 'START_ENRICHMENT',
-    data: { lumaUrl: location.href, eventName, hostProfileUrls, guestProfileUrls },
+    data: { lumaUrl: location.href, eventName, contacts: enriched },
   })
 }
 
@@ -237,27 +282,18 @@ function createPanel() {
 function openPanel() {
   if (!panelEl) createPanel()
   requestAnimationFrame(() => panelEl?.classList.add('ihn-open'))
-  if (btnEl) btnEl.style.display = 'none'
 }
 
 function closePanel() {
   panelEl?.classList.remove('ihn-open')
-  if (btnEl) btnEl.style.display = ''
 }
 
-// ── Message listener (for progress from service worker) ───────────────────────
+// ── Message listener ──────────────────────────────────────────────────────────
 
 if (typeof chrome !== 'undefined' && chrome.runtime) {
   chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === 'ENRICH_PROGRESS' && state.type === 'scanning') {
-      state = {
-        type: 'scanning',
-        current: msg.current,
-        done: msg.done,
-        total: msg.total,
-        startTime: state.startTime,
-      }
-      renderPanel()
+    if (msg.type === 'OPEN_PANEL') {
+      handleImportClick()
     }
 
     if (msg.type === 'ENRICH_COMPLETE') {
@@ -274,27 +310,4 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
       })
     }
   })
-}
-
-// ── Entry point ───────────────────────────────────────────────────────────────
-
-function init() {
-  // Only inject on event pages (not profile pages, org pages, etc.)
-  const path = location.pathname
-  const isEventPage = /^\/[a-zA-Z0-9_-]+$/.test(path) || path.startsWith('/e/')
-  if (!isEventPage) return
-  // Skip if no h1 (not a real event page)
-  if (!document.querySelector('h1')) return
-
-  btnEl = document.createElement('button')
-  btnEl.id = 'ihn-btn'
-  btnEl.textContent = 'Import LinkedIn Contacts →'
-  document.body.appendChild(btnEl)
-  btnEl.addEventListener('click', handleImportClick)
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init)
-} else {
-  init()
 }

@@ -1,6 +1,5 @@
 import { getSupabase } from '../lib/supabase'
 import { checkDailyLimit, getSentTodayCount } from '../lib/rate-limiter'
-import { extractLinkedInUrlFromHtml, extractDisplayNameFromHtml } from '../lib/luma-parser'
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
@@ -26,8 +25,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'START_ENRICHMENT') {
     const tabId = sender.tab?.id ?? 0
-    const { lumaUrl, eventName, hostProfileUrls, guestProfileUrls } = msg.data
-    enrichContactsFromLuma({ tabId, lumaUrl, eventName, hostProfileUrls, guestProfileUrls })
+    const { lumaUrl, eventName, contacts } = msg.data
+    saveEnrichedContacts({ tabId, lumaUrl, eventName, contacts })
       .then(result => sendResponse(result))
     return true
   }
@@ -90,12 +89,11 @@ async function saveContacts(data: {
   return saved.length
 }
 
-async function enrichContactsFromLuma(data: {
+async function saveEnrichedContacts(data: {
   tabId: number
   lumaUrl: string
   eventName: string
-  hostProfileUrls: string[]
-  guestProfileUrls: string[]
+  contacts: { url: string; isHost: boolean; name: string; linkedInUrl: string }[]
 }): Promise<{ eventId: string; found: number; total: number }> {
   const session = await getSession()
   if (!session) return { eventId: '', found: 0, total: 0 }
@@ -115,45 +113,13 @@ async function enrichContactsFromLuma(data: {
 
   if (!event) return { eventId: '', found: 0, total: 0 }
 
-  const allUrls = [
-    ...data.hostProfileUrls.map(u => ({ url: u, isHost: true })),
-    ...data.guestProfileUrls.map(u => ({ url: u, isHost: false })),
-  ]
-  const total = allUrls.length
+  const total = data.contacts.length
   let found = 0
 
-  for (let i = 0; i < allUrls.length; i++) {
-    const { url, isHost } = allUrls[i]
-
-    let displayName = ''
-    let linkedInUrl = ''
-
-    try {
-      const resp = await fetch(url)
-      if (resp.ok) {
-        const html = await resp.text()
-        displayName = extractDisplayNameFromHtml(html)
-        linkedInUrl = extractLinkedInUrlFromHtml(html)
-      }
-    } catch {
-      // network error — skip
-    }
-
-    const fallbackName = url.split('/').pop()?.replace(/-/g, ' ') ?? 'Unknown'
-    const name = displayName || fallbackName
+  for (const contact of data.contacts) {
+    const { url, isHost, name, linkedInUrl } = contact
     const firstName = name.split(' ')[0]
 
-    // Send progress to panel
-    try {
-      chrome.tabs.sendMessage(data.tabId, {
-        type: 'ENRICH_PROGRESS',
-        current: name,
-        done: i + 1,
-        total,
-      })
-    } catch { /* tab may have been closed */ }
-
-    // Upsert contact
     const { data: saved } = await supabase
       .from('contacts')
       .upsert(
@@ -175,7 +141,7 @@ async function enrichContactsFromLuma(data: {
     if (saved?.linkedin_url) found++
   }
 
-  // Send completion
+  // Send completion to panel
   try {
     chrome.tabs.sendMessage(data.tabId, {
       type: 'ENRICH_COMPLETE',

@@ -11551,19 +11551,6 @@ ${suffix}`;
     return count ?? 0;
   }
 
-  // lib/luma-parser.ts
-  function extractLinkedInUrlFromHtml(html) {
-    const match = html.match(/href="(https:\/\/(?:www\.)?linkedin\.com\/(?:in|pub)\/[^"?#]+)[^"]*"/);
-    return match ? match[1] : "";
-  }
-  function extractDisplayNameFromHtml(html) {
-    const titleMatch = html.match(/<title>\s*([^|<\n]+?)\s*(?:\||<)/);
-    if (titleMatch) return titleMatch[1].trim();
-    const ogMatch = html.match(/property="og:title"\s+content="([^"]+)"/);
-    if (ogMatch) return ogMatch[1].trim();
-    return "";
-  }
-
   // background/service-worker.ts
   chrome.runtime.onInstalled.addListener(() => {
     chrome.alarms.create("checkQueue", { periodInMinutes: 0.5 });
@@ -11585,8 +11572,8 @@ ${suffix}`;
     }
     if (msg.type === "START_ENRICHMENT") {
       const tabId = sender.tab?.id ?? 0;
-      const { lumaUrl, eventName, hostProfileUrls, guestProfileUrls } = msg.data;
-      enrichContactsFromLuma({ tabId, lumaUrl, eventName, hostProfileUrls, guestProfileUrls }).then((result) => sendResponse(result));
+      const { lumaUrl, eventName, contacts } = msg.data;
+      saveEnrichedContacts({ tabId, lumaUrl, eventName, contacts }).then((result) => sendResponse(result));
       return true;
     }
     if (msg.type === "LAUNCH_CAMPAIGN") {
@@ -11623,7 +11610,7 @@ ${suffix}`;
     }
     return saved.length;
   }
-  async function enrichContactsFromLuma(data) {
+  async function saveEnrichedContacts(data) {
     const session = await getSession();
     if (!session) return { eventId: "", found: 0, total: 0 };
     const supabase = getSupabase();
@@ -11633,37 +11620,11 @@ ${suffix}`;
       { onConflict: "luma_url,user_id" }
     ).select().single();
     if (!event) return { eventId: "", found: 0, total: 0 };
-    const allUrls = [
-      ...data.hostProfileUrls.map((u) => ({ url: u, isHost: true })),
-      ...data.guestProfileUrls.map((u) => ({ url: u, isHost: false }))
-    ];
-    const total = allUrls.length;
+    const total = data.contacts.length;
     let found = 0;
-    for (let i = 0; i < allUrls.length; i++) {
-      const { url, isHost } = allUrls[i];
-      let displayName = "";
-      let linkedInUrl = "";
-      try {
-        const resp = await fetch(url);
-        if (resp.ok) {
-          const html = await resp.text();
-          displayName = extractDisplayNameFromHtml(html);
-          linkedInUrl = extractLinkedInUrlFromHtml(html);
-        }
-      } catch {
-      }
-      const fallbackName = url.split("/").pop()?.replace(/-/g, " ") ?? "Unknown";
-      const name = displayName || fallbackName;
+    for (const contact of data.contacts) {
+      const { url, isHost, name, linkedInUrl } = contact;
       const firstName = name.split(" ")[0];
-      try {
-        chrome.tabs.sendMessage(data.tabId, {
-          type: "ENRICH_PROGRESS",
-          current: name,
-          done: i + 1,
-          total
-        });
-      } catch {
-      }
       const { data: saved } = await supabase.from("contacts").upsert(
         {
           user_id: session.user.id,

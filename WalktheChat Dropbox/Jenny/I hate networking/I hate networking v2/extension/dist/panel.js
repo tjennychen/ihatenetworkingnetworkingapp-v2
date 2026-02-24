@@ -63,9 +63,19 @@
     const guestProfileUrls = allLinks.filter((u) => !hostSet.has(u));
     return { eventName, hostProfileUrls, guestProfileUrls };
   }
+  function extractLinkedInUrlFromHtml(html) {
+    const match = html.match(/href="(https:\/\/(?:www\.)?linkedin\.com\/(?:in|pub)\/[^"?#]+)[^"]*"/);
+    return match ? match[1] : "";
+  }
+  function extractDisplayNameFromHtml(html) {
+    const titleMatch = html.match(/<title>\s*([^|<\n]+?)\s*(?:\||<)/);
+    if (titleMatch) return titleMatch[1].trim();
+    const ogMatch = html.match(/property="og:title"\s+content="([^"]+)"/);
+    if (ogMatch) return ogMatch[1].trim();
+    return "";
+  }
   var state = { type: "idle" };
   var panelEl = null;
-  var btnEl = null;
   var noteValue = "";
   var DEFAULT_NOTE = "Hi [first name], I was also at the event. I'd love to stay connected!";
   var MAX_NOTE = 300;
@@ -174,12 +184,35 @@
     state = { type: "scanning", current: "Gathering attendees\u2026", done: 0, total: 0, startTime: Date.now() };
     renderPanel();
     const { eventName, hostProfileUrls, guestProfileUrls } = await scrapeLuma();
-    const total = hostProfileUrls.length + guestProfileUrls.length;
-    state = { type: "scanning", current: "\u2026", done: 0, total, startTime: Date.now() };
-    renderPanel();
+    const allUrls = [
+      ...hostProfileUrls.map((u) => ({ url: u, isHost: true })),
+      ...guestProfileUrls.map((u) => ({ url: u, isHost: false }))
+    ];
+    const total = allUrls.length;
+    const startTime = Date.now();
+    const enriched = [];
+    for (let i = 0; i < allUrls.length; i++) {
+      const { url, isHost } = allUrls[i];
+      let displayName = "";
+      let linkedInUrl = "";
+      try {
+        const resp = await fetch(url, { credentials: "include" });
+        if (resp.ok) {
+          const html = await resp.text();
+          displayName = extractDisplayNameFromHtml(html);
+          linkedInUrl = extractLinkedInUrlFromHtml(html);
+        }
+      } catch {
+      }
+      const fallbackName = url.split("/").pop()?.replace(/-/g, " ") ?? "Unknown";
+      const name = displayName || fallbackName;
+      enriched.push({ url, isHost, name, linkedInUrl });
+      state = { type: "scanning", current: name, done: i + 1, total, startTime };
+      renderPanel();
+    }
     chrome.runtime.sendMessage({
       type: "START_ENRICHMENT",
-      data: { lumaUrl: location.href, eventName, hostProfileUrls, guestProfileUrls }
+      data: { lumaUrl: location.href, eventName, contacts: enriched }
     });
   }
   function createPanel() {
@@ -201,23 +234,14 @@
   function openPanel() {
     if (!panelEl) createPanel();
     requestAnimationFrame(() => panelEl?.classList.add("ihn-open"));
-    if (btnEl) btnEl.style.display = "none";
   }
   function closePanel() {
     panelEl?.classList.remove("ihn-open");
-    if (btnEl) btnEl.style.display = "";
   }
   if (typeof chrome !== "undefined" && chrome.runtime) {
     chrome.runtime.onMessage.addListener((msg) => {
-      if (msg.type === "ENRICH_PROGRESS" && state.type === "scanning") {
-        state = {
-          type: "scanning",
-          current: msg.current,
-          done: msg.done,
-          total: msg.total,
-          startTime: state.startTime
-        };
-        renderPanel();
+      if (msg.type === "OPEN_PANEL") {
+        handleImportClick();
       }
       if (msg.type === "ENRICH_COMPLETE") {
         checkLinkedInLogin().then((linkedInReady) => {
@@ -233,21 +257,5 @@
         });
       }
     });
-  }
-  function init() {
-    const path = location.pathname;
-    const isEventPage = /^\/[a-zA-Z0-9_-]+$/.test(path) || path.startsWith("/e/");
-    if (!isEventPage) return;
-    if (!document.querySelector("h1")) return;
-    btnEl = document.createElement("button");
-    btnEl.id = "ihn-btn";
-    btnEl.textContent = "Import LinkedIn Contacts \u2192";
-    document.body.appendChild(btnEl);
-    btnEl.addEventListener("click", handleImportClick);
-  }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
   }
 })();
