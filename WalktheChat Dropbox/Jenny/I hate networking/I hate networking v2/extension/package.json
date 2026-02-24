@@ -2,7 +2,7 @@
   "name": "ihn-extension",
   "version": "1.0.0",
   "scripts": {
-    "build": "npx esbuild popup/popup.ts --bundle --outfile=dist/popup.js --platform=browser --target=chrome120 && npx esbuild background/service-worker.ts --bundle --outfile=dist/service-worker.js --platform=browser --target=chrome120 && npx esbuild content/luma.ts --bundle --outfile=dist/luma.js --platform=browser --target=chrome120 && npx esbuild content/linkedin.ts --bundle --outfile=dist/linkedin.js --platform=browser --target=chrome120",
+    "build": "npx esbuild popup/popup.ts --bundle --outfile=dist/popup.js --platform=browser --target=chrome120 && npx esbuild background/service-worker.ts --bundle --outfile=dist/service-worker.js --platform=browser --target=chrome120 && npx esbuild content/luma.ts --bundle --outfile=dist/luma.js --platform=browser --target=chrome120 && npx esbuild content/linkedin.ts --bundle --outfile=dist/linkedin.js --platform=browser --target=chrome120 && npx esbuild content/panel.ts --bundle --outfile=dist/panel.js --platform=browser --target=chrome120 && cp content/panel.css dist/panel.css",
     "test": "npx jest"
   },
   "devDependencies": {

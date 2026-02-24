@@ -56,6 +56,43 @@ export function extractHostName(doc: Document): string {
   return ''
 }
 
+export function extractHostProfileUrls(doc: Document): string[] {
+  const hostSections = doc.querySelectorAll('[class*="organizer"], [class*="host"]')
+  const seen = new Set<string>()
+  const urls: string[] = []
+
+  hostSections.forEach(section => {
+    section.querySelectorAll<HTMLAnchorElement>("a[href*='/u/'], a[href*='/user/']").forEach(a => {
+      const href = a.href || a.getAttribute('href') || ''
+      if (href && !seen.has(href)) {
+        seen.add(href)
+        urls.push(href)
+      }
+    })
+  })
+  return urls
+}
+
+export function extractDisplayName(doc: Document): string {
+  // Used when visiting individual Luma profile pages
+  const h1 = doc.querySelector('h1')
+  if (h1?.textContent?.trim()) return h1.textContent.trim()
+
+  const titleEl = doc.querySelector('title')
+  if (titleEl?.textContent) {
+    const match = titleEl.textContent.match(/^([^|<\n]+?)\s*(?:\||$)/)
+    if (match) return match[1].trim()
+  }
+  return ''
+}
+
+// ── Short event name helper ───────────────────────────────────────────────────
+
+export function shortEventName(name: string): string {
+  // Strip trailing "· City · Date" patterns
+  return name.replace(/\s*·\s*[^·]+$/, '').replace(/\s*·\s*[^·]+$/, '').trim()
+}
+
 // ── Scroll helper ────────────────────────────────────────────────────────────
 
 async function scrollToLoadAll(container: Element | null, maxIter = 15): Promise<void> {
@@ -87,10 +124,12 @@ function findAndOpenGuestButton(): boolean {
 async function scrapeLumaPage(): Promise<{
   eventName: string
   hostName: string
+  hostProfileUrls: string[]
   guestProfileUrls: string[]
 }> {
   const eventName = extractEventName(document)
   const hostName  = extractHostName(document)
+  const hostProfileUrls = extractHostProfileUrls(document)
 
   findAndOpenGuestButton()
   await new Promise(r => setTimeout(r, 1000))
@@ -98,8 +137,11 @@ async function scrapeLumaPage(): Promise<{
   const modal = document.querySelector('[role="dialog"], [class*="modal"], [class*="guest-list"]')
   await scrollToLoadAll(modal ?? document.scrollingElement)
 
-  const links = parseGuestLinks(document)
-  return { eventName, hostName, guestProfileUrls: links }
+  const allLinks = parseGuestLinks(document)
+  const hostSet = new Set(hostProfileUrls)
+  const guestProfileUrls = allLinks.filter(u => !hostSet.has(u))
+
+  return { eventName, hostName, hostProfileUrls, guestProfileUrls }
 }
 
 // ── Message listener ─────────────────────────────────────────────────────────
@@ -108,9 +150,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime) chrome.runtime.onMessage.ad
   if (msg.type === 'SCRAPE_LUMA' || msg.type === 'SCRAPE_LUMA_FOR_POST') {
     scrapeLumaPage().then(result => {
       sendResponse({
-        count: result.guestProfileUrls.length,
+        count: result.guestProfileUrls.length + result.hostProfileUrls.length,
         eventName: result.eventName,
         hostName: result.hostName,
+        hostProfileUrls: result.hostProfileUrls,
         guestProfileUrls: result.guestProfileUrls,
       })
     })

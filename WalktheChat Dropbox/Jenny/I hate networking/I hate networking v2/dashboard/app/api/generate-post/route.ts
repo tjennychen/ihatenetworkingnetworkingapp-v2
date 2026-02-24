@@ -30,12 +30,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Daily limit reached (10 posts/day)' }, { status: 429 })
   }
 
-  const { hostName, guestNames, eventName } = await req.json()
+  const { hostNames, guestNames, eventName } = await req.json()
 
   const message = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 500,
-    messages: [{ role: 'user', content: buildPostPrompt({ hostName, guestNames, eventName }) }],
+    messages: [{ role: 'user', content: buildPostPrompt({ hostNames, guestNames, eventName }) }],
   })
 
   const postText = (message.content[0] as { type: string; text: string }).text

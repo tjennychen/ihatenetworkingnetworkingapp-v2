@@ -1,19 +1,20 @@
 type PostInput = {
-  hostName: string
+  hostNames: string[]
   guestNames: string[]
   eventName: string
 }
 
-export function buildPostPrompt({ hostName, guestNames, eventName }: PostInput): string {
+export function buildPostPrompt({ hostNames, guestNames, eventName }: PostInput): string {
+  const hostList = hostNames.length > 0 ? hostNames.join(', ') : 'the host'
   const guestList = guestNames.length > 0
-    ? `Guests to thank: ${guestNames.join(', ')}.`
-    : 'No guests to tag.'
+    ? `Mention these attendees by first name: ${guestNames.join(', ')}.`
+    : ''
 
   return `Write a warm, genuine LinkedIn post for someone who just attended "${eventName}".
 
 Requirements:
-- Thank the host ${hostName} by name (they will manually tag them on LinkedIn)
-- ${guestList} Include first names only — the user will manually tag them in the LinkedIn post
+- Thank ${hostList} for hosting — write their names exactly as given so the poster can tag them on LinkedIn
+- ${guestList} Use first names only
 - Tone: genuine, warm, not corporate or salesy
 - Length: 150–250 words
 - No hashtags

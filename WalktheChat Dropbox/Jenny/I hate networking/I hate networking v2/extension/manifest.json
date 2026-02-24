@@ -21,6 +21,12 @@
       "run_at": "document_idle"
     },
     {
+      "matches": ["https://*.lu.ma/*", "https://luma.com/*"],
+      "js": ["dist/panel.js"],
+      "css": ["dist/panel.css"],
+      "run_at": "document_idle"
+    },
+    {
       "matches": ["https://www.linkedin.com/in/*"],
       "js": ["dist/linkedin.js"],
       "run_at": "document_idle"

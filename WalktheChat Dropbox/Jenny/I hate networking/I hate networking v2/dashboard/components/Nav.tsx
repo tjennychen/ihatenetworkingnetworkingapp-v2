@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation'
 import clsx from 'clsx'
 
 const links = [
-  { href: '/contacts', label: 'Contacts' },
-  { href: '/stats',    label: 'Stats' },
-  { href: '/post',     label: 'Post Generator' },
+  { href: '/contacts',  label: 'Contacts' },
+  { href: '/campaigns', label: 'Campaigns' },
+  { href: '/stats',     label: 'Stats' },
+  { href: '/post',      label: 'Post Generator' },
 ]
 
 export default function Nav() {
@@ -33,7 +34,7 @@ export default function Nav() {
             href={link.href}
             className={clsx(
               'block px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-              pathname === link.href
+              pathname === link.href || (link.href.length > 1 && pathname.startsWith(link.href + '/'))
                 ? 'bg-indigo-50 text-indigo-700'
                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
             )}

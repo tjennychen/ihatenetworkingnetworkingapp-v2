@@ -1,5 +1,6 @@
 import { getSupabase } from '../lib/supabase'
 import { checkDailyLimit, getSentTodayCount } from '../lib/rate-limiter'
+import { extractLinkedInUrlFromHtml, extractDisplayNameFromHtml } from '../lib/luma-parser'
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
@@ -17,9 +18,23 @@ chrome.runtime.onMessageExternal.addListener(async (msg) => {
   }
 })
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SAVE_CONTACTS') {
     saveContacts(msg.data).then(count => sendResponse({ saved: count }))
+    return true
+  }
+
+  if (msg.type === 'START_ENRICHMENT') {
+    const tabId = sender.tab?.id ?? 0
+    const { lumaUrl, eventName, hostProfileUrls, guestProfileUrls } = msg.data
+    enrichContactsFromLuma({ tabId, lumaUrl, eventName, hostProfileUrls, guestProfileUrls })
+      .then(result => sendResponse(result))
+    return true
+  }
+
+  if (msg.type === 'LAUNCH_CAMPAIGN') {
+    const { eventId, note } = msg.data
+    launchCampaign({ eventId, note }).then(result => sendResponse(result))
     return true
   }
 })
@@ -75,6 +90,139 @@ async function saveContacts(data: {
   return saved.length
 }
 
+async function enrichContactsFromLuma(data: {
+  tabId: number
+  lumaUrl: string
+  eventName: string
+  hostProfileUrls: string[]
+  guestProfileUrls: string[]
+}): Promise<{ eventId: string; found: number; total: number }> {
+  const session = await getSession()
+  if (!session) return { eventId: '', found: 0, total: 0 }
+
+  const supabase = getSupabase()
+  await supabase.auth.setSession(session)
+
+  // Upsert the event
+  const { data: event } = await supabase
+    .from('events')
+    .upsert(
+      { user_id: session.user.id, luma_url: data.lumaUrl, name: data.eventName, campaign_status: 'draft' },
+      { onConflict: 'luma_url,user_id' }
+    )
+    .select()
+    .single()
+
+  if (!event) return { eventId: '', found: 0, total: 0 }
+
+  const allUrls = [
+    ...data.hostProfileUrls.map(u => ({ url: u, isHost: true })),
+    ...data.guestProfileUrls.map(u => ({ url: u, isHost: false })),
+  ]
+  const total = allUrls.length
+  let found = 0
+
+  for (let i = 0; i < allUrls.length; i++) {
+    const { url, isHost } = allUrls[i]
+
+    let displayName = ''
+    let linkedInUrl = ''
+
+    try {
+      const resp = await fetch(url)
+      if (resp.ok) {
+        const html = await resp.text()
+        displayName = extractDisplayNameFromHtml(html)
+        linkedInUrl = extractLinkedInUrlFromHtml(html)
+      }
+    } catch {
+      // network error — skip
+    }
+
+    const fallbackName = url.split('/').pop()?.replace(/-/g, ' ') ?? 'Unknown'
+    const name = displayName || fallbackName
+    const firstName = name.split(' ')[0]
+
+    // Send progress to panel
+    try {
+      chrome.tabs.sendMessage(data.tabId, {
+        type: 'ENRICH_PROGRESS',
+        current: name,
+        done: i + 1,
+        total,
+      })
+    } catch { /* tab may have been closed */ }
+
+    // Upsert contact
+    const { data: saved } = await supabase
+      .from('contacts')
+      .upsert(
+        {
+          user_id: session.user.id,
+          event_id: event.id,
+          luma_profile_url: url,
+          name,
+          first_name: firstName,
+          last_name: name.split(' ').slice(1).join(' '),
+          linkedin_url: linkedInUrl,
+          is_host: isHost,
+        },
+        { onConflict: 'event_id,luma_profile_url' }
+      )
+      .select('id, linkedin_url')
+      .single()
+
+    if (saved?.linkedin_url) found++
+  }
+
+  // Send completion
+  try {
+    chrome.tabs.sendMessage(data.tabId, {
+      type: 'ENRICH_COMPLETE',
+      found,
+      total,
+      eventId: event.id,
+    })
+  } catch { /* tab may have been closed */ }
+
+  return { eventId: event.id, found, total }
+}
+
+async function launchCampaign(data: { eventId: string; note: string }): Promise<{ queued: number }> {
+  const session = await getSession()
+  if (!session) return { queued: 0 }
+
+  const supabase = getSupabase()
+  await supabase.auth.setSession(session)
+
+  // Get all contacts for this event that have linkedin_url
+  const { data: contacts } = await supabase
+    .from('contacts')
+    .select('id, linkedin_url')
+    .eq('event_id', data.eventId)
+    .eq('user_id', session.user.id)
+    .not('linkedin_url', 'eq', '')
+
+  if (!contacts?.length) return { queued: 0 }
+
+  const queueItems = contacts.map((c: any) => ({
+    user_id: session.user.id,
+    contact_id: c.id,
+    status: 'pending',
+    note: data.note || '',
+  }))
+
+  await supabase.from('connection_queue').upsert(queueItems, { onConflict: 'contact_id' })
+
+  // Mark event as running
+  await supabase
+    .from('events')
+    .update({ campaign_status: 'running' })
+    .eq('id', data.eventId)
+
+  return { queued: contacts.length }
+}
+
 async function processNextQueueItem(): Promise<void> {
   const session = await getSession()
   if (!session) return
@@ -107,7 +255,7 @@ async function processNextQueueItem(): Promise<void> {
   await new Promise(r => setTimeout(r, 3000))
 
   const result: { success: boolean; error?: string } = await new Promise(resolve => {
-    chrome.tabs.sendMessage(tab.id!, { type: 'CONNECT' }, response => {
+    chrome.tabs.sendMessage(tab.id!, { type: 'CONNECT', note: item.note || '' }, response => {
       resolve(response ?? { success: false, error: 'no_response' })
     })
   })

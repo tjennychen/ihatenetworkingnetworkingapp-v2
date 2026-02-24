@@ -30,7 +30,7 @@
     await new Promise((r) => setTimeout(r, 500));
     return true;
   }
-  async function sendConnection() {
+  async function sendConnection(note) {
     await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1e3));
     if (!window.location.pathname.startsWith("/in/")) {
       return { success: false, error: "Not a profile page" };
@@ -48,9 +48,19 @@
     const addNoteBtn = findButtonByText("Add a note");
     if (addNoteBtn) {
       if (await dismissPremiumPaywall()) {
-      } else {
+      } else if (note) {
         addNoteBtn.click();
         await new Promise((r) => setTimeout(r, 500));
+        const textarea = document.querySelector(
+          'textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
+        );
+        if (textarea) {
+          textarea.focus();
+          textarea.value = note;
+          textarea.dispatchEvent(new Event("input", { bubbles: true }));
+          textarea.dispatchEvent(new Event("change", { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 300));
+        }
       }
     }
     const sendBtn = findButtonByText("Send") ?? findButtonByText("Send without a note") ?? document.querySelector('[aria-label="Send now"]');
@@ -63,7 +73,7 @@
   }
   if (typeof chrome !== "undefined" && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "CONNECT") {
-      sendConnection().then((result) => sendResponse(result));
+      sendConnection(msg.note || "").then((result) => sendResponse(result));
       return true;
     }
   });

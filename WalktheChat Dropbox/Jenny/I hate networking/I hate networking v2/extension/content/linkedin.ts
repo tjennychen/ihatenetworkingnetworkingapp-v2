@@ -34,7 +34,7 @@ async function dismissPremiumPaywall(): Promise<boolean> {
   return true
 }
 
-async function sendConnection(): Promise<{ success: boolean; error?: string }> {
+async function sendConnection(note?: string): Promise<{ success: boolean; error?: string }> {
   await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000))
 
   if (!window.location.pathname.startsWith('/in/')) {
@@ -58,10 +58,21 @@ async function sendConnection(): Promise<{ success: boolean; error?: string }> {
   const addNoteBtn = findButtonByText('Add a note')
   if (addNoteBtn) {
     if (await dismissPremiumPaywall()) {
-      // dismissed — try send without note
-    } else {
+      // paywall dismissed — fall through to send without note
+    } else if (note) {
       addNoteBtn.click()
       await new Promise(r => setTimeout(r, 500))
+
+      const textarea = document.querySelector<HTMLTextAreaElement>(
+        'textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
+      )
+      if (textarea) {
+        textarea.focus()
+        textarea.value = note
+        textarea.dispatchEvent(new Event('input', { bubbles: true }))
+        textarea.dispatchEvent(new Event('change', { bubbles: true }))
+        await new Promise(r => setTimeout(r, 300))
+      }
     }
   }
 
@@ -82,7 +93,7 @@ async function sendConnection(): Promise<{ success: boolean; error?: string }> {
 
 if (typeof chrome !== 'undefined' && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'CONNECT') {
-    sendConnection().then(result => sendResponse(result))
+    sendConnection(msg.note || '').then(result => sendResponse(result))
     return true
   }
 })
