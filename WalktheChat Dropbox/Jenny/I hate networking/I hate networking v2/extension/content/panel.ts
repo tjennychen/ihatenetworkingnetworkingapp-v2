@@ -155,7 +155,7 @@ let draftPickerOpen = false
 type DraftState =
   | { stage: 'pick' }
   | { stage: 'loading'; eventId: string; eventName: string; total: number }
-  | { stage: 'ready'; eventId: string; eventShortName: string; postText: string; guestNames: string[]; totalGuests: number }
+  | { stage: 'ready'; eventId: string; eventName: string; eventShortName: string; postText: string; guestNames: string[]; totalGuests: number }
 let draftState: DraftState = { stage: 'pick' }
 function shortEventLabel(name: string): string {
   // Remove parentheticals and content after : or — or -
@@ -244,10 +244,12 @@ function startDraftFetch(eventId: string, eventName: string): void {
         .map(n => `@${n}`)
         .join(' ')
       const shortName = shortenEventName(eventName)
-      const postText = `Thanks ${hostMentions} for organizing the ${shortName} event!`
+      const postText = hostMentions
+        ? `Thanks ${hostMentions} for organizing the ${shortName} event!`
+        : `Thanks everyone for organizing the ${shortName} event!`
       const guestNames = guests.map(g => nameMap.get(g.id) || g.name || '').filter(Boolean)
 
-      draftState = { stage: 'ready', eventId, eventShortName: shortName, postText, guestNames, totalGuests }
+      draftState = { stage: 'ready', eventId, eventName, eventShortName: shortName, postText, guestNames, totalGuests }
       renderPanel()
     }
 
@@ -546,6 +548,7 @@ function renderPanel() {
           const ev = events[0]
           draftState = { stage: 'loading', eventId: ev.id, eventName: ev.name ?? '', total: 0 }
           startDraftFetch(ev.id, ev.name ?? '')
+          return
         }
         body.innerHTML = `
           <div class="ihn-export-picker">
@@ -596,7 +599,7 @@ function renderPanel() {
       }
 
       if (draftState.stage === 'ready') {
-        const { postText, guestNames, totalGuests, eventId, eventShortName } = draftState
+        const { postText, guestNames, totalGuests, eventId, eventName, eventShortName } = draftState
         body.innerHTML = `
           <div class="ihn-draft-ready">
             <p class="ihn-draft-section-label">Copy this as your post:</p>
@@ -606,7 +609,7 @@ function renderPanel() {
             <p class="ihn-draft-section-label" style="margin-top:14px">Tag these people in your photo:</p>
             <p class="ihn-draft-tag-hint">In the LinkedIn app: tap your photo → Tag people → search each name below</p>
             <div class="ihn-draft-names">${guestNames.map(n => `<span class="ihn-draft-name">${escHtml(n)}</span>`).join('')}</div>
-            ${totalGuests > 15 ? `<button id="ihn-draft-shuffle-btn" class="ihn-cta-btn ihn-cta-btn-secondary" data-event-id="${escHtml(eventId)}" data-event-short="${escHtml(eventShortName)}" style="margin-top:8px">Shuffle (${totalGuests} guests total)</button>` : ''}
+            ${totalGuests > 15 ? `<button id="ihn-draft-shuffle-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Shuffle (${totalGuests} guests total)</button>` : ''}
 
             <button id="ihn-draft-cancel-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Done</button>
           </div>
@@ -618,12 +621,8 @@ function renderPanel() {
           if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy post' }, 2000) }
         })
         panelEl.querySelector('#ihn-draft-shuffle-btn')?.addEventListener('click', () => {
-          const btn = panelEl.querySelector('#ihn-draft-shuffle-btn') as HTMLButtonElement
-          const evId = btn.dataset.eventId!
-          const evShort = btn.dataset.eventShort!
-          // Re-fetch with a new random sample
-          draftState = { stage: 'loading', eventId: evId, eventName: evShort, total: 0 }
-          startDraftFetch(evId, evShort)
+          draftState = { stage: 'loading', eventId, eventName, total: 0 }
+          startDraftFetch(eventId, eventName)
           renderPanel()
         })
         panelEl.querySelector('#ihn-draft-cancel-btn')?.addEventListener('click', () => {

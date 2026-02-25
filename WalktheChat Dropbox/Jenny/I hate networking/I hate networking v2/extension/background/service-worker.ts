@@ -248,8 +248,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'GET_DRAFT_DATA') {
-    ;(async () => {
-      const { data: { session } } = await getSupabase().auth.getSession()
+    getSession().then(async (session) => {
       if (!session) { sendResponse(null); return }
       const supabase = getAuthedSupabase(session.access_token)
       const { data: contacts } = await supabase
@@ -264,13 +263,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const shuffled = [...guests].sort(() => Math.random() - 0.5)
       const sample = shuffled.slice(0, 15)
       sendResponse({ hosts, guests: sample, totalGuests: guests.length })
-    })()
+    })
     return true
   }
 
   if (msg.type === 'GET_LINKEDIN_NAMES') {
-    ;(async () => {
-      const { data: { session } } = await getSupabase().auth.getSession()
+    getSession().then(async (session) => {
       if (!session) { sendResponse([]); return }
       const supabase = getAuthedSupabase(session.access_token)
       const results: { id: string; linkedin_name: string }[] = []
@@ -308,7 +306,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       }
       sendResponse(results)
-    })()
+    })
     return true
   }
 })

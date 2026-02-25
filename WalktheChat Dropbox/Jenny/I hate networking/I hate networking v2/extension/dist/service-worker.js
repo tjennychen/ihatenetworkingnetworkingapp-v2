@@ -11760,9 +11760,7 @@ ${suffix}`;
       return true;
     }
     if (msg.type === "GET_DRAFT_DATA") {
-      ;
-      (async () => {
-        const { data: { session } } = await getSupabase().auth.getSession();
+      getSession().then(async (session) => {
         if (!session) {
           sendResponse(null);
           return;
@@ -11778,13 +11776,11 @@ ${suffix}`;
         const shuffled = [...guests].sort(() => Math.random() - 0.5);
         const sample = shuffled.slice(0, 15);
         sendResponse({ hosts, guests: sample, totalGuests: guests.length });
-      })();
+      });
       return true;
     }
     if (msg.type === "GET_LINKEDIN_NAMES") {
-      ;
-      (async () => {
-        const { data: { session } } = await getSupabase().auth.getSession();
+      getSession().then(async (session) => {
         if (!session) {
           sendResponse([]);
           return;
@@ -11825,7 +11821,7 @@ ${suffix}`;
           }
         }
         sendResponse(results);
-      })();
+      });
       return true;
     }
   });
