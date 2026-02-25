@@ -1,3 +1,5 @@
+import { icons } from '../lib/icons'
+
 const DASHBOARD_URL = 'http://localhost:3000'
 
 // ── Inline scraping helpers (avoids importing luma.ts and its message listener) ─
@@ -135,6 +137,7 @@ type PanelState =
   | { type: 'launched'; queued: number; eventId: string }
   | { type: 'contacts'; queued: number; eventId: string }
   | { type: 'progress' }
+  | { type: 'already_scanned'; count: number; linkedInCount: number; eventId: string; eventName: string; eventLocation: string; noNew?: boolean }
 
 let state: PanelState = { type: 'idle' }
 let enrichedContacts: EnrichedContact[] = []
@@ -143,9 +146,34 @@ let noteValue = ''
 let contactStatuses: Map<string, string> = new Map()
 let authMode: 'signup' | 'signin' = 'signup'
 let progressData: { chartData: {date:string,cumulative:number}[], events: any[] } | null = null
+let campaignPaused = false
+let pausedEvents: string[] = []
+let progressRefreshTimer: ReturnType<typeof setInterval> | null = null
 let expandedEvents = new Set<string>()
 let exportPickerOpen = false
-const DEFAULT_NOTE = "Hi [first name], I was also at the event. I'd love to stay connected!"
+function shortEventLabel(name: string): string {
+  // Remove parentheticals and content after : or — or -
+  let s = name
+    .replace(/\(.*?\)/g, '')
+    .replace(/[:\-–—].*$/, '')
+    .replace(/[^\w\s]/gu, ' ')   // strip emoji and punctuation
+    .replace(/\s+/g, ' ')
+    .trim()
+  // If "with [Word]" pattern, take the word(s) after "with"
+  const withMatch = s.match(/\bwith\s+(\S+(?:\s+\S+)?)/i)
+  if (withMatch) return withMatch[1].trim()
+  // Otherwise strip generic filler words, return first 2 meaningful words
+  const filler = new Set(['making','money','night','day','the','a','an','and','or','for','of','in','at','to','from','ship','it','tonight','session','event','meetup','workshop','vibe','coding','open','mat','finder'])
+  const words = s.split(/\s+/).filter(w => w.length > 1 && !filler.has(w.toLowerCase()))
+  return words.slice(0, 2).join(' ')
+}
+
+function defaultNote(eventName: string): string {
+  const label = shortEventLabel(eventName)
+  return label
+    ? `I saw you at the ${label} event, I'd like to stay in touch!`
+    : "I saw you at the event, I'd like to stay in touch!"
+}
 const MAX_NOTE = 300
 
 // ── LinkedIn login check ──────────────────────────────────────────────────────
@@ -199,10 +227,6 @@ function renderChart(chartData: {date:string,cumulative:number}[]): string {
 
 function renderPanel() {
   if (!panelEl) return
-  const scanStates = ['idle', 'scanning', 'results', 'launched', 'contacts']
-  const isScan = scanStates.includes(state.type)
-  panelEl.querySelector('#ihn-nav-scan')?.classList.toggle('ihn-nav-active', isScan)
-  panelEl.querySelector('#ihn-nav-progress')?.classList.toggle('ihn-nav-active', !isScan)
   const body = panelEl.querySelector('#ihn-panel-body')!
   const titleEl = panelEl.querySelector('#ihn-panel-title')!
   const subtitleEl = panelEl.querySelector('#ihn-panel-subtitle')!
@@ -249,10 +273,10 @@ function renderPanel() {
     }).join('')
     body.innerHTML = `
       <div class="ihn-results-header">
-        <div class="ihn-found-count">&#10003; Found LinkedIn for ${state.found}/${state.total}</div>
-        <button id="ihn-export-csv" title="Export CSV" class="ihn-export-btn">&#8681; CSV</button>
+        <div class="ihn-found-count">${icons.check} Found LinkedIn for ${state.found}/${state.total}</div>
+        <button id="ihn-export-csv" title="Export CSV" class="ihn-export-btn">${icons.download} CSV</button>
       </div>
-      <div class="ihn-found-label">Connections will be sent over ~${Math.ceil(state.found / 40)} day(s) at 40/day.</div>
+      <div class="ihn-found-label">${state.found} people to connect with.</div>
 
       ${allContacts.length > 0 ? `<div class="ihn-leads-list">${leadsHtml}</div>` : ''}
 
@@ -279,12 +303,12 @@ function renderPanel() {
       ` : `
       <div class="ihn-linkedin-status ${state.linkedInReady ? 'ihn-ok' : 'ihn-warn'}">
         ${state.linkedInReady
-          ? '&#10003; LinkedIn ready'
-          : '&#9888;&#65039; Not logged into LinkedIn \u00a0<a class="ihn-open-linkedin" href="https://www.linkedin.com/login" target="_blank">Open LinkedIn &#8599;</a>'}
+          ? `${icons.check} LinkedIn ready`
+          : `${icons.warning} Not logged into LinkedIn \u00a0<a class="ihn-open-linkedin" href="https://www.linkedin.com/login" target="_blank">Open LinkedIn ${icons.externalLink}</a>`}
       </div>
 
       <button id="ihn-connect-btn" ${state.linkedInReady ? '' : 'disabled'}>
-        Connect on LinkedIn &rarr;
+        Connect on LinkedIn ${icons.arrowRight}
       </button>
       `}
     `
@@ -338,24 +362,33 @@ function renderPanel() {
     titleEl.textContent = shortEventName(document.querySelector('h1')?.textContent?.trim() ?? document.title)
     subtitleEl.textContent = ''
     body.innerHTML = `
-      <div class="ihn-launched-icon">&#10003;</div>
+      <div class="ihn-launched-icon">${icons.checkCircle}</div>
       <div class="ihn-launched-title">Running in background</div>
       <div class="ihn-launched-sub">
-        ${state.queued} connections queued${state.queued > 0 ? ` &middot; ~${Math.ceil(state.queued / 40)} day(s) at 40/day` : ''}
+        ${state.queued} connections queued
       </div>
       <div class="ihn-launched-note">Chrome connects people automatically. You don't need to stay on this page.</div>
       <button id="ihn-view-contacts" class="ihn-cta-btn ihn-cta-btn-primary" style="margin-top:12px">
-        View contacts &rarr;
+        View contacts ${icons.arrowRight}
       </button>
       <button id="ihn-scan-another" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Scan another event</button>
     `
     panelEl?.querySelector('#ihn-view-contacts')?.addEventListener('click', () => {
       state = { type: 'progress' }
       renderPanel()
+      chrome.runtime.sendMessage({ type: 'GET_PAUSED_EVENTS' }, (resp) => { pausedEvents = resp?.pausedEvents ?? [] })
       chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
         progressData = resp
         if (state.type === 'progress') renderPanel()
       })
+      if (progressRefreshTimer) clearInterval(progressRefreshTimer)
+      progressRefreshTimer = setInterval(() => {
+        if (state.type !== 'progress') { clearInterval(progressRefreshTimer!); progressRefreshTimer = null; return }
+        chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
+          progressData = resp
+          if (state.type === 'progress') renderPanel()
+        })
+      }, 30000)
     })
     panelEl?.querySelector('#ihn-scan-another')?.addEventListener('click', () => {
       state = { type: 'idle' }
@@ -413,14 +446,28 @@ function renderPanel() {
       return
     }
 
-    const totalSent = data ? data.chartData[data.chartData.length - 1]?.cumulative ?? 0 : 0
+    // Total from status (accurate even without chart data)
+    let totalSent = 0
+    let totalPending = 0
+    for (const event of data?.events ?? []) {
+      for (const c of event.contacts ?? []) {
+        const s = c.connection_queue?.[0]?.status
+        if (['sent','accepted'].includes(s)) totalSent++
+        else if (s === 'pending') totalPending++
+      }
+    }
+    const topLabel = totalSent > 0
+      ? `${totalSent} sent total`
+      : totalPending > 0
+      ? `${totalPending} queued · sending soon`
+      : '0 sent'
     body.innerHTML = `
       <div class="ihn-chart-wrap">
         ${data ? renderChart(data.chartData) : '<p class="ihn-chart-empty">Loading…</p>'}
       </div>
       <div class="ihn-results-header">
-        <p class="ihn-total-sent">${totalSent} sent total</p>
-        <button id="ihn-progress-export-csv" title="Export CSV" class="ihn-export-btn">&#8681; CSV</button>
+        <p class="ihn-total-sent">${topLabel}</p>
+        <button id="ihn-progress-export-csv" title="Export CSV" class="ihn-export-btn">${icons.download} CSV</button>
       </div>
       <div class="ihn-events-list">
         ${(data?.events ?? []).map((event: any) => {
@@ -428,30 +475,45 @@ function renderPanel() {
           const sentCount = contacts.filter((c: any) =>
             ['sent','accepted'].includes(c.connection_queue?.[0]?.status)
           ).length
+          const pendingCount = contacts.filter((c: any) =>
+            c.connection_queue?.[0]?.status === 'pending'
+          ).length
+          const isEventPaused = pausedEvents.includes(event.id)
           const expanded = expandedEvents.has(event.id)
+          const eventBadge = sentCount > 0
+            ? `<span class="ihn-event-badge">${sentCount} sent</span>`
+            : pendingCount > 0
+            ? `<span class="ihn-event-badge ihn-event-badge-queued">${pendingCount} queued</span>`
+            : ''
           return `<div class="ihn-event-row" data-event-id="${escHtml(event.id)}">
             <div class="ihn-event-header">
-              <span class="ihn-event-chevron">${expanded ? '▼' : '▶'}</span>
+              <span class="ihn-event-chevron">${expanded ? icons.chevronDown : icons.chevronRight}</span>
               <span class="ihn-event-name">${escHtml(event.name ?? 'Untitled event')}</span>
-              <span class="ihn-event-badge">${sentCount} sent</span>
+              ${eventBadge}
+              ${pendingCount > 0 ? `<button class="ihn-event-pause-btn" data-event-id="${escHtml(event.id)}" data-paused="${isEventPaused}">${isEventPaused ? icons.play + ' Resume' : icons.pause + ' Pause'}</button>` : ''}
             </div>
             ${expanded ? `<div class="ihn-event-contacts">${contacts.map((c: any) => {
               const status = c.connection_queue?.[0]?.status ?? 'pending'
               const error = c.connection_queue?.[0]?.error ?? ''
+              const showStatus = status !== 'pending'
               const errorLabel = ({
-                already_pending: 'You already sent them a request on LinkedIn',
-                already_connected: "You're already connected",
-                third_degree: "3rd degree — LinkedIn doesn't allow direct connections",
-                connect_not_available: 'Connect option not available on their profile',
-                send_btn_not_found: 'LinkedIn UI changed — try again later',
+                already_pending: 'Already sent on LinkedIn',
+                already_connected: 'Already connected',
+                third_degree: '3rd degree — can\'t connect directly',
+                connect_not_available: 'Connect not available on their profile',
+                send_btn_not_found: 'LinkedIn UI changed — will retry',
                 no_linkedin_url: 'No LinkedIn profile found',
-                note_quota_reached: 'Free note quota reached — sent without note next retry',
-              } as Record<string, string>)[error] ?? (error ? `LinkedIn error: ${error}` : '')
+                note_quota_reached: 'Free note quota reached',
+              } as Record<string, string>)[error] ?? (error ? error : '')
+              const linkedInUrl = c.linkedin_url ?? ''
+              const instagramUrl = c.instagram_url ?? ''
               return `<div class="ihn-contact-row">
                 <span class="ihn-contact-name">${escHtml(c.name ?? '—')}</span>
-                <div class="ihn-contact-status">
-                  <span class="ihn-status-badge ihn-status-${escHtml(status)}">${escHtml(status)}</span>
-                  ${errorLabel ? `<span class="ihn-error-tip" title="${escHtml(errorLabel)}">?</span>` : ''}
+                <div class="ihn-contact-right">
+                  ${linkedInUrl ? `<a href="${escHtml(linkedInUrl)}" target="_blank" class="ihn-badge ihn-badge-li" onclick="event.stopPropagation()">in</a>` : ''}
+                  ${instagramUrl ? `<a href="${escHtml(instagramUrl)}" target="_blank" class="ihn-badge ihn-badge-ig" onclick="event.stopPropagation()">ig</a>` : ''}
+                  ${showStatus ? `<span class="ihn-status-badge ihn-status-${escHtml(status)}">${escHtml(status)}</span>` : ''}
+                  ${showStatus && errorLabel ? `<span class="ihn-error-tip" title="${escHtml(errorLabel)}">?</span>` : ''}
                 </div>
               </div>`
             }).join('')}</div>` : ''}
@@ -460,6 +522,17 @@ function renderPanel() {
         ${!data || data.events.length === 0 ? '<p class="ihn-empty">No events yet.</p>' : ''}
       </div>
     `
+    panelEl.querySelectorAll<HTMLButtonElement>('.ihn-event-pause-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const evId = btn.dataset.eventId!
+        const isPaused = btn.dataset.paused === 'true'
+        chrome.runtime.sendMessage({ type: isPaused ? 'RESUME_EVENT' : 'PAUSE_EVENT', eventId: evId }, () => {
+          pausedEvents = isPaused ? pausedEvents.filter(id => id !== evId) : [...pausedEvents, evId]
+          renderPanel()
+        })
+      })
+    })
     panelEl.querySelectorAll('.ihn-event-header').forEach(header => {
       header.addEventListener('click', () => {
         const row = (header as HTMLElement).closest('[data-event-id]') as HTMLElement
@@ -508,12 +581,40 @@ function renderPanel() {
     }).join('')
     body.innerHTML = `
       <div class="ihn-leads-list" style="max-height:none">${leadsHtml || '<div style="padding:16px;color:#888">No contacts found.</div>'}</div>
-      <button id="ihn-back-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">&#8592; Back</button>
+      <button id="ihn-back-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">${icons.arrowLeft} Back</button>
     `
     panelEl?.querySelector('#ihn-back-btn')?.addEventListener('click', () => {
       if (state.type !== 'contacts') return
       state = { type: 'launched', queued: state.queued, eventId: state.eventId }
       renderPanel()
+    })
+  } else if (state.type === 'already_scanned') {
+    titleEl.textContent = eventShort || 'Event'
+    subtitleEl.textContent = ''
+    body.innerHTML = `
+      <div class="ihn-already-scanned">
+        <div class="ihn-already-count">${icons.check} ${state.count} contacts saved &middot; ${state.linkedInCount} have LinkedIn</div>
+        ${state.noNew ? '<div class="ihn-already-nonew">No new attendees found</div>' : ''}
+        <button id="ihn-view-results-btn" class="ihn-cta-btn ihn-cta-btn-primary">View results ${icons.arrowRight}</button>
+        <button id="ihn-scan-new-btn" class="ihn-cta-btn ihn-cta-btn-secondary">Scan for new attendees</button>
+      </div>
+    `
+    panelEl!.querySelector('#ihn-view-results-btn')?.addEventListener('click', async () => {
+      if (state.type !== 'already_scanned') return
+      const linkedInReady = await checkLinkedInLogin()
+      state = {
+        type: 'results',
+        found: state.linkedInCount,
+        total: state.count,
+        eventId: state.eventId,
+        linkedInReady,
+        eventName: state.eventName,
+        eventLocation: state.eventLocation,
+      }
+      renderPanel()
+    })
+    panelEl!.querySelector('#ihn-scan-new-btn')?.addEventListener('click', () => {
+      handleImportClick(true)
     })
   }
 }
@@ -601,13 +702,28 @@ function handleLaunch() {
         return
       }
       if (state.type !== 'results') return
-      state = { type: 'launched', queued: result.queued, eventId: result.eventId || state.eventId }
+      // Skip launched screen — go straight to progress
+      state = { type: 'progress' }
+      progressData = null
       renderPanel()
+      chrome.runtime.sendMessage({ type: 'GET_PAUSED_EVENTS' }, (resp) => { pausedEvents = resp?.pausedEvents ?? [] })
+      chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
+        progressData = resp
+        if (state.type === 'progress') renderPanel()
+      })
+      if (progressRefreshTimer) clearInterval(progressRefreshTimer)
+      progressRefreshTimer = setInterval(() => {
+        if (state.type !== 'progress') { clearInterval(progressRefreshTimer!); progressRefreshTimer = null; return }
+        chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
+          progressData = resp
+          if (state.type === 'progress') renderPanel()
+        })
+      }, 30000)
     }
   )
 }
 
-async function handleImportClick() {
+async function handleImportClick(rescan = false): Promise<void> {
   authMode = 'signup'
   openPanel()
   state = { type: 'scanning', current: 'Gathering attendees…', done: 0, total: 0, startTime: Date.now() }
@@ -630,32 +746,23 @@ async function handleImportClick() {
     : allUrls
 
   if (toEnrich.length === 0) {
-    // Already up to date — skip enrichment, jump straight to results
-    enrichedContacts = (existingContacts as any[]).map((c: any) => ({
-      url: c.luma_profile_url ?? '',
-      isHost: c.is_host ?? false,
-      name: c.name ?? '',
-      linkedInUrl: c.linkedin_url ?? '',
-      instagramUrl: c.instagram_url ?? '',
-      twitterUrl: '',
-    }))
-    noteValue = DEFAULT_NOTE
-    state = {
-      type: 'results',
-      found: linkedInCount,
-      total: existingUrls.length,
-      eventId: cachedEventId,
-      linkedInReady: false,
-      eventName,
-      eventLocation,
-    }
+    // Already up to date — go straight to progress view
+    state = { type: 'progress' }
+    progressData = null
     renderPanel()
-    checkLinkedInLogin().then(ready => {
-      if (state.type === 'results' && ready) {
-        state = { ...state, linkedInReady: true }
-        renderPanel()
-      }
+    chrome.runtime.sendMessage({ type: 'GET_PAUSED_EVENTS' }, (resp) => { pausedEvents = resp?.pausedEvents ?? [] })
+    chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
+      progressData = resp
+      if (state.type === 'progress') renderPanel()
     })
+    if (progressRefreshTimer) clearInterval(progressRefreshTimer)
+    progressRefreshTimer = setInterval(() => {
+      if (state.type !== 'progress') { clearInterval(progressRefreshTimer!); progressRefreshTimer = null; return }
+      chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
+        progressData = resp
+        if (state.type === 'progress') renderPanel()
+      })
+    }, 30000)
     return
   }
 
@@ -703,7 +810,7 @@ async function handleImportClick() {
     (result: { eventId: string; found: number; total: number } | undefined) => {
       if (chrome.runtime.lastError) console.warn('[IHN] START_ENRICHMENT:', chrome.runtime.lastError.message)
       checkLinkedInLogin().then(linkedInReady => {
-        noteValue = DEFAULT_NOTE
+        noteValue = defaultNote(eventName)
         state = {
           type: 'results',
           found: enriched.filter(c => c.linkedInUrl).length + linkedInCount,
@@ -730,34 +837,12 @@ function createPanel() {
         <div id="ihn-panel-title">Importing contacts…</div>
         <div id="ihn-panel-subtitle"></div>
       </div>
-      <button id="ihn-close-btn" aria-label="Close">&times;</button>
-    </div>
-    <div id="ihn-nav">
-      <button class="ihn-nav-btn" id="ihn-nav-scan">Scan</button>
-      <button class="ihn-nav-btn" id="ihn-nav-progress">Progress</button>
+      <button id="ihn-close-btn" aria-label="Close">${icons.xMark}</button>
     </div>
     <div id="ihn-panel-body"></div>
   `
   document.body.appendChild(panelEl)
   panelEl.querySelector('#ihn-close-btn')!.addEventListener('click', closePanel)
-  panelEl.querySelector('#ihn-nav-scan')?.addEventListener('click', () => {
-    if (state.type === 'progress') {
-      state = enrichedContacts.length > 0
-        ? { type: 'results', found: enrichedContacts.filter(c => c.linkedInUrl).length, total: enrichedContacts.length, eventId: '', linkedInReady: false, eventName: '', eventLocation: '' }
-        : { type: 'idle' }
-      renderPanel()
-    }
-  })
-  panelEl.querySelector('#ihn-nav-progress')?.addEventListener('click', () => {
-    if (state.type !== 'progress') {
-      state = { type: 'progress' }
-      renderPanel()
-      chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
-        progressData = resp
-        if (state.type === 'progress') renderPanel()
-      })
-    }
-  })
 }
 
 function openPanel() {
@@ -767,6 +852,7 @@ function openPanel() {
 
 function closePanel() {
   panelEl?.classList.remove('ihn-open')
+  if (progressRefreshTimer) { clearInterval(progressRefreshTimer); progressRefreshTimer = null }
 }
 
 // ── Message listener ──────────────────────────────────────────────────────────

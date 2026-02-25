@@ -1,20 +1,26 @@
-function findButtonByText(text: string): HTMLButtonElement | null {
+function getMain(): Element {
+  return document.querySelector('main') ?? document.body
+}
+
+function findButtonByText(text: string, root: Element = document.body): HTMLButtonElement | null {
   return (
-    Array.from(document.querySelectorAll('button'))
+    Array.from(root.querySelectorAll('button'))
       .find(b => b.textContent?.trim() === text) as HTMLButtonElement ?? null
   )
 }
 
 function findConnectButton(): HTMLButtonElement | null {
-  const direct = document.querySelector<HTMLButtonElement>(
+  const main = getMain()
+  const direct = main.querySelector<HTMLButtonElement>(
     '[aria-label*="Connect with"], button[aria-label*="Invite"], [data-control-name="connect"]'
   )
   if (direct) return direct
-  return findButtonByText('Connect')
+  return findButtonByText('Connect', main)
 }
 
 async function openMoreActionsIfNeeded(): Promise<void> {
-  const moreBtn = document.querySelector<HTMLButtonElement>(
+  const main = getMain()
+  const moreBtn = main.querySelector<HTMLButtonElement>(
     "button[aria-label='More actions'], button[aria-label*='More member actions']"
   )
   if (moreBtn) {
@@ -37,20 +43,40 @@ async function dismissPremiumPaywall(): Promise<boolean> {
   return true
 }
 
-async function sendConnection(note?: string): Promise<{ success: boolean; error?: string }> {
+function getProfileName(): string {
+  const h1 = document.querySelector<HTMLElement>('h1')
+  return h1?.textContent?.trim() ?? ''
+}
+
+function namesMatch(pageName: string, expectedName: string): boolean {
+  if (!expectedName) return true // no expectation, allow
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '').trim()
+  const page = normalize(pageName)
+  const parts = normalize(expectedName).split(/\s+/).filter(Boolean)
+  return parts.every(part => page.includes(part))
+}
+
+async function sendConnection(note?: string, expectedName?: string): Promise<{ success: boolean; error?: string }> {
   await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000))
 
   if (!window.location.pathname.startsWith('/in/')) {
     return { success: false, error: 'Not a profile page' }
   }
 
-  // Check for already-pending request
-  if (findButtonByText('Pending') || findButtonByText('Withdraw')) {
+  const pageName = getProfileName()
+  if (!namesMatch(pageName, expectedName ?? '')) {
+    return { success: false, error: `wrong_profile: expected "${expectedName}", got "${pageName}"` }
+  }
+
+  const main = getMain()
+
+  // Check for already-pending request (scope to main profile section)
+  if (findButtonByText('Pending', main) || findButtonByText('Withdraw', main)) {
     return { success: false, error: 'already_pending' }
   }
 
   // Check for already-connected (primary action is "Message", no Connect)
-  if (findButtonByText('Message') && !findConnectButton()) {
+  if (findButtonByText('Message', main) && !findConnectButton()) {
     return { success: false, error: 'already_connected' }
   }
 
@@ -126,7 +152,7 @@ async function sendConnection(note?: string): Promise<{ success: boolean; error?
 
 if (typeof chrome !== 'undefined' && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'CONNECT') {
-    sendConnection(msg.note || '').then(result => sendResponse(result))
+    sendConnection(msg.note || '', msg.expectedName || '').then(result => sendResponse(result))
     return true
   }
 })

@@ -11,8 +11,27 @@ chrome.runtime.onStartup.addListener(() => {
 })
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === 'checkQueue') await processNextQueueItem()
+  if (alarm.name === 'checkQueue') {
+    await processNextQueueItem()
+    updateBadge()
+  }
 })
+
+// ── Badge (reads chrome.storage only — zero network cost) ─────────────────────
+
+async function updateBadge(): Promise<void> {
+  const data = await chrome.storage.local.get(['queuePending', 'campaignPaused'])
+  const pending: number = data.queuePending ?? 0
+  if (pending === 0) {
+    chrome.action.setBadgeText({ text: '' })
+  } else if (data.campaignPaused) {
+    chrome.action.setBadgeText({ text: '⏸' })
+    chrome.action.setBadgeBackgroundColor({ color: '#9ca3af' })
+  } else {
+    chrome.action.setBadgeText({ text: '●' })
+    chrome.action.setBadgeBackgroundColor({ color: '#22c55e' })
+  }
+}
 
 chrome.runtime.onMessageExternal.addListener(async (msg) => {
   if (msg.type === 'SET_AUTH' && msg.session) {
@@ -159,6 +178,58 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === 'GET_QUEUE_STATUS') {
+    chrome.storage.local.get(['queuePending', 'lastSentAt', 'lastSentName', 'nextScheduledAt', 'campaignPaused']).then(data => {
+      sendResponse(data)
+    })
+    return true
+  }
+
+  if (msg.type === 'PAUSE_CAMPAIGN') {
+    chrome.storage.local.set({ campaignPaused: true }).then(() => updateBadge())
+    sendResponse({ ok: true })
+    return true
+  }
+
+  if (msg.type === 'RESUME_CAMPAIGN') {
+    chrome.storage.local.set({ campaignPaused: false }).then(() => updateBadge())
+    sendResponse({ ok: true })
+    return true
+  }
+
+  if (msg.type === 'GET_CAMPAIGN_PAUSED') {
+    chrome.storage.local.get('campaignPaused').then(({ campaignPaused }) => {
+      sendResponse({ paused: !!campaignPaused })
+    })
+    return true
+  }
+
+  if (msg.type === 'PAUSE_EVENT') {
+    chrome.storage.local.get('pausedEvents').then(({ pausedEvents }) => {
+      const arr: string[] = pausedEvents ?? []
+      if (!arr.includes(msg.eventId)) arr.push(msg.eventId)
+      chrome.storage.local.set({ pausedEvents: arr }).then(() => updateBadge())
+      sendResponse({ ok: true })
+    })
+    return true
+  }
+
+  if (msg.type === 'RESUME_EVENT') {
+    chrome.storage.local.get('pausedEvents').then(({ pausedEvents }) => {
+      const arr: string[] = (pausedEvents ?? []).filter((id: string) => id !== msg.eventId)
+      chrome.storage.local.set({ pausedEvents: arr }).then(() => updateBadge())
+      sendResponse({ ok: true })
+    })
+    return true
+  }
+
+  if (msg.type === 'GET_PAUSED_EVENTS') {
+    chrome.storage.local.get('pausedEvents').then(({ pausedEvents }) => {
+      sendResponse({ pausedEvents: pausedEvents ?? [] })
+    })
+    return true
+  }
+
   if (msg.type === 'GET_CONTACT_STATUSES') {
     getSession().then(async (session) => {
       if (!session) { sendResponse({ statuses: [] }); return }
@@ -230,7 +301,7 @@ async function saveContacts(data: {
 
   const toQueue = saved
     .filter((c: any) => c.linkedin_url)
-    .map((c: any) => ({ user_id: session.user.id, contact_id: c.id, status: 'pending' }))
+    .map((c: any) => ({ user_id: session.user.id, contact_id: c.id, status: 'pending', scheduled_at: new Date().toISOString() }))
 
   if (toQueue.length > 0) {
     await supabase.from('connection_queue').upsert(toQueue, { onConflict: 'contact_id' })
@@ -340,14 +411,32 @@ async function launchCampaign(data: {
 
   if (!contacts?.length) return { queued: 0, eventId }
 
-  const queueItems = contacts.map((c: any) => ({
-    user_id: session.user.id,
-    contact_id: c.id,
-    status: 'pending',
-    note: data.note || '',
-  }))
+  // Don't re-queue contacts already sent or accepted
+  const { data: existing } = await supabase
+    .from('connection_queue')
+    .select('contact_id, status')
+    .in('contact_id', contacts.map((c: any) => c.id))
 
-  await supabase.from('connection_queue').upsert(queueItems, { onConflict: 'contact_id' })
+  const alreadyDone = new Set(
+    (existing ?? [])
+      .filter((q: any) => q.status === 'sent' || q.status === 'accepted')
+      .map((q: any) => q.contact_id)
+  )
+
+  const now = new Date().toISOString()
+  const queueItems = contacts
+    .filter((c: any) => !alreadyDone.has(c.id))
+    .map((c: any) => ({
+      user_id: session.user.id,
+      contact_id: c.id,
+      status: 'pending',
+      note: data.note || '',
+      scheduled_at: now,
+    }))
+
+  if (queueItems.length > 0) {
+    await supabase.from('connection_queue').upsert(queueItems, { onConflict: 'contact_id' })
+  }
 
   // Mark event as running
   await supabase
@@ -355,10 +444,22 @@ async function launchCampaign(data: {
     .update({ campaign_status: 'running' })
     .eq('id', eventId)
 
+  // Store pending count so badge + popup can read without extra queries
+  const totalPending = queueItems.length
+  await chrome.storage.local.set({ queuePending: totalPending, nextScheduledAt: now })
+  updateBadge()
+
   return { queued: contacts.length, eventId }
 }
 
 async function processNextQueueItem(): Promise<void> {
+  // Only send during daytime hours (8am–9pm local) to look natural
+  const hour = new Date().getHours()
+  if (hour < 8 || hour >= 21) return
+
+  const { campaignPaused } = await chrome.storage.local.get('campaignPaused')
+  if (campaignPaused) return
+
   const session = await getSession()
   if (!session) { console.log('[IHN] processNextQueueItem: no session'); return }
 
@@ -370,7 +471,7 @@ async function processNextQueueItem(): Promise<void> {
 
   const { data: item } = await supabase
     .from('connection_queue')
-    .select('*, contacts(linkedin_url, name)')
+    .select('*, contacts(linkedin_url, name, event_id)')
     .eq('user_id', session.user.id)
     .eq('status', 'pending')
     .lte('scheduled_at', new Date().toISOString())
@@ -379,6 +480,17 @@ async function processNextQueueItem(): Promise<void> {
     .single()
 
   if (!item) { console.log('[IHN] No pending items'); return }
+
+  // Skip if this event is paused
+  const eventId = (item.contacts as any)?.event_id
+  if (eventId) {
+    const { pausedEvents } = await chrome.storage.local.get('pausedEvents')
+    if ((pausedEvents ?? []).includes(eventId)) {
+      console.log('[IHN] Event paused, skipping')
+      return
+    }
+  }
+
   console.log('[IHN] Processing queue item for:', (item.contacts as any)?.name)
   const linkedinUrl = (item.contacts as any)?.linkedin_url
   if (!linkedinUrl) {
@@ -386,26 +498,28 @@ async function processNextQueueItem(): Promise<void> {
     return
   }
 
-  const win = await chrome.windows.create({
-    url: linkedinUrl, type: 'popup',
-    left: -2000, top: -2000, width: 100, height: 100, focused: false,
-  })
-  const tabId = win.tabs![0].id!
+  // Open as background tab — no visible popup window
+  const fullUrl = linkedinUrl.replace('https://linkedin.com/', 'https://www.linkedin.com/')
+  const tab = await chrome.tabs.create({ url: fullUrl, active: false })
+  const tabId = tab.id!
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(resolve, 15000) // hard fallback
     chrome.tabs.onUpdated.addListener(function listener(tid, info) {
       if (tid === tabId && info.status === 'complete') {
         chrome.tabs.onUpdated.removeListener(listener)
         clearTimeout(timeout)
-        setTimeout(resolve, 1500) // small buffer after load
+        setTimeout(resolve, 2500) // buffer for LinkedIn JS to render
       }
     })
   })
 
   const result: { success: boolean; error?: string } = await new Promise(resolve => {
+    const timeout = setTimeout(() => resolve({ success: false, error: 'no_response' }), 20000)
     const firstName = (item.contacts as any)?.name?.split(' ')[0] || ''
     const resolvedNote = (item.note || '').replace(/\[first name\]/gi, firstName)
-    chrome.tabs.sendMessage(tabId, { type: 'CONNECT', note: resolvedNote }, response => {
+    const expectedName = (item.contacts as any)?.name || ''
+    chrome.tabs.sendMessage(tabId, { type: 'CONNECT', note: resolvedNote, expectedName }, response => {
+      clearTimeout(timeout)
       resolve(response ?? { success: false, error: 'no_response' })
     })
   })
@@ -413,9 +527,10 @@ async function processNextQueueItem(): Promise<void> {
   console.log('[IHN] Result:', result)
 
   if (result.success) {
+    const sentAt = new Date().toISOString()
     await supabase.from('connection_queue').update({
       status: 'sent',
-      sent_at: new Date().toISOString(),
+      sent_at: sentAt,
     }).eq('id', item.id)
 
     await supabase.from('usage_logs').insert({
@@ -423,14 +538,24 @@ async function processNextQueueItem(): Promise<void> {
       action: 'connection_sent',
     })
 
-    // Schedule next item with 8–15 min random delay (only on success)
-    const delayMinutes = 8 + Math.random() * 7
+    // Schedule next item with 15–30 min random delay (only on success)
+    const delayMinutes = 15 + Math.random() * 15
+    const nextScheduledAt = new Date(Date.now() + delayMinutes * 60000).toISOString()
     await supabase.from('connection_queue')
-      .update({ scheduled_at: new Date(Date.now() + delayMinutes * 60000).toISOString() })
+      .update({ scheduled_at: nextScheduledAt })
       .eq('user_id', session.user.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(1)
+
+    // Update storage so badge + popup reflect new state
+    const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
+    await chrome.storage.local.set({
+      queuePending: Math.max(0, (storedPending ?? 1) - 1),
+      lastSentAt: sentAt,
+      lastSentName: (item.contacts as any)?.name ?? '',
+      nextScheduledAt,
+    })
   } else if (result.error === 'no_response') {
     // Content script not ready — requeue with 5min delay
     await supabase.from('connection_queue').update({
@@ -442,7 +567,9 @@ async function processNextQueueItem(): Promise<void> {
       error: result.error ?? 'unknown',
     }).eq('id', item.id)
     // No delay — next item processes on next alarm tick (~30s)
+    const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
+    await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) })
   }
 
-  await chrome.windows.remove(win.id!)
+  await chrome.tabs.remove(tabId)
 }

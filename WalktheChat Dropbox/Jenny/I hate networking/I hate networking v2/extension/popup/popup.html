@@ -2,49 +2,125 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, sans-serif; width: 360px; background: #fff; }
-    .nav {
-      font-size: 13px; font-weight: 700; color: #111;
-      padding: 12px 16px; border-bottom: 1px solid #f0f0f0;
-      background: #fff; position: sticky; top: 0;
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      width: 320px;
+      background: #fff;
+      color: #111;
     }
-    .content { padding: 12px 16px; max-height: 480px; overflow-y: auto; }
+
+    /* ── Header ── */
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; }
+    .brand-logo { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
+    .brand-text { display: flex; flex-direction: column; line-height: 1.2; }
+    .brand-name { font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 700; color: #1a2340; }
+    .brand-sub  { font-family: 'Montserrat', sans-serif; font-size: 10px; font-weight: 300; color: #9ca3af; }
+
+    /* ── Status pill ── */
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 10px 3px 8px;
+      border-radius: 99px;
+      font-size: 11px; font-weight: 600;
+    }
+    .status-pill .dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    }
+    .status-running { background: #f0fdf4; color: #16a34a; }
+    .status-running .dot { background: #22c55e; animation: pulse 1.8s infinite; }
+    .status-paused { background: #fafafa; color: #888; }
+    .status-paused .dot { background: #d1d5db; }
+    .status-idle { background: #fafafa; color: #888; }
+    .status-idle .dot { background: #d1d5db; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    /* ── Body sections ── */
+    .section { padding: 14px 16px; border-bottom: 1px solid #f0f0f0; }
+    .section:last-child { border-bottom: none; }
+
+    /* ── Instruction line ── */
+    .instruction {
+      font-size: 12px; color: #6b7280; line-height: 1.5;
+      margin-top: 2px;
+    }
+    .instruction strong { color: #374151; font-weight: 600; }
+
+    /* ── Stats row ── */
+    .stats { display: flex; gap: 0; margin-top: 0; }
+    .stat {
+      flex: 1; text-align: center;
+      padding: 10px 0;
+    }
+    .stat + .stat { border-left: 1px solid #f0f0f0; }
+    .stat-num {
+      font-size: 22px; font-weight: 700; line-height: 1;
+      color: #111;
+    }
+    .stat-num.green { color: #16a34a; }
+    .stat-num.red { color: #ef4444; }
+    .stat-label {
+      font-size: 10px; font-weight: 500; color: #9ca3af;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-top: 3px;
+    }
+
+    /* ── Buttons ── */
     button {
-      width: 100%; padding: 10px 14px; border: none; border-radius: 8px;
-      font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 12px;
+      width: 100%; padding: 9px 14px; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
       transition: opacity 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
     }
-    button:hover { opacity: 0.85; }
+    button:hover { opacity: 0.82; }
+    button + button { margin-top: 8px; }
     .btn-primary { background: #4f46e5; color: #fff; }
-    .btn-secondary { background: #f3f4f6; color: #111; }
-    .not-luma { font-size: 12px; color: #888; text-align: center; padding: 12px 0; }
-    .login-prompt { font-size: 12px; color: #888; text-align: center; padding: 12px 0; }
-    .login-prompt a { color: #4f46e5; text-decoration: none; }
-    .empty { font-size: 12px; color: #aaa; text-align: center; padding: 16px 0; }
-    .event-group { margin-bottom: 14px; }
-    .event-name {
-      font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase;
-      letter-spacing: 0.04em; margin-bottom: 6px;
+    .btn-pause { background: #fef9c3; color: #92400e; }
+    .btn-resume { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+    .btn-secondary { background: #f3f4f6; color: #374151; }
+
+    /* ── Recent activity ── */
+    .recent-title {
+      font-size: 10px; font-weight: 600; color: #9ca3af;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 8px;
     }
-    .contact-row {
+    .recent-row {
       display: flex; align-items: center; gap: 8px;
-      padding: 5px 0; border-bottom: 1px solid #f5f5f5;
+      padding: 4px 0;
+      font-size: 12px; color: #374151;
     }
-    .contact-row:last-child { border-bottom: none; }
-    .contact-info { flex: 1; min-width: 0; }
-    .contact-name { font-size: 13px; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .contact-headline { font-size: 11px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .dot { font-size: 10px; flex-shrink: 0; width: 14px; text-align: center; }
-    .dot-pending { color: #ccc; }
-    .dot-sent, .dot-accepted { color: #22c55e; }
-    .dot-failed { color: #ef4444; }
+    .recent-check { color: #22c55e; font-size: 11px; flex-shrink: 0; }
+    .recent-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── Empty / idle states ── */
+    .idle-wrap { padding: 20px 16px; text-align: center; }
+    .idle-emoji { font-size: 28px; margin-bottom: 10px; }
+    .idle-title { font-size: 14px; font-weight: 700; color: #111; margin-bottom: 6px; }
+    .idle-sub { font-size: 12px; color: #9ca3af; line-height: 1.5; margin-bottom: 16px; }
+
+    /* ── Rate note ── */
+    .rate-note {
+      font-size: 11px; color: #d1d5db; text-align: center;
+      padding: 8px 16px 10px;
+    }
   </style>
 </head>
 <body>
-  <div class="nav">I Hate Networking</div>
-  <div class="content" id="content"></div>
+  <div id="root"></div>
   <script src="../dist/popup.js"></script>
 </body>
 </html>

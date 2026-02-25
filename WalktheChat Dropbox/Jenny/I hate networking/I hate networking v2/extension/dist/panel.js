@@ -1,5 +1,72 @@
 "use strict";
 (() => {
+  // lib/icons.ts
+  var s = (content, w = 16, h = 16, vb = "0 0 16 16") => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}" fill="currentColor" width="${w}" height="${h}" style="display:inline-block;vertical-align:middle;flex-shrink:0">${content}</svg>`;
+  var icons = {
+    // Close / X
+    xMark: s(
+      `<path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/>`,
+      20,
+      20,
+      "0 0 20 20"
+    ),
+    // Checkmark (small, inline)
+    check: s(
+      `<path fill-rule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clip-rule="evenodd"/>`
+    ),
+    // Check circle (large — for launched screen)
+    checkCircle: s(
+      `<path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm13.36-1.814a.75.75 0 1 0-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.14-.094l3.75-5.25Z" clip-rule="evenodd"/>`,
+      36,
+      36,
+      "0 0 24 24"
+    ),
+    // Download / arrow-down-tray
+    download: s(
+      `<path d="M8.75 2.75a.75.75 0 0 0-1.5 0v5.69L5.03 6.22a.75.75 0 0 0-1.06 1.06l3.5 3.5a.75.75 0 0 0 1.06 0l3.5-3.5a.75.75 0 0 0-1.06-1.06L8.75 8.44V2.75Z"/><path d="M3.5 9.75a.75.75 0 0 0-1.5 0v1.5A2.75 2.75 0 0 0 4.75 14h6.5A2.75 2.75 0 0 0 14 11.25v-1.5a.75.75 0 0 0-1.5 0v1.5c0 .69-.56 1.25-1.25 1.25h-6.5c-.69 0-1.25-.56-1.25-1.25v-1.5Z"/>`
+    ),
+    // Warning / exclamation-triangle
+    warning: s(
+      `<path fill-rule="evenodd" d="M6.701 2.25c.577-1 2.02-1 2.598 0l5.196 9a1.5 1.5 0 0 1-1.299 2.25H2.804a1.5 1.5 0 0 1-1.3-2.25l5.197-9ZM8 4a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-1.5 0v-3A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/>`
+    ),
+    // External link / arrow-top-right-on-square
+    externalLink: s(
+      `<path d="M6.22 8.72a.75.75 0 0 0 1.06 1.06l5.22-5.22v1.69a.75.75 0 0 0 1.5 0v-3.5a.75.75 0 0 0-.75-.75h-3.5a.75.75 0 0 0 0 1.5h1.69L6.22 8.72Z"/><path d="M3.5 6.75c0-.69.56-1.25 1.25-1.25H7A.75.75 0 0 0 7 4H4.75A2.75 2.75 0 0 0 2 6.75v4.5A2.75 2.75 0 0 0 4.75 14h4.5A2.75 2.75 0 0 0 12 11.25V9a.75.75 0 0 0-1.5 0v2.25c0 .69-.56 1.25-1.25 1.25h-4.5c-.69 0-1.25-.56-1.25-1.25v-4.5Z"/>`
+    ),
+    // Arrow right
+    arrowRight: s(
+      `<path fill-rule="evenodd" d="M2 8a.75.75 0 0 1 .75-.75h8.69L8.22 4.03a.75.75 0 0 1 1.06-1.06l4.5 4.5a.75.75 0 0 1 0 1.06l-4.5 4.5a.75.75 0 0 1-1.06-1.06l3.22-3.22H2.75A.75.75 0 0 1 2 8Z" clip-rule="evenodd"/>`
+    ),
+    // Arrow left
+    arrowLeft: s(
+      `<path fill-rule="evenodd" d="M14 8a.75.75 0 0 1-.75.75H4.56l3.22 3.22a.75.75 0 1 1-1.06 1.06l-4.5-4.5a.75.75 0 0 1 0-1.06l4.5-4.5a.75.75 0 0 1 1.06 1.06L4.56 7.25h8.69A.75.75 0 0 1 14 8Z" clip-rule="evenodd"/>`
+    ),
+    // Chevron down (expand)
+    chevronDown: s(
+      `<path fill-rule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/>`,
+      12,
+      12
+    ),
+    // Chevron right (collapsed)
+    chevronRight: s(
+      `<path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06L7.28 11.78a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/>`,
+      12,
+      12
+    ),
+    // Pause
+    pause: s(
+      `<path d="M4.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-2Zm5 0a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-2Z"/>`,
+      14,
+      14
+    ),
+    // Play
+    play: s(
+      `<path d="M3 3.732a1.5 1.5 0 0 1 2.305-1.265l6.706 4.267a1.5 1.5 0 0 1 0 2.531l-6.706 4.268A1.5 1.5 0 0 1 3 12.267V3.732Z"/>`,
+      14,
+      14
+    )
+  };
+
   // content/panel.ts
   function parseGuestLinksFromDoc(doc) {
     const selectors = ["a[href*='/u/']", "a[href*='/user/']"];
@@ -55,8 +122,8 @@
     if (newLinks.length === 0) return null;
     let el = newLinks[0].parentElement;
     while (el && el !== document.documentElement) {
-      const s = getComputedStyle(el);
-      if ((s.overflow === "auto" || s.overflow === "scroll" || s.overflowY === "auto" || s.overflowY === "scroll") && el.scrollHeight > el.clientHeight + 10) {
+      const s2 = getComputedStyle(el);
+      if ((s2.overflow === "auto" || s2.overflow === "scroll" || s2.overflowY === "auto" || s2.overflowY === "scroll") && el.scrollHeight > el.clientHeight + 10) {
         return el;
       }
       el = el.parentElement;
@@ -112,9 +179,22 @@
   var contactStatuses = /* @__PURE__ */ new Map();
   var authMode = "signup";
   var progressData = null;
+  var pausedEvents = [];
+  var progressRefreshTimer = null;
   var expandedEvents = /* @__PURE__ */ new Set();
   var exportPickerOpen = false;
-  var DEFAULT_NOTE = "Hi [first name], I was also at the event. I'd love to stay connected!";
+  function shortEventLabel(name) {
+    let s2 = name.replace(/\(.*?\)/g, "").replace(/[:\-–—].*$/, "").replace(/[^\w\s]/gu, " ").replace(/\s+/g, " ").trim();
+    const withMatch = s2.match(/\bwith\s+(\S+(?:\s+\S+)?)/i);
+    if (withMatch) return withMatch[1].trim();
+    const filler = /* @__PURE__ */ new Set(["making", "money", "night", "day", "the", "a", "an", "and", "or", "for", "of", "in", "at", "to", "from", "ship", "it", "tonight", "session", "event", "meetup", "workshop", "vibe", "coding", "open", "mat", "finder"]);
+    const words = s2.split(/\s+/).filter((w) => w.length > 1 && !filler.has(w.toLowerCase()));
+    return words.slice(0, 2).join(" ");
+  }
+  function defaultNote(eventName) {
+    const label = shortEventLabel(eventName);
+    return label ? `I saw you at the ${label} event, I'd like to stay in touch!` : "I saw you at the event, I'd like to stay in touch!";
+  }
   var MAX_NOTE = 300;
   async function checkLinkedInLogin() {
     return new Promise((resolve) => {
@@ -123,8 +203,8 @@
       });
     });
   }
-  function escHtml(s) {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  function escHtml(s2) {
+    return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
   function etaString(done, total, startTime) {
     if (done === 0) return "";
@@ -157,10 +237,6 @@
   }
   function renderPanel() {
     if (!panelEl) return;
-    const scanStates = ["idle", "scanning", "results", "launched", "contacts"];
-    const isScan = scanStates.includes(state.type);
-    panelEl.querySelector("#ihn-nav-scan")?.classList.toggle("ihn-nav-active", isScan);
-    panelEl.querySelector("#ihn-nav-progress")?.classList.toggle("ihn-nav-active", !isScan);
     const body = panelEl.querySelector("#ihn-panel-body");
     const titleEl = panelEl.querySelector("#ihn-panel-title");
     const subtitleEl = panelEl.querySelector("#ihn-panel-subtitle");
@@ -206,10 +282,10 @@
       }).join("");
       body.innerHTML = `
       <div class="ihn-results-header">
-        <div class="ihn-found-count">&#10003; Found LinkedIn for ${state.found}/${state.total}</div>
-        <button id="ihn-export-csv" title="Export CSV" class="ihn-export-btn">&#8681; CSV</button>
+        <div class="ihn-found-count">${icons.check} Found LinkedIn for ${state.found}/${state.total}</div>
+        <button id="ihn-export-csv" title="Export CSV" class="ihn-export-btn">${icons.download} CSV</button>
       </div>
-      <div class="ihn-found-label">Connections will be sent over ~${Math.ceil(state.found / 40)} day(s) at 40/day.</div>
+      <div class="ihn-found-label">${state.found} people to connect with.</div>
 
       ${allContacts.length > 0 ? `<div class="ihn-leads-list">${leadsHtml}</div>` : ""}
 
@@ -233,11 +309,11 @@
       </div>
       ` : `
       <div class="ihn-linkedin-status ${state.linkedInReady ? "ihn-ok" : "ihn-warn"}">
-        ${state.linkedInReady ? "&#10003; LinkedIn ready" : '&#9888;&#65039; Not logged into LinkedIn \xA0<a class="ihn-open-linkedin" href="https://www.linkedin.com/login" target="_blank">Open LinkedIn &#8599;</a>'}
+        ${state.linkedInReady ? `${icons.check} LinkedIn ready` : `${icons.warning} Not logged into LinkedIn \xA0<a class="ihn-open-linkedin" href="https://www.linkedin.com/login" target="_blank">Open LinkedIn ${icons.externalLink}</a>`}
       </div>
 
       <button id="ihn-connect-btn" ${state.linkedInReady ? "" : "disabled"}>
-        Connect on LinkedIn &rarr;
+        Connect on LinkedIn ${icons.arrowRight}
       </button>
       `}
     `;
@@ -290,24 +366,39 @@
       titleEl.textContent = shortEventName(document.querySelector("h1")?.textContent?.trim() ?? document.title);
       subtitleEl.textContent = "";
       body.innerHTML = `
-      <div class="ihn-launched-icon">&#10003;</div>
+      <div class="ihn-launched-icon">${icons.checkCircle}</div>
       <div class="ihn-launched-title">Running in background</div>
       <div class="ihn-launched-sub">
-        ${state.queued} connections queued${state.queued > 0 ? ` &middot; ~${Math.ceil(state.queued / 40)} day(s) at 40/day` : ""}
+        ${state.queued} connections queued
       </div>
       <div class="ihn-launched-note">Chrome connects people automatically. You don't need to stay on this page.</div>
       <button id="ihn-view-contacts" class="ihn-cta-btn ihn-cta-btn-primary" style="margin-top:12px">
-        View contacts &rarr;
+        View contacts ${icons.arrowRight}
       </button>
       <button id="ihn-scan-another" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Scan another event</button>
     `;
       panelEl?.querySelector("#ihn-view-contacts")?.addEventListener("click", () => {
         state = { type: "progress" };
         renderPanel();
+        chrome.runtime.sendMessage({ type: "GET_PAUSED_EVENTS" }, (resp) => {
+          pausedEvents = resp?.pausedEvents ?? [];
+        });
         chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
           progressData = resp;
           if (state.type === "progress") renderPanel();
         });
+        if (progressRefreshTimer) clearInterval(progressRefreshTimer);
+        progressRefreshTimer = setInterval(() => {
+          if (state.type !== "progress") {
+            clearInterval(progressRefreshTimer);
+            progressRefreshTimer = null;
+            return;
+          }
+          chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
+            progressData = resp;
+            if (state.type === "progress") renderPanel();
+          });
+        }, 3e4);
       });
       panelEl?.querySelector("#ihn-scan-another")?.addEventListener("click", () => {
         state = { type: "idle" };
@@ -362,14 +453,23 @@
         });
         return;
       }
-      const totalSent = data ? data.chartData[data.chartData.length - 1]?.cumulative ?? 0 : 0;
+      let totalSent = 0;
+      let totalPending = 0;
+      for (const event of data?.events ?? []) {
+        for (const c of event.contacts ?? []) {
+          const s2 = c.connection_queue?.[0]?.status;
+          if (["sent", "accepted"].includes(s2)) totalSent++;
+          else if (s2 === "pending") totalPending++;
+        }
+      }
+      const topLabel = totalSent > 0 ? `${totalSent} sent total` : totalPending > 0 ? `${totalPending} queued \xB7 sending soon` : "0 sent";
       body.innerHTML = `
       <div class="ihn-chart-wrap">
         ${data ? renderChart(data.chartData) : '<p class="ihn-chart-empty">Loading\u2026</p>'}
       </div>
       <div class="ihn-results-header">
-        <p class="ihn-total-sent">${totalSent} sent total</p>
-        <button id="ihn-progress-export-csv" title="Export CSV" class="ihn-export-btn">&#8681; CSV</button>
+        <p class="ihn-total-sent">${topLabel}</p>
+        <button id="ihn-progress-export-csv" title="Export CSV" class="ihn-export-btn">${icons.download} CSV</button>
       </div>
       <div class="ihn-events-list">
         ${(data?.events ?? []).map((event) => {
@@ -377,30 +477,41 @@
         const sentCount = contacts.filter(
           (c) => ["sent", "accepted"].includes(c.connection_queue?.[0]?.status)
         ).length;
+        const pendingCount = contacts.filter(
+          (c) => c.connection_queue?.[0]?.status === "pending"
+        ).length;
+        const isEventPaused = pausedEvents.includes(event.id);
         const expanded = expandedEvents.has(event.id);
+        const eventBadge = sentCount > 0 ? `<span class="ihn-event-badge">${sentCount} sent</span>` : pendingCount > 0 ? `<span class="ihn-event-badge ihn-event-badge-queued">${pendingCount} queued</span>` : "";
         return `<div class="ihn-event-row" data-event-id="${escHtml(event.id)}">
             <div class="ihn-event-header">
-              <span class="ihn-event-chevron">${expanded ? "\u25BC" : "\u25B6"}</span>
+              <span class="ihn-event-chevron">${expanded ? icons.chevronDown : icons.chevronRight}</span>
               <span class="ihn-event-name">${escHtml(event.name ?? "Untitled event")}</span>
-              <span class="ihn-event-badge">${sentCount} sent</span>
+              ${eventBadge}
+              ${pendingCount > 0 ? `<button class="ihn-event-pause-btn" data-event-id="${escHtml(event.id)}" data-paused="${isEventPaused}">${isEventPaused ? icons.play + " Resume" : icons.pause + " Pause"}</button>` : ""}
             </div>
             ${expanded ? `<div class="ihn-event-contacts">${contacts.map((c) => {
           const status = c.connection_queue?.[0]?.status ?? "pending";
           const error = c.connection_queue?.[0]?.error ?? "";
+          const showStatus = status !== "pending";
           const errorLabel = {
-            already_pending: "You already sent them a request on LinkedIn",
-            already_connected: "You're already connected",
-            third_degree: "3rd degree \u2014 LinkedIn doesn't allow direct connections",
-            connect_not_available: "Connect option not available on their profile",
-            send_btn_not_found: "LinkedIn UI changed \u2014 try again later",
+            already_pending: "Already sent on LinkedIn",
+            already_connected: "Already connected",
+            third_degree: "3rd degree \u2014 can't connect directly",
+            connect_not_available: "Connect not available on their profile",
+            send_btn_not_found: "LinkedIn UI changed \u2014 will retry",
             no_linkedin_url: "No LinkedIn profile found",
-            note_quota_reached: "Free note quota reached \u2014 sent without note next retry"
-          }[error] ?? (error ? `LinkedIn error: ${error}` : "");
+            note_quota_reached: "Free note quota reached"
+          }[error] ?? (error ? error : "");
+          const linkedInUrl = c.linkedin_url ?? "";
+          const instagramUrl = c.instagram_url ?? "";
           return `<div class="ihn-contact-row">
                 <span class="ihn-contact-name">${escHtml(c.name ?? "\u2014")}</span>
-                <div class="ihn-contact-status">
-                  <span class="ihn-status-badge ihn-status-${escHtml(status)}">${escHtml(status)}</span>
-                  ${errorLabel ? `<span class="ihn-error-tip" title="${escHtml(errorLabel)}">?</span>` : ""}
+                <div class="ihn-contact-right">
+                  ${linkedInUrl ? `<a href="${escHtml(linkedInUrl)}" target="_blank" class="ihn-badge ihn-badge-li" onclick="event.stopPropagation()">in</a>` : ""}
+                  ${instagramUrl ? `<a href="${escHtml(instagramUrl)}" target="_blank" class="ihn-badge ihn-badge-ig" onclick="event.stopPropagation()">ig</a>` : ""}
+                  ${showStatus ? `<span class="ihn-status-badge ihn-status-${escHtml(status)}">${escHtml(status)}</span>` : ""}
+                  ${showStatus && errorLabel ? `<span class="ihn-error-tip" title="${escHtml(errorLabel)}">?</span>` : ""}
                 </div>
               </div>`;
         }).join("")}</div>` : ""}
@@ -409,6 +520,17 @@
         ${!data || data.events.length === 0 ? '<p class="ihn-empty">No events yet.</p>' : ""}
       </div>
     `;
+      panelEl.querySelectorAll(".ihn-event-pause-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const evId = btn.dataset.eventId;
+          const isPaused = btn.dataset.paused === "true";
+          chrome.runtime.sendMessage({ type: isPaused ? "RESUME_EVENT" : "PAUSE_EVENT", eventId: evId }, () => {
+            pausedEvents = isPaused ? pausedEvents.filter((id) => id !== evId) : [...pausedEvents, evId];
+            renderPanel();
+          });
+        });
+      });
       panelEl.querySelectorAll(".ihn-event-header").forEach((header) => {
         header.addEventListener("click", () => {
           const row = header.closest("[data-event-id]");
@@ -451,12 +573,40 @@
       }).join("");
       body.innerHTML = `
       <div class="ihn-leads-list" style="max-height:none">${leadsHtml || '<div style="padding:16px;color:#888">No contacts found.</div>'}</div>
-      <button id="ihn-back-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">&#8592; Back</button>
+      <button id="ihn-back-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">${icons.arrowLeft} Back</button>
     `;
       panelEl?.querySelector("#ihn-back-btn")?.addEventListener("click", () => {
         if (state.type !== "contacts") return;
         state = { type: "launched", queued: state.queued, eventId: state.eventId };
         renderPanel();
+      });
+    } else if (state.type === "already_scanned") {
+      titleEl.textContent = eventShort || "Event";
+      subtitleEl.textContent = "";
+      body.innerHTML = `
+      <div class="ihn-already-scanned">
+        <div class="ihn-already-count">${icons.check} ${state.count} contacts saved &middot; ${state.linkedInCount} have LinkedIn</div>
+        ${state.noNew ? '<div class="ihn-already-nonew">No new attendees found</div>' : ""}
+        <button id="ihn-view-results-btn" class="ihn-cta-btn ihn-cta-btn-primary">View results ${icons.arrowRight}</button>
+        <button id="ihn-scan-new-btn" class="ihn-cta-btn ihn-cta-btn-secondary">Scan for new attendees</button>
+      </div>
+    `;
+      panelEl.querySelector("#ihn-view-results-btn")?.addEventListener("click", async () => {
+        if (state.type !== "already_scanned") return;
+        const linkedInReady = await checkLinkedInLogin();
+        state = {
+          type: "results",
+          found: state.linkedInCount,
+          total: state.count,
+          eventId: state.eventId,
+          linkedInReady,
+          eventName: state.eventName,
+          eventLocation: state.eventLocation
+        };
+        renderPanel();
+      });
+      panelEl.querySelector("#ihn-scan-new-btn")?.addEventListener("click", () => {
+        handleImportClick(true);
       });
     }
   }
@@ -546,12 +696,32 @@
           return;
         }
         if (state.type !== "results") return;
-        state = { type: "launched", queued: result.queued, eventId: result.eventId || state.eventId };
+        state = { type: "progress" };
+        progressData = null;
         renderPanel();
+        chrome.runtime.sendMessage({ type: "GET_PAUSED_EVENTS" }, (resp) => {
+          pausedEvents = resp?.pausedEvents ?? [];
+        });
+        chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
+          progressData = resp;
+          if (state.type === "progress") renderPanel();
+        });
+        if (progressRefreshTimer) clearInterval(progressRefreshTimer);
+        progressRefreshTimer = setInterval(() => {
+          if (state.type !== "progress") {
+            clearInterval(progressRefreshTimer);
+            progressRefreshTimer = null;
+            return;
+          }
+          chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
+            progressData = resp;
+            if (state.type === "progress") renderPanel();
+          });
+        }, 3e4);
       }
     );
   }
-  async function handleImportClick() {
+  async function handleImportClick(rescan = false) {
     authMode = "signup";
     openPanel();
     state = { type: "scanning", current: "Gathering attendees\u2026", done: 0, total: 0, startTime: Date.now() };
@@ -567,31 +737,28 @@
     const existingSet = new Set(existingUrls);
     const toEnrich = existingUrls.length > 0 ? allUrls.filter((u) => !existingSet.has(u.url)) : allUrls;
     if (toEnrich.length === 0) {
-      enrichedContacts = existingContacts.map((c) => ({
-        url: c.luma_profile_url ?? "",
-        isHost: c.is_host ?? false,
-        name: c.name ?? "",
-        linkedInUrl: c.linkedin_url ?? "",
-        instagramUrl: c.instagram_url ?? "",
-        twitterUrl: ""
-      }));
-      noteValue = DEFAULT_NOTE;
-      state = {
-        type: "results",
-        found: linkedInCount,
-        total: existingUrls.length,
-        eventId: cachedEventId,
-        linkedInReady: false,
-        eventName,
-        eventLocation
-      };
+      state = { type: "progress" };
+      progressData = null;
       renderPanel();
-      checkLinkedInLogin().then((ready) => {
-        if (state.type === "results" && ready) {
-          state = { ...state, linkedInReady: true };
-          renderPanel();
-        }
+      chrome.runtime.sendMessage({ type: "GET_PAUSED_EVENTS" }, (resp) => {
+        pausedEvents = resp?.pausedEvents ?? [];
       });
+      chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
+        progressData = resp;
+        if (state.type === "progress") renderPanel();
+      });
+      if (progressRefreshTimer) clearInterval(progressRefreshTimer);
+      progressRefreshTimer = setInterval(() => {
+        if (state.type !== "progress") {
+          clearInterval(progressRefreshTimer);
+          progressRefreshTimer = null;
+          return;
+        }
+        chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
+          progressData = resp;
+          if (state.type === "progress") renderPanel();
+        });
+      }, 3e4);
       return;
     }
     const total = toEnrich.length;
@@ -626,7 +793,7 @@
       (result) => {
         if (chrome.runtime.lastError) console.warn("[IHN] START_ENRICHMENT:", chrome.runtime.lastError.message);
         checkLinkedInLogin().then((linkedInReady) => {
-          noteValue = DEFAULT_NOTE;
+          noteValue = defaultNote(eventName);
           state = {
             type: "results",
             found: enriched.filter((c) => c.linkedInUrl).length + linkedInCount,
@@ -650,32 +817,12 @@
         <div id="ihn-panel-title">Importing contacts\u2026</div>
         <div id="ihn-panel-subtitle"></div>
       </div>
-      <button id="ihn-close-btn" aria-label="Close">&times;</button>
-    </div>
-    <div id="ihn-nav">
-      <button class="ihn-nav-btn" id="ihn-nav-scan">Scan</button>
-      <button class="ihn-nav-btn" id="ihn-nav-progress">Progress</button>
+      <button id="ihn-close-btn" aria-label="Close">${icons.xMark}</button>
     </div>
     <div id="ihn-panel-body"></div>
   `;
     document.body.appendChild(panelEl);
     panelEl.querySelector("#ihn-close-btn").addEventListener("click", closePanel);
-    panelEl.querySelector("#ihn-nav-scan")?.addEventListener("click", () => {
-      if (state.type === "progress") {
-        state = enrichedContacts.length > 0 ? { type: "results", found: enrichedContacts.filter((c) => c.linkedInUrl).length, total: enrichedContacts.length, eventId: "", linkedInReady: false, eventName: "", eventLocation: "" } : { type: "idle" };
-        renderPanel();
-      }
-    });
-    panelEl.querySelector("#ihn-nav-progress")?.addEventListener("click", () => {
-      if (state.type !== "progress") {
-        state = { type: "progress" };
-        renderPanel();
-        chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
-          progressData = resp;
-          if (state.type === "progress") renderPanel();
-        });
-      }
-    });
   }
   function openPanel() {
     if (!panelEl) createPanel();
@@ -683,6 +830,10 @@
   }
   function closePanel() {
     panelEl?.classList.remove("ihn-open");
+    if (progressRefreshTimer) {
+      clearInterval(progressRefreshTimer);
+      progressRefreshTimer = null;
+    }
   }
   if (typeof chrome !== "undefined" && chrome.runtime) {
     chrome.runtime.onMessage.addListener((msg) => {
