@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — I Hate Networking</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0b;
+      --surface: #161614;
+      --text: #e2d9cc;
+      --muted: #7a7168;
+      --accent: #c9a87c;
+      --border: #2a2924;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 1.15rem;
+      line-height: 1.75;
+      min-height: 100vh;
+      padding: 0 1.5rem;
+    }
+
+    .wrapper {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 5rem 0 6rem;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 2.5rem;
+      margin-bottom: 3rem;
+    }
+
+    .eyebrow {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 1rem;
+    }
+
+    h1 {
+      font-size: clamp(2.2rem, 6vw, 3.4rem);
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+      color: var(--text);
+      margin-bottom: 1rem;
+    }
+
+    .tagline {
+      font-style: italic;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+
+    .meta {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-top: 1.5rem;
+      letter-spacing: 0.05em;
+    }
+
+    section {
+      margin-bottom: 3rem;
+    }
+
+    h2 {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 1rem;
+    }
+
+    p {
+      color: var(--text);
+      margin-bottom: 1rem;
+    }
+
+    p:last-child { margin-bottom: 0; }
+
+    ul {
+      padding-left: 1.4rem;
+      margin-bottom: 1rem;
+    }
+
+    li {
+      margin-bottom: 0.4rem;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.15s;
+    }
+
+    a:hover { border-bottom-color: var(--accent); }
+
+    .callout {
+      background: var(--surface);
+      border-left: 2px solid var(--accent);
+      padding: 1.2rem 1.5rem;
+      border-radius: 0 4px 4px 0;
+      margin: 1.5rem 0;
+    }
+
+    .callout p {
+      font-style: italic;
+      color: var(--muted);
+      font-size: 1rem;
+      margin: 0;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding-top: 2rem;
+      margin-top: 4rem;
+    }
+
+    footer p {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    @media (max-width: 600px) {
+      .wrapper { padding: 3rem 0 4rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <header>
+      <p class="eyebrow">Chrome Extension</p>
+      <h1>I Hate Networking</h1>
+      <p class="tagline">Privacy Policy</p>
+      <p class="meta">Last updated: February 2026</p>
+    </header>
+
+    <section>
+      <h2>The short version</h2>
+      <p>This extension helps you send LinkedIn connection requests to people from Luma events. To do that, it reads attendee data from Luma and interacts with LinkedIn on your behalf. It stores the minimum data needed to track who you've already connected with.</p>
+      <div class="callout">
+        <p>Your data is used only to run the extension. It is never sold, shared with advertisers, or used for anything else.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>What we collect</h2>
+      <p>When you use the extension, it processes:</p>
+      <ul>
+        <li>Names and LinkedIn profile URLs of attendees from Luma events you visit</li>
+        <li>Connection request status (sent, pending, accepted) for each person</li>
+        <li>Your LinkedIn and Luma session state (read from your active browser session — we do not store your passwords)</li>
+      </ul>
+      <p>This data is stored in a private database (Supabase) linked to your account so the extension can remember who you've already reached out to.</p>
+    </section>
+
+    <section>
+      <h2>How we use it</h2>
+      <ul>
+        <li>To display attendee lists inside the extension panel</li>
+        <li>To send LinkedIn connection requests on your behalf when you trigger them</li>
+        <li>To track which requests have been sent so you don't double-send</li>
+      </ul>
+      <p>We do not use your data for analytics, advertising, or any purpose beyond running the core extension features.</p>
+    </section>
+
+    <section>
+      <h2>Third-party services</h2>
+      <p>The extension interacts with the following third-party services:</p>
+      <ul>
+        <li><strong>Luma (lu.ma)</strong> — reads public event attendee data while you're logged into Luma</li>
+        <li><strong>LinkedIn (linkedin.com)</strong> — sends connection requests using your active session</li>
+        <li><strong>Supabase</strong> — hosts the database where connection tracking data is stored</li>
+      </ul>
+      <p>Use of LinkedIn and Luma is subject to their own terms of service and privacy policies.</p>
+    </section>
+
+    <section>
+      <h2>Data retention</h2>
+      <p>Attendee and connection data is retained as long as you use the extension. You can request deletion of your data at any time by contacting us at the email below.</p>
+    </section>
+
+    <section>
+      <h2>Your rights</h2>
+      <p>You may request access to, correction of, or deletion of any personal data we hold about you. To do so, email us and we'll respond within 30 days.</p>
+    </section>
+
+    <section>
+      <h2>Contact</h2>
+      <p>Questions? Reach out at <a href="mailto:tjennychen@gmail.com">tjennychen@gmail.com</a></p>
+    </section>
+
+    <footer>
+      <p>I Hate Networking Chrome Extension &mdash; Privacy Policy &mdash; 2026</p>
+    </footer>
+  </div>
+</body>
+</html>
