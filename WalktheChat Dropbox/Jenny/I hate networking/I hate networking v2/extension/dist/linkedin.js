@@ -122,5 +122,9 @@
       sendConnection(msg.note || "", msg.expectedName || "").then((result) => sendResponse(result));
       return true;
     }
+    if (msg.type === "GET_LINKEDIN_NAME") {
+      sendResponse({ name: getProfileName() });
+      return true;
+    }
   });
 })();
