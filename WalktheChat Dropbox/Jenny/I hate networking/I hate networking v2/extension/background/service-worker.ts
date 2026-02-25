@@ -246,6 +246,71 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })
     return true
   }
+
+  if (msg.type === 'GET_DRAFT_DATA') {
+    ;(async () => {
+      const { data: { session } } = await getSupabase().auth.getSession()
+      if (!session) { sendResponse(null); return }
+      const supabase = getAuthedSupabase(session.access_token)
+      const { data: contacts } = await supabase
+        .from('contacts')
+        .select('id, name, linkedin_url, linkedin_name, is_host')
+        .eq('event_id', msg.eventId)
+        .eq('user_id', session.user.id)
+      if (!contacts) { sendResponse(null); return }
+      const hosts = contacts.filter((c: any) => c.is_host)
+      const guests = contacts.filter((c: any) => !c.is_host && c.linkedin_url)
+      // Random sample of up to 15 guests
+      const shuffled = [...guests].sort(() => Math.random() - 0.5)
+      const sample = shuffled.slice(0, 15)
+      sendResponse({ hosts, guests: sample, totalGuests: guests.length })
+    })()
+    return true
+  }
+
+  if (msg.type === 'GET_LINKEDIN_NAMES') {
+    ;(async () => {
+      const { data: { session } } = await getSupabase().auth.getSession()
+      if (!session) { sendResponse([]); return }
+      const supabase = getAuthedSupabase(session.access_token)
+      const results: { id: string; linkedin_name: string }[] = []
+
+      for (const contact of msg.contacts as { id: string; linkedin_url: string }[]) {
+        const url = contact.linkedin_url.replace('https://linkedin.com/', 'https://www.linkedin.com/')
+        try {
+          const tab = await chrome.tabs.create({ url, active: false })
+          const tabId = tab.id!
+          await new Promise<void>((resolve) => {
+            const timeout = setTimeout(resolve, 15000)
+            chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+              if (tid === tabId && info.status === 'complete') {
+                chrome.tabs.onUpdated.removeListener(listener)
+                clearTimeout(timeout)
+                setTimeout(resolve, 2500)
+              }
+            })
+          })
+          const nameResult: { name: string } = await new Promise(resolve => {
+            const timeout = setTimeout(() => resolve({ name: '' }), 10000)
+            chrome.tabs.sendMessage(tabId, { type: 'GET_LINKEDIN_NAME' }, response => {
+              clearTimeout(timeout)
+              resolve(response ?? { name: '' })
+            })
+          })
+          chrome.tabs.remove(tabId).catch(() => {})
+          const linkedinName = nameResult.name || ''
+          if (linkedinName) {
+            await supabase.from('contacts').update({ linkedin_name: linkedinName }).eq('id', contact.id)
+          }
+          results.push({ id: contact.id, linkedin_name: linkedinName })
+        } catch {
+          results.push({ id: contact.id, linkedin_name: '' })
+        }
+      }
+      sendResponse(results)
+    })()
+    return true
+  }
 })
 
 async function getSession() {
