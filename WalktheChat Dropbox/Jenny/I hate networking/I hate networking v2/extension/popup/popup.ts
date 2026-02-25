@@ -65,8 +65,11 @@ async function init() {
         <div class="idle-sub">${isLumaEventPage ? 'Find attendees and connect on LinkedIn.' : 'Navigate to a specific event page on Luma first.'}</div>
         ${isLumaEventPage
           ? `<button class="btn-primary" id="btnScan">Scan this event →</button>`
-          : `<button class="btn-secondary" id="btnLuma">${isLuma ? 'Go to an event page →' : 'Open Luma.com →'}</button>`
+          : isLuma
+          ? ``
+          : `<button class="btn-secondary" id="btnLuma">Open Luma.com →</button>`
         }
+        <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
       </div>
     `
     if (isLumaEventPage) {
@@ -75,7 +78,7 @@ async function init() {
         window.close()
       })
     } else {
-      root.querySelector('#btnLuma')!.addEventListener('click', () => {
+      root.querySelector('#btnLuma')?.addEventListener('click', () => {
         chrome.tabs.create({ url: 'https://lu.ma' })
         window.close()
       })
@@ -98,10 +101,6 @@ async function init() {
     : paused
     ? `Campaign is paused. <strong>Resume</strong> to continue sending.`
     : `Sending requests automatically. <strong>Keep Chrome open</strong> while it runs.`
-
-  const pauseBtnHtml = isDone ? '' : paused
-    ? `<button class="btn-resume" id="btnPause">${icons.play} Resume campaign</button>`
-    : `<button class="btn-pause" id="btnPause">${icons.pause} Pause campaign</button>`
 
   const recentHtml = recentSent.length > 0 ? `
     <div class="section">
@@ -142,17 +141,11 @@ async function init() {
         <div class="stat-label">Skipped</div>
       </div>` : ''}
     </div>
-    ${pauseBtnHtml ? `<div class="section">${pauseBtnHtml}</div>` : ''}
     ${recentHtml}
     ${scanBtnHtml}
     ${isRunning ? `<div class="rate-note">${timingLine(lastSentName, lastSentAt, nextScheduledAt)}</div>` : ''}
+    <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
   `
-
-  root.querySelector('#btnPause')?.addEventListener('click', async () => {
-    const msg = paused ? 'RESUME_CAMPAIGN' : 'PAUSE_CAMPAIGN'
-    await new Promise<void>(r => chrome.runtime.sendMessage({ type: msg }, () => r()))
-    init() // re-render with new state
-  })
 
   if (isLumaEventPage) {
     root.querySelector('#btnScan')?.addEventListener('click', () => {

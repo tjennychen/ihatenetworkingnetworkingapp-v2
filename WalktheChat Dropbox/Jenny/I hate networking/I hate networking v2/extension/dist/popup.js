@@ -127,7 +127,8 @@
         <div class="idle-emoji">\u{1F91D}</div>
         <div class="idle-title">No active campaign</div>
         <div class="idle-sub">${isLumaEventPage ? "Find attendees and connect on LinkedIn." : "Navigate to a specific event page on Luma first."}</div>
-        ${isLumaEventPage ? `<button class="btn-primary" id="btnScan">Scan this event \u2192</button>` : `<button class="btn-secondary" id="btnLuma">${isLuma ? "Go to an event page \u2192" : "Open Luma.com \u2192"}</button>`}
+        ${isLumaEventPage ? `<button class="btn-primary" id="btnScan">Scan this event \u2192</button>` : isLuma ? `` : `<button class="btn-secondary" id="btnLuma">Open Luma.com \u2192</button>`}
+        <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
       </div>
     `;
       if (isLumaEventPage) {
@@ -136,7 +137,7 @@
           window.close();
         });
       } else {
-        root.querySelector("#btnLuma").addEventListener("click", () => {
+        root.querySelector("#btnLuma")?.addEventListener("click", () => {
           chrome.tabs.create({ url: "https://lu.ma" });
           window.close();
         });
@@ -147,7 +148,6 @@
     const isDone = pending === 0;
     const statusHtml = isDone ? `<span class="status-pill status-idle"><span class="dot"></span>Done</span>` : paused ? `<span class="status-pill status-paused"><span class="dot"></span>Paused</span>` : `<span class="status-pill status-running"><span class="dot"></span>Running</span>`;
     const instructionHtml = isDone ? `All connections have been sent or processed.` : paused ? `Campaign is paused. <strong>Resume</strong> to continue sending.` : `Sending requests automatically. <strong>Keep Chrome open</strong> while it runs.`;
-    const pauseBtnHtml = isDone ? "" : paused ? `<button class="btn-resume" id="btnPause">${icons.play} Resume campaign</button>` : `<button class="btn-pause" id="btnPause">${icons.pause} Pause campaign</button>`;
     const recentHtml = recentSent.length > 0 ? `
     <div class="section">
       <div class="recent-title">Recently sent</div>
@@ -183,16 +183,11 @@
         <div class="stat-label">Skipped</div>
       </div>` : ""}
     </div>
-    ${pauseBtnHtml ? `<div class="section">${pauseBtnHtml}</div>` : ""}
     ${recentHtml}
     ${scanBtnHtml}
     ${isRunning ? `<div class="rate-note">${timingLine(lastSentName, lastSentAt, nextScheduledAt)}</div>` : ""}
+    <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
   `;
-    root.querySelector("#btnPause")?.addEventListener("click", async () => {
-      const msg = paused ? "RESUME_CAMPAIGN" : "PAUSE_CAMPAIGN";
-      await new Promise((r) => chrome.runtime.sendMessage({ type: msg }, () => r()));
-      init();
-    });
     if (isLumaEventPage) {
       root.querySelector("#btnScan")?.addEventListener("click", () => {
         chrome.tabs.sendMessage(tab.id, { type: "OPEN_PANEL" });

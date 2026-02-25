@@ -702,6 +702,7 @@ function renderPanel() {
         ${!data || data.events.length === 0 ? '<p class="ihn-empty">No events yet.</p>' : ''}
       </div>
       ${data && data.events.length > 0 ? `<button id="ihn-draft-post-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">✍️ Draft LinkedIn post</button>` : ''}
+      <p style="margin:12px 0 0;font-size:11px;color:#999;text-align:center">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank" style="color:#999">Jenny Chen</a></p>
     `
     panelEl.querySelectorAll<HTMLButtonElement>('.ihn-event-pause-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -933,15 +934,25 @@ async function handleImportClick(rescan = false): Promise<void> {
     : allUrls
 
   if (toEnrich.length === 0) {
-    // Already up to date — show already_scanned so user can view results or scan for new attendees
+    // Already up to date — go straight to results with all contacts
+    enrichedContacts = (existingContacts as any[]).map(c => ({
+      url: c.luma_profile_url,
+      isHost: c.is_host ?? false,
+      name: c.name ?? '',
+      linkedInUrl: c.linkedin_url ?? '',
+      instagramUrl: c.instagram_url ?? '',
+      twitterUrl: '',
+    }))
+    noteValue = defaultNote(eventName)
+    const linkedInReady = await checkLinkedInLogin()
     state = {
-      type: 'already_scanned',
-      count: existingUrls.length,
-      linkedInCount,
+      type: 'results',
+      found: linkedInCount,
+      total: existingUrls.length,
       eventId: cachedEventId ?? '',
+      linkedInReady,
       eventName,
       eventLocation,
-      noNew: true,
     }
     renderPanel()
     return
@@ -982,7 +993,15 @@ async function handleImportClick(rescan = false): Promise<void> {
     renderPanel()
   }
 
-  enrichedContacts = enriched
+  const existingMapped: EnrichedContact[] = (existingContacts as any[]).map(c => ({
+    url: c.luma_profile_url,
+    isHost: c.is_host ?? false,
+    name: c.name ?? '',
+    linkedInUrl: c.linkedin_url ?? '',
+    instagramUrl: c.instagram_url ?? '',
+    twitterUrl: '',
+  }))
+  enrichedContacts = [...existingMapped, ...enriched]
 
   // Hand off pre-enriched contacts to service worker for DB persistence
   // Use sendMessage callback — don't wait for separate ENRICH_COMPLETE message
