@@ -11536,7 +11536,9 @@ ${suffix}`;
   var SUPABASE_URL = "https://urgibxjxbcyvprdejplp.supabase.co";
   var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVyZ2lieGp4YmN5dnByZGVqcGxwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4ODQzNDIsImV4cCI6MjA4NzQ2MDM0Mn0.TC_WK5oMbvwpiH4WdSvTtTTzENTObiJqp_akPanVj9g";
   function getSupabase() {
-    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
   }
   function getAuthedSupabase(accessToken) {
     return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -11561,6 +11563,9 @@ ${suffix}`;
   chrome.runtime.onInstalled.addListener(() => {
     chrome.alarms.create("checkQueue", { periodInMinutes: 0.5 });
     console.log("I Hate Networking extension installed");
+  });
+  chrome.runtime.onStartup.addListener(() => {
+    chrome.alarms.create("checkQueue", { periodInMinutes: 0.5 });
   });
   chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name === "checkQueue") await processNextQueueItem();
@@ -11675,7 +11680,7 @@ ${suffix}`;
           cum += dayCounts[d];
           return { date: d, cumulative: cum };
         });
-        const { data: events } = await supabase.from("events").select("id, name, contacts(id, name, linkedin_url, instagram_url, connection_queue(status))").eq("user_id", session.user.id).order("created_at", { ascending: false });
+        const { data: events } = await supabase.from("events").select("id, name, contacts(id, name, linkedin_url, instagram_url, connection_queue(status, error))").eq("user_id", session.user.id).order("created_at", { ascending: false });
         sendResponse({ chartData, events: events ?? [] });
       });
       return true;
@@ -11807,13 +11812,20 @@ ${suffix}`;
   }
   async function processNextQueueItem() {
     const session = await getSession();
-    if (!session) return;
+    if (!session) {
+      console.log("[IHN] processNextQueueItem: no session");
+      return;
+    }
     const supabase = getAuthedSupabase(session.access_token);
     const sentToday = await getSentTodayCount(supabase, session.user.id);
     const { canSend } = checkDailyLimit(sentToday);
     if (!canSend) return;
     const { data: item } = await supabase.from("connection_queue").select("*, contacts(linkedin_url, name)").eq("user_id", session.user.id).eq("status", "pending").lte("scheduled_at", (/* @__PURE__ */ new Date()).toISOString()).order("scheduled_at", { ascending: true }).limit(1).single();
-    if (!item) return;
+    if (!item) {
+      console.log("[IHN] No pending items");
+      return;
+    }
+    console.log("[IHN] Processing queue item for:", item.contacts?.name);
     const linkedinUrl = item.contacts?.linkedin_url;
     if (!linkedinUrl) {
       await supabase.from("connection_queue").update({ status: "failed", error: "no_linkedin_url" }).eq("id", item.id);
@@ -11829,7 +11841,16 @@ ${suffix}`;
       focused: false
     });
     const tabId = win.tabs[0].id;
-    await new Promise((r) => setTimeout(r, 3e3));
+    await new Promise((resolve) => {
+      const timeout = setTimeout(resolve, 15e3);
+      chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+        if (tid === tabId && info.status === "complete") {
+          chrome.tabs.onUpdated.removeListener(listener);
+          clearTimeout(timeout);
+          setTimeout(resolve, 1500);
+        }
+      });
+    });
     const result = await new Promise((resolve) => {
       const firstName = item.contacts?.name?.split(" ")[0] || "";
       const resolvedNote = (item.note || "").replace(/\[first name\]/gi, firstName);
@@ -11837,6 +11858,7 @@ ${suffix}`;
         resolve(response ?? { success: false, error: "no_response" });
       });
     });
+    console.log("[IHN] Result:", result);
     if (result.success) {
       await supabase.from("connection_queue").update({
         status: "sent",
@@ -11848,6 +11870,10 @@ ${suffix}`;
       });
       const delayMinutes = 8 + Math.random() * 7;
       await supabase.from("connection_queue").update({ scheduled_at: new Date(Date.now() + delayMinutes * 6e4).toISOString() }).eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1);
+    } else if (result.error === "no_response") {
+      await supabase.from("connection_queue").update({
+        scheduled_at: new Date(Date.now() + 5 * 6e4).toISOString()
+      }).eq("id", item.id);
     } else {
       await supabase.from("connection_queue").update({
         status: "failed",

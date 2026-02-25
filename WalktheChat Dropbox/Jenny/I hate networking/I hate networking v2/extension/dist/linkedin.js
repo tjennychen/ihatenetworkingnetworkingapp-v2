@@ -37,38 +37,60 @@
     if (!window.location.pathname.startsWith("/in/")) {
       return { success: false, error: "Not a profile page" };
     }
+    if (findButtonByText("Pending") || findButtonByText("Withdraw")) {
+      return { success: false, error: "already_pending" };
+    }
+    if (findButtonByText("Message") && !findConnectButton()) {
+      return { success: false, error: "already_connected" };
+    }
+    const degreeEl = document.querySelector('[class*="distance-badge"], [class*="dist-value"]');
+    const degree = degreeEl?.textContent?.trim() ?? "";
+    const isThirdDegree = degree.startsWith("3");
     let connectBtn = findConnectButton();
     if (!connectBtn) {
       await openMoreActionsIfNeeded();
       connectBtn = findConnectButton();
     }
     if (!connectBtn) {
-      return { success: false, error: "Connect button not found \u2014 may already be connected or pending" };
+      if (isThirdDegree) return { success: false, error: "third_degree" };
+      return { success: false, error: "connect_not_available" };
     }
     connectBtn.click();
     await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
     await dismissPremiumPaywall();
-    const addNoteBtn = findButtonByText("Add a note");
-    if (addNoteBtn && note) {
-      addNoteBtn.click();
-      await new Promise((r) => setTimeout(r, 500));
-      const paywalled = await dismissPremiumPaywall();
-      if (!paywalled) {
-        const textarea = document.querySelector(
-          'textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
-        );
-        if (textarea) {
-          textarea.focus();
-          textarea.value = note;
-          textarea.dispatchEvent(new Event("input", { bubbles: true }));
-          textarea.dispatchEvent(new Event("change", { bubbles: true }));
-          await new Promise((r) => setTimeout(r, 300));
+    if (note) {
+      const addNoteBtn = findButtonByText("Add a note");
+      if (addNoteBtn) {
+        addNoteBtn.click();
+        await new Promise((r) => setTimeout(r, 500));
+        const paywalled = await dismissPremiumPaywall();
+        if (!paywalled) {
+          const textarea = document.querySelector(
+            'textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
+          );
+          if (textarea) {
+            textarea.focus();
+            textarea.value = note;
+            textarea.dispatchEvent(new Event("input", { bubbles: true }));
+            textarea.dispatchEvent(new Event("change", { bubbles: true }));
+            await new Promise((r) => setTimeout(r, 300));
+          }
+        } else {
+          await new Promise((r) => setTimeout(r, 800));
+          let retryBtn = findConnectButton();
+          if (!retryBtn) {
+            await openMoreActionsIfNeeded();
+            retryBtn = findConnectButton();
+          }
+          if (!retryBtn) return { success: false, error: "note_quota_reached" };
+          retryBtn.click();
+          await new Promise((r) => setTimeout(r, 800 + Math.random() * 500));
         }
       }
     }
     const sendBtn = findButtonByText("Send") ?? findButtonByText("Send without a note") ?? document.querySelector('[aria-label="Send now"]');
     if (!sendBtn) {
-      return { success: false, error: "Send button not found" };
+      return { success: false, error: "send_btn_not_found" };
     }
     sendBtn.click();
     await new Promise((r) => setTimeout(r, 500));

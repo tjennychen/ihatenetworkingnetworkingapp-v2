@@ -113,6 +113,7 @@
   var authMode = "signup";
   var progressData = null;
   var expandedEvents = /* @__PURE__ */ new Set();
+  var exportPickerOpen = false;
   var DEFAULT_NOTE = "Hi [first name], I was also at the event. I'd love to stay connected!";
   var MAX_NOTE = 300;
   async function checkLinkedInLogin() {
@@ -156,6 +157,10 @@
   }
   function renderPanel() {
     if (!panelEl) return;
+    const scanStates = ["idle", "scanning", "results", "launched", "contacts"];
+    const isScan = scanStates.includes(state.type);
+    panelEl.querySelector("#ihn-nav-scan")?.classList.toggle("ihn-nav-active", isScan);
+    panelEl.querySelector("#ihn-nav-progress")?.classList.toggle("ihn-nav-active", !isScan);
     const body = panelEl.querySelector("#ihn-panel-body");
     const titleEl = panelEl.querySelector("#ihn-panel-title");
     const subtitleEl = panelEl.querySelector("#ihn-panel-subtitle");
@@ -314,6 +319,49 @@
       titleEl.textContent = "Progress";
       subtitleEl.textContent = "";
       const data = progressData;
+      if (exportPickerOpen) {
+        body.innerHTML = `
+        <div class="ihn-export-picker">
+          <p class="ihn-export-picker-title">Select events to export</p>
+          <div class="ihn-export-picker-list">
+            ${(data?.events ?? []).map((event) => `
+              <label class="ihn-export-picker-row">
+                <input type="checkbox" class="ihn-event-checkbox" value="${escHtml(event.id)}" checked>
+                <span>${escHtml(event.name ?? "Untitled event")}</span>
+              </label>
+            `).join("")}
+          </div>
+          <div class="ihn-export-picker-actions">
+            <button id="ihn-export-cancel-btn">Cancel</button>
+            <button id="ihn-export-confirm-btn" class="ihn-export-btn">&#8681; Export CSV</button>
+          </div>
+        </div>
+      `;
+        panelEl.querySelector("#ihn-export-cancel-btn")?.addEventListener("click", () => {
+          exportPickerOpen = false;
+          renderPanel();
+        });
+        panelEl.querySelector("#ihn-export-confirm-btn")?.addEventListener("click", () => {
+          if (!progressData) return;
+          const checked = new Set(
+            Array.from(panelEl.querySelectorAll(".ihn-event-checkbox:checked")).map((cb) => cb.value)
+          );
+          const rows = [["Event", "Name", "LinkedIn", "Instagram"]];
+          for (const event of progressData.events) {
+            if (!checked.has(event.id)) continue;
+            for (const c of event.contacts ?? []) {
+              rows.push([event.name ?? "", c.name ?? "", c.linkedin_url ?? "", c.instagram_url ?? ""]);
+            }
+          }
+          const csv = rows.map((r) => r.map((v) => `"${(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+          a.download = "ihn_contacts.csv";
+          a.click();
+          exportPickerOpen = false;
+        });
+        return;
+      }
       const totalSent = data ? data.chartData[data.chartData.length - 1]?.cumulative ?? 0 : 0;
       body.innerHTML = `
       <div class="ihn-chart-wrap">
@@ -338,9 +386,22 @@
             </div>
             ${expanded ? `<div class="ihn-event-contacts">${contacts.map((c) => {
           const status = c.connection_queue?.[0]?.status ?? "pending";
+          const error = c.connection_queue?.[0]?.error ?? "";
+          const errorLabel = {
+            already_pending: "You already sent them a request on LinkedIn",
+            already_connected: "You're already connected",
+            third_degree: "3rd degree \u2014 LinkedIn doesn't allow direct connections",
+            connect_not_available: "Connect option not available on their profile",
+            send_btn_not_found: "LinkedIn UI changed \u2014 try again later",
+            no_linkedin_url: "No LinkedIn profile found",
+            note_quota_reached: "Free note quota reached \u2014 sent without note next retry"
+          }[error] ?? (error ? `LinkedIn error: ${error}` : "");
           return `<div class="ihn-contact-row">
                 <span class="ihn-contact-name">${escHtml(c.name ?? "\u2014")}</span>
-                <span class="ihn-status-badge ihn-status-${escHtml(status)}">${escHtml(status)}</span>
+                <div class="ihn-contact-status">
+                  <span class="ihn-status-badge ihn-status-${escHtml(status)}">${escHtml(status)}</span>
+                  ${errorLabel ? `<span class="ihn-error-tip" title="${escHtml(errorLabel)}">?</span>` : ""}
+                </div>
               </div>`;
         }).join("")}</div>` : ""}
           </div>`;
@@ -359,19 +420,8 @@
         });
       });
       panelEl.querySelector("#ihn-progress-export-csv")?.addEventListener("click", () => {
-        if (!progressData) return;
-        const rows = [["Event", "Name", "LinkedIn", "Instagram", "Status"]];
-        for (const event of progressData.events) {
-          for (const c of event.contacts ?? []) {
-            const status = c.connection_queue?.[0]?.status ?? "pending";
-            rows.push([event.name ?? "", c.name ?? "", c.linkedin_url ?? "", c.instagram_url ?? "", status]);
-          }
-        }
-        const csv = rows.map((r) => r.map((v) => `"${(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-        a.download = "ihn_progress_contacts.csv";
-        a.click();
+        exportPickerOpen = true;
+        renderPanel();
       });
       return;
     } else if (state.type === "contacts") {
@@ -602,10 +652,30 @@
       </div>
       <button id="ihn-close-btn" aria-label="Close">&times;</button>
     </div>
+    <div id="ihn-nav">
+      <button class="ihn-nav-btn" id="ihn-nav-scan">Scan</button>
+      <button class="ihn-nav-btn" id="ihn-nav-progress">Progress</button>
+    </div>
     <div id="ihn-panel-body"></div>
   `;
     document.body.appendChild(panelEl);
     panelEl.querySelector("#ihn-close-btn").addEventListener("click", closePanel);
+    panelEl.querySelector("#ihn-nav-scan")?.addEventListener("click", () => {
+      if (state.type === "progress") {
+        state = enrichedContacts.length > 0 ? { type: "results", found: enrichedContacts.filter((c) => c.linkedInUrl).length, total: enrichedContacts.length, eventId: "", linkedInReady: false, eventName: "", eventLocation: "" } : { type: "idle" };
+        renderPanel();
+      }
+    });
+    panelEl.querySelector("#ihn-nav-progress")?.addEventListener("click", () => {
+      if (state.type !== "progress") {
+        state = { type: "progress" };
+        renderPanel();
+        chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
+          progressData = resp;
+          if (state.type === "progress") renderPanel();
+        });
+      }
+    });
   }
   function openPanel() {
     if (!panelEl) createPanel();

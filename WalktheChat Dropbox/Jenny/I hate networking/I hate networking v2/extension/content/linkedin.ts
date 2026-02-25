@@ -44,6 +44,21 @@ async function sendConnection(note?: string): Promise<{ success: boolean; error?
     return { success: false, error: 'Not a profile page' }
   }
 
+  // Check for already-pending request
+  if (findButtonByText('Pending') || findButtonByText('Withdraw')) {
+    return { success: false, error: 'already_pending' }
+  }
+
+  // Check for already-connected (primary action is "Message", no Connect)
+  if (findButtonByText('Message') && !findConnectButton()) {
+    return { success: false, error: 'already_connected' }
+  }
+
+  // Check degree — LinkedIn shows "3rd+" near the name
+  const degreeEl = document.querySelector('[class*="distance-badge"], [class*="dist-value"]')
+  const degree = degreeEl?.textContent?.trim() ?? ''
+  const isThirdDegree = degree.startsWith('3')
+
   let connectBtn = findConnectButton()
 
   if (!connectBtn) {
@@ -52,7 +67,8 @@ async function sendConnection(note?: string): Promise<{ success: boolean; error?
   }
 
   if (!connectBtn) {
-    return { success: false, error: 'Connect button not found — may already be connected or pending' }
+    if (isThirdDegree) return { success: false, error: 'third_degree' }
+    return { success: false, error: 'connect_not_available' }
   }
 
   connectBtn.click()
@@ -61,23 +77,34 @@ async function sendConnection(note?: string): Promise<{ success: boolean; error?
   // Dismiss any premium popup that appears immediately after clicking Connect
   await dismissPremiumPaywall()
 
-  const addNoteBtn = findButtonByText('Add a note')
-  if (addNoteBtn && note) {
-    addNoteBtn.click()
-    await new Promise(r => setTimeout(r, 500))
+  if (note) {
+    const addNoteBtn = findButtonByText('Add a note')
+    if (addNoteBtn) {
+      addNoteBtn.click()
+      await new Promise(r => setTimeout(r, 500))
 
-    // Premium may also appear after clicking "Add a note"
-    const paywalled = await dismissPremiumPaywall()
-    if (!paywalled) {
-      const textarea = document.querySelector<HTMLTextAreaElement>(
-        'textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
-      )
-      if (textarea) {
-        textarea.focus()
-        textarea.value = note
-        textarea.dispatchEvent(new Event('input', { bubbles: true }))
-        textarea.dispatchEvent(new Event('change', { bubbles: true }))
-        await new Promise(r => setTimeout(r, 300))
+      const paywalled = await dismissPremiumPaywall()
+      if (!paywalled) {
+        // Fill textarea normally
+        const textarea = document.querySelector<HTMLTextAreaElement>(
+          'textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
+        )
+        if (textarea) {
+          textarea.focus()
+          textarea.value = note
+          textarea.dispatchEvent(new Event('input', { bubbles: true }))
+          textarea.dispatchEvent(new Event('change', { bubbles: true }))
+          await new Promise(r => setTimeout(r, 300))
+        }
+      } else {
+        // Note quota hit — back on profile page, retry Connect to get the modal again
+        await new Promise(r => setTimeout(r, 800))
+        let retryBtn = findConnectButton()
+        if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
+        if (!retryBtn) return { success: false, error: 'note_quota_reached' }
+        retryBtn.click()
+        await new Promise(r => setTimeout(r, 800 + Math.random() * 500))
+        // Fall through — sendBtn search below will find "Send without a note"
       }
     }
   }
@@ -88,7 +115,7 @@ async function sendConnection(note?: string): Promise<{ success: boolean; error?
     document.querySelector<HTMLButtonElement>('[aria-label="Send now"]')
 
   if (!sendBtn) {
-    return { success: false, error: 'Send button not found' }
+    return { success: false, error: 'send_btn_not_found' }
   }
 
   sendBtn.click()

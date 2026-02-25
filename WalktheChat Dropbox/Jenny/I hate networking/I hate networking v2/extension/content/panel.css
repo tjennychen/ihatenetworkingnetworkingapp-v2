@@ -84,6 +84,28 @@
   color: #374151;
 }
 
+#ihn-nav {
+  display: flex;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.ihn-nav-btn {
+  flex: 1;
+  padding: 8px;
+  background: none;
+  border: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: #9ca3af;
+  cursor: pointer;
+  font-family: inherit;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.ihn-nav-btn:hover { color: #374151; }
+.ihn-nav-active { color: #4f46e5 !important; border-bottom-color: #4f46e5 !important; }
+
 #ihn-panel-body {
   flex: 1;
   overflow-y: auto;
@@ -448,9 +470,26 @@
 .ihn-event-contacts { padding: 4px 10px 8px; display: flex; flex-direction: column; gap: 4px; }
 .ihn-contact-row { display: flex; align-items: center; justify-content: space-between; }
 .ihn-contact-name { font-size: 12px; color: #374151; }
+.ihn-contact-status { display: flex; align-items: center; gap: 4px; }
+.ihn-error-tip {
+  font-size: 10px; width: 14px; height: 14px; border-radius: 50%;
+  background: #374151; color: #9ca3af; display: inline-flex;
+  align-items: center; justify-content: center; cursor: help;
+  flex-shrink: 0; font-weight: 700;
+}
 .ihn-status-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 500; }
 .ihn-status-badge.ihn-status-pending  { background: #f3f4f6; color: #6b7280; }
 .ihn-status-badge.ihn-status-sent     { background: #dbeafe; color: #1d4ed8; }
 .ihn-status-badge.ihn-status-accepted { background: #dcfce7; color: #16a34a; }
 .ihn-status-badge.ihn-status-failed   { background: #fee2e2; color: #dc2626; }
 .ihn-empty { font-size: 12px; color: #9ca3af; text-align: center; padding: 12px 0; margin: 0; }
+
+/* Export picker */
+.ihn-export-picker { padding: 12px 0; display: flex; flex-direction: column; gap: 12px; }
+.ihn-export-picker-title { margin: 0; font-size: 12px; color: #aaa; }
+.ihn-export-picker-list { display: flex; flex-direction: column; gap: 6px; }
+.ihn-export-picker-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: #eee; }
+.ihn-export-picker-row input[type="checkbox"] { accent-color: #7c6af7; cursor: pointer; }
+.ihn-export-picker-actions { display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
+.ihn-export-picker-actions button:first-child { background: none; border: none; color: #aaa; font-size: 11px; cursor: pointer; font-family: inherit; }
+.ihn-export-picker-actions button:first-child:hover { color: #eee; }

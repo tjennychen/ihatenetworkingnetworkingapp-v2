@@ -6,6 +6,10 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log('I Hate Networking extension installed')
 })
 
+chrome.runtime.onStartup.addListener(() => {
+  chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
+})
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'checkQueue') await processNextQueueItem()
 })
@@ -146,7 +150,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Event list: all events with contacts + statuses
       const { data: events } = await supabase
         .from('events')
-        .select('id, name, contacts(id, name, linkedin_url, instagram_url, connection_queue(status))')
+        .select('id, name, contacts(id, name, linkedin_url, instagram_url, connection_queue(status, error))')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false })
 
@@ -356,7 +360,7 @@ async function launchCampaign(data: {
 
 async function processNextQueueItem(): Promise<void> {
   const session = await getSession()
-  if (!session) return
+  if (!session) { console.log('[IHN] processNextQueueItem: no session'); return }
 
   const supabase = getAuthedSupabase(session.access_token)
 
@@ -374,7 +378,8 @@ async function processNextQueueItem(): Promise<void> {
     .limit(1)
     .single()
 
-  if (!item) return
+  if (!item) { console.log('[IHN] No pending items'); return }
+  console.log('[IHN] Processing queue item for:', (item.contacts as any)?.name)
   const linkedinUrl = (item.contacts as any)?.linkedin_url
   if (!linkedinUrl) {
     await supabase.from('connection_queue').update({ status: 'failed', error: 'no_linkedin_url' }).eq('id', item.id)
@@ -386,7 +391,16 @@ async function processNextQueueItem(): Promise<void> {
     left: -2000, top: -2000, width: 100, height: 100, focused: false,
   })
   const tabId = win.tabs![0].id!
-  await new Promise(r => setTimeout(r, 3000))
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, 15000) // hard fallback
+    chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+      if (tid === tabId && info.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener)
+        clearTimeout(timeout)
+        setTimeout(resolve, 1500) // small buffer after load
+      }
+    })
+  })
 
   const result: { success: boolean; error?: string } = await new Promise(resolve => {
     const firstName = (item.contacts as any)?.name?.split(' ')[0] || ''
@@ -395,6 +409,8 @@ async function processNextQueueItem(): Promise<void> {
       resolve(response ?? { success: false, error: 'no_response' })
     })
   })
+
+  console.log('[IHN] Result:', result)
 
   if (result.success) {
     await supabase.from('connection_queue').update({
@@ -415,6 +431,11 @@ async function processNextQueueItem(): Promise<void> {
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(1)
+  } else if (result.error === 'no_response') {
+    // Content script not ready — requeue with 5min delay
+    await supabase.from('connection_queue').update({
+      scheduled_at: new Date(Date.now() + 5 * 60000).toISOString(),
+    }).eq('id', item.id)
   } else {
     await supabase.from('connection_queue').update({
       status: 'failed',
