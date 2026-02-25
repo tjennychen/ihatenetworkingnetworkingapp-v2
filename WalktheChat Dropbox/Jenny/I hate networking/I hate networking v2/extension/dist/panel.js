@@ -179,10 +179,13 @@
   var contactStatuses = /* @__PURE__ */ new Map();
   var authMode = "signup";
   var progressData = null;
+  var campaignPaused = false;
   var pausedEvents = [];
   var progressRefreshTimer = null;
   var expandedEvents = /* @__PURE__ */ new Set();
   var exportPickerOpen = false;
+  var draftPickerOpen = false;
+  var draftState = { stage: "pick" };
   function shortEventLabel(name) {
     let s2 = name.replace(/\(.*?\)/g, "").replace(/[:\-–—].*$/, "").replace(/[^\w\s]/gu, " ").replace(/\s+/g, " ").trim();
     const withMatch = s2.match(/\bwith\s+(\S+(?:\s+\S+)?)/i);
@@ -206,6 +209,49 @@
   function escHtml(s2) {
     return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
+  function shortenEventName(name) {
+    let s2 = name.replace(/^\{[^}]*\}\s*/i, "");
+    s2 = s2.replace(/\s*:\s*.+$/, "");
+    s2 = s2.replace(/\s*\([^)]*\)\s*$/, "");
+    s2 = s2.replace(/[-–—\s]+$/, "").trim();
+    return s2;
+  }
+  function startDraftFetch(eventId, eventName) {
+    chrome.runtime.sendMessage({ type: "GET_DRAFT_DATA", eventId }, (resp) => {
+      if (!resp) {
+        draftPickerOpen = false;
+        renderPanel();
+        return;
+      }
+      const { hosts, guests, totalGuests } = resp;
+      if (draftState.stage === "loading") {
+        draftState.total = guests.length;
+      }
+      renderPanel();
+      const needFetch = guests.filter((g) => !g.linkedin_name && g.linkedin_url);
+      const alreadyCached = guests.filter((g) => !!g.linkedin_name);
+      const buildDraft = (fetchedNames) => {
+        const nameMap = /* @__PURE__ */ new Map();
+        for (const g of guests) nameMap.set(g.id, g.linkedin_name || g.name || "");
+        for (const f of fetchedNames) if (f.linkedin_name) nameMap.set(f.id, f.linkedin_name);
+        for (const g of alreadyCached) nameMap.set(g.id, g.linkedin_name);
+        const hostMentions = hosts.map((h) => h.linkedin_name || h.name || "").filter(Boolean).map((n) => `@${n}`).join(" ");
+        const shortName = shortenEventName(eventName);
+        const postText = `Thanks ${hostMentions} for organizing the ${shortName} event!`;
+        const guestNames = guests.map((g) => nameMap.get(g.id) || g.name || "").filter(Boolean);
+        draftState = { stage: "ready", eventId, eventShortName: shortName, postText, guestNames, totalGuests };
+        renderPanel();
+      };
+      if (needFetch.length === 0) {
+        buildDraft([]);
+        return;
+      }
+      chrome.runtime.sendMessage(
+        { type: "GET_LINKEDIN_NAMES", contacts: needFetch.map((g) => ({ id: g.id, linkedin_url: g.linkedin_url })) },
+        (fetched) => buildDraft(fetched ?? [])
+      );
+    });
+  }
   function etaString(done, total, startTime) {
     if (done === 0) return "";
     const elapsed = (Date.now() - startTime) / 1e3;
@@ -214,8 +260,8 @@
     if (remaining < 60) return `~${remaining}s remaining`;
     return `~${Math.ceil(remaining / 60)} min remaining`;
   }
-  function renderChart(chartData) {
-    if (chartData.length < 2) return '<p class="ihn-chart-empty">No connections sent yet</p>';
+  function renderChart(chartData, hasPending = false) {
+    if (chartData.length < 2) return `<p class="ihn-chart-empty">${hasPending ? "First send coming soon" : "No connections sent yet"}</p>`;
     const W = 312, H = 100;
     const pad = { t: 8, r: 8, b: 20, l: 32 };
     const maxVal = chartData[chartData.length - 1].cumulative;
@@ -383,6 +429,9 @@
         chrome.runtime.sendMessage({ type: "GET_PAUSED_EVENTS" }, (resp) => {
           pausedEvents = resp?.pausedEvents ?? [];
         });
+        chrome.runtime.sendMessage({ type: "GET_CAMPAIGN_PAUSED" }, (resp) => {
+          campaignPaused = resp?.paused ?? false;
+        });
         chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
           progressData = resp;
           if (state.type === "progress") renderPanel();
@@ -408,8 +457,20 @@
       });
     } else if (state.type === "progress") {
       titleEl.textContent = "Progress";
-      subtitleEl.textContent = "";
       const data = progressData;
+      let totalSent = 0;
+      let totalPending = 0;
+      for (const event of data?.events ?? []) {
+        for (const c of event.contacts ?? []) {
+          const s2 = c.connection_queue?.[0]?.status;
+          if (["sent", "accepted"].includes(s2)) totalSent++;
+          else if (s2 === "pending") totalPending++;
+        }
+      }
+      const isRunning = !!(data && totalPending > 0 && !campaignPaused);
+      const isPaused = !!(data && totalPending > 0 && campaignPaused);
+      const isDone = !!(data && totalPending === 0 && data.events.length > 0);
+      subtitleEl.innerHTML = !data ? "" : isRunning ? '<span class="ihn-status-pill ihn-pill-running">\u25CF Running</span>' : isPaused ? '<span class="ihn-status-pill ihn-pill-paused">\u25CF Paused</span>' : isDone ? '<span class="ihn-status-pill ihn-pill-done">\u2713 Done</span>' : "";
       if (exportPickerOpen) {
         body.innerHTML = `
         <div class="ihn-export-picker">
@@ -453,24 +514,113 @@
         });
         return;
       }
-      let totalSent = 0;
-      let totalPending = 0;
-      for (const event of data?.events ?? []) {
-        for (const c of event.contacts ?? []) {
-          const s2 = c.connection_queue?.[0]?.status;
-          if (["sent", "accepted"].includes(s2)) totalSent++;
-          else if (s2 === "pending") totalPending++;
+      if (draftPickerOpen) {
+        const events = data?.events ?? [];
+        if (draftState.stage === "pick") {
+          if (events.length === 1) {
+            const ev = events[0];
+            draftState = { stage: "loading", eventId: ev.id, eventName: ev.name ?? "", total: 0 };
+            startDraftFetch(ev.id, ev.name ?? "");
+          }
+          body.innerHTML = `
+          <div class="ihn-export-picker">
+            <p class="ihn-export-picker-title">Which event?</p>
+            <div class="ihn-export-picker-list">
+              ${events.map((ev) => `
+                <button class="ihn-draft-event-btn ihn-cta-btn ihn-cta-btn-secondary" data-event-id="${escHtml(ev.id)}" data-event-name="${escHtml(ev.name ?? "")}">
+                  ${escHtml(ev.name ?? "Untitled event")}
+                </button>
+              `).join("")}
+            </div>
+            <div class="ihn-export-picker-actions">
+              <button id="ihn-draft-cancel-btn">Cancel</button>
+            </div>
+          </div>
+        `;
+          panelEl.querySelectorAll(".ihn-draft-event-btn").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const evId = btn.dataset.eventId;
+              const evName = btn.dataset.eventName;
+              draftState = { stage: "loading", eventId: evId, eventName: evName, total: 0 };
+              startDraftFetch(evId, evName);
+              renderPanel();
+            });
+          });
+          panelEl.querySelector("#ihn-draft-cancel-btn")?.addEventListener("click", () => {
+            draftPickerOpen = false;
+            renderPanel();
+          });
+          return;
+        }
+        if (draftState.stage === "loading") {
+          const approxSecs = Math.max(15, draftState.total);
+          body.innerHTML = `
+          <div class="ihn-draft-loading">
+            <div class="ihn-draft-spinner"></div>
+            <p class="ihn-draft-loading-msg">Getting LinkedIn names\u2026</p>
+            <p class="ihn-draft-loading-sub">Visiting each profile to get their real LinkedIn name \u2014 takes ~${approxSecs} seconds</p>
+            <button id="ihn-draft-cancel-btn" style="margin-top:12px">Cancel</button>
+          </div>
+        `;
+          panelEl.querySelector("#ihn-draft-cancel-btn")?.addEventListener("click", () => {
+            draftPickerOpen = false;
+            renderPanel();
+          });
+          return;
+        }
+        if (draftState.stage === "ready") {
+          const { postText, guestNames, totalGuests, eventId, eventShortName } = draftState;
+          body.innerHTML = `
+          <div class="ihn-draft-ready">
+            <p class="ihn-draft-section-label">Copy this as your post:</p>
+            <textarea id="ihn-draft-textarea" class="ihn-draft-textarea">${escHtml(postText)}</textarea>
+            <button id="ihn-draft-copy-btn" class="ihn-cta-btn ihn-cta-btn-primary">Copy post</button>
+
+            <p class="ihn-draft-section-label" style="margin-top:14px">Tag these people in your photo:</p>
+            <p class="ihn-draft-tag-hint">In the LinkedIn app: tap your photo \u2192 Tag people \u2192 search each name below</p>
+            <div class="ihn-draft-names">${guestNames.map((n) => `<span class="ihn-draft-name">${escHtml(n)}</span>`).join("")}</div>
+            ${totalGuests > 15 ? `<button id="ihn-draft-shuffle-btn" class="ihn-cta-btn ihn-cta-btn-secondary" data-event-id="${escHtml(eventId)}" data-event-short="${escHtml(eventShortName)}" style="margin-top:8px">Shuffle (${totalGuests} guests total)</button>` : ""}
+
+            <button id="ihn-draft-cancel-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Done</button>
+          </div>
+        `;
+          panelEl.querySelector("#ihn-draft-copy-btn")?.addEventListener("click", () => {
+            const text = panelEl.querySelector("#ihn-draft-textarea")?.value ?? postText;
+            navigator.clipboard.writeText(text).catch(() => {
+            });
+            const btn = panelEl.querySelector("#ihn-draft-copy-btn");
+            if (btn) {
+              btn.textContent = "Copied!";
+              setTimeout(() => {
+                btn.textContent = "Copy post";
+              }, 2e3);
+            }
+          });
+          panelEl.querySelector("#ihn-draft-shuffle-btn")?.addEventListener("click", () => {
+            const btn = panelEl.querySelector("#ihn-draft-shuffle-btn");
+            const evId = btn.dataset.eventId;
+            const evShort = btn.dataset.eventShort;
+            draftState = { stage: "loading", eventId: evId, eventName: evShort, total: 0 };
+            startDraftFetch(evId, evShort);
+            renderPanel();
+          });
+          panelEl.querySelector("#ihn-draft-cancel-btn")?.addEventListener("click", () => {
+            draftPickerOpen = false;
+            renderPanel();
+          });
+          return;
         }
       }
-      const topLabel = totalSent > 0 ? `${totalSent} sent total` : totalPending > 0 ? `${totalPending} queued \xB7 sending soon` : "0 sent";
+      const topLabel = !data ? "\u2026" : totalSent > 0 ? `${totalSent} sent total` : totalPending > 0 ? `${totalPending} queued \xB7 sending soon` : "0 sent";
       body.innerHTML = `
       <div class="ihn-chart-wrap">
-        ${data ? renderChart(data.chartData) : '<p class="ihn-chart-empty">Loading\u2026</p>'}
+        ${data ? renderChart(data.chartData, totalPending > 0) : '<p class="ihn-chart-empty">Loading\u2026</p>'}
       </div>
       <div class="ihn-results-header">
         <p class="ihn-total-sent">${topLabel}</p>
         <button id="ihn-progress-export-csv" title="Export CSV" class="ihn-export-btn">${icons.download} CSV</button>
       </div>
+      ${isRunning ? '<p class="ihn-keep-open-note">This panel can be closed \xB7 keep Chrome open</p>' : ""}
       <div class="ihn-events-list">
         ${(data?.events ?? []).map((event) => {
         const contacts = event.contacts ?? [];
@@ -482,7 +632,7 @@
         ).length;
         const isEventPaused = pausedEvents.includes(event.id);
         const expanded = expandedEvents.has(event.id);
-        const eventBadge = sentCount > 0 ? `<span class="ihn-event-badge">${sentCount} sent</span>` : pendingCount > 0 ? `<span class="ihn-event-badge ihn-event-badge-queued">${pendingCount} queued</span>` : "";
+        const eventBadge = sentCount > 0 ? `<span class="ihn-event-badge">${sentCount} sent</span>` : pendingCount > 0 ? `<span class="ihn-event-badge ${isEventPaused ? "ihn-event-badge-paused" : "ihn-event-badge-queued"}">${pendingCount} queued${isEventPaused ? " \xB7 paused" : ""}</span>` : "";
         return `<div class="ihn-event-row" data-event-id="${escHtml(event.id)}">
             <div class="ihn-event-header">
               <span class="ihn-event-chevron">${expanded ? icons.chevronDown : icons.chevronRight}</span>
@@ -519,14 +669,15 @@
       }).join("")}
         ${!data || data.events.length === 0 ? '<p class="ihn-empty">No events yet.</p>' : ""}
       </div>
+      ${data && data.events.length > 0 ? `<button id="ihn-draft-post-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">\u270D\uFE0F Draft LinkedIn post</button>` : ""}
     `;
       panelEl.querySelectorAll(".ihn-event-pause-btn").forEach((btn) => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
           const evId = btn.dataset.eventId;
-          const isPaused = btn.dataset.paused === "true";
-          chrome.runtime.sendMessage({ type: isPaused ? "RESUME_EVENT" : "PAUSE_EVENT", eventId: evId }, () => {
-            pausedEvents = isPaused ? pausedEvents.filter((id) => id !== evId) : [...pausedEvents, evId];
+          const isPaused2 = btn.dataset.paused === "true";
+          chrome.runtime.sendMessage({ type: isPaused2 ? "RESUME_EVENT" : "PAUSE_EVENT", eventId: evId }, () => {
+            pausedEvents = isPaused2 ? pausedEvents.filter((id) => id !== evId) : [...pausedEvents, evId];
             renderPanel();
           });
         });
@@ -540,6 +691,11 @@
           else expandedEvents.add(id);
           renderPanel();
         });
+      });
+      panelEl.querySelector("#ihn-draft-post-btn")?.addEventListener("click", () => {
+        draftPickerOpen = true;
+        draftState = { stage: "pick" };
+        renderPanel();
       });
       panelEl.querySelector("#ihn-progress-export-csv")?.addEventListener("click", () => {
         exportPickerOpen = true;
@@ -702,6 +858,9 @@
         chrome.runtime.sendMessage({ type: "GET_PAUSED_EVENTS" }, (resp) => {
           pausedEvents = resp?.pausedEvents ?? [];
         });
+        chrome.runtime.sendMessage({ type: "GET_CAMPAIGN_PAUSED" }, (resp) => {
+          campaignPaused = resp?.paused ?? false;
+        });
         chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
           progressData = resp;
           if (state.type === "progress") renderPanel();
@@ -737,28 +896,16 @@
     const existingSet = new Set(existingUrls);
     const toEnrich = existingUrls.length > 0 ? allUrls.filter((u) => !existingSet.has(u.url)) : allUrls;
     if (toEnrich.length === 0) {
-      state = { type: "progress" };
-      progressData = null;
+      state = {
+        type: "already_scanned",
+        count: existingUrls.length,
+        linkedInCount,
+        eventId: cachedEventId ?? "",
+        eventName,
+        eventLocation,
+        noNew: true
+      };
       renderPanel();
-      chrome.runtime.sendMessage({ type: "GET_PAUSED_EVENTS" }, (resp) => {
-        pausedEvents = resp?.pausedEvents ?? [];
-      });
-      chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
-        progressData = resp;
-        if (state.type === "progress") renderPanel();
-      });
-      if (progressRefreshTimer) clearInterval(progressRefreshTimer);
-      progressRefreshTimer = setInterval(() => {
-        if (state.type !== "progress") {
-          clearInterval(progressRefreshTimer);
-          progressRefreshTimer = null;
-          return;
-        }
-        chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
-          progressData = resp;
-          if (state.type === "progress") renderPanel();
-        });
-      }, 3e4);
       return;
     }
     const total = toEnrich.length;

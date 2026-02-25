@@ -151,6 +151,12 @@ let pausedEvents: string[] = []
 let progressRefreshTimer: ReturnType<typeof setInterval> | null = null
 let expandedEvents = new Set<string>()
 let exportPickerOpen = false
+let draftPickerOpen = false
+type DraftState =
+  | { stage: 'pick' }
+  | { stage: 'loading'; eventId: string; eventName: string; total: number }
+  | { stage: 'ready'; eventId: string; eventShortName: string; postText: string; guestNames: string[]; totalGuests: number }
+let draftState: DraftState = { stage: 'pick' }
 function shortEventLabel(name: string): string {
   // Remove parentheticals and content after : or — or -
   let s = name
@@ -192,6 +198,71 @@ function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+function shortenEventName(name: string): string {
+  // Remove {BRACKETS} prefix
+  let s = name.replace(/^\{[^}]*\}\s*/i, '')
+  // Remove subtitle after ': '
+  s = s.replace(/\s*:\s*.+$/, '')
+  // Remove parenthetical suffix
+  s = s.replace(/\s*\([^)]*\)\s*$/, '')
+  // Remove trailing punctuation/separators
+  s = s.replace(/[-–—\s]+$/, '').trim()
+  return s
+}
+
+function startDraftFetch(eventId: string, eventName: string): void {
+  chrome.runtime.sendMessage({ type: 'GET_DRAFT_DATA', eventId }, (resp) => {
+    if (!resp) {
+      draftPickerOpen = false
+      renderPanel()
+      return
+    }
+    const { hosts, guests, totalGuests } = resp as {
+      hosts: { id: string; name: string; linkedin_name: string }[]
+      guests: { id: string; name: string; linkedin_url: string; linkedin_name: string }[]
+      totalGuests: number
+    }
+    // Update loading total
+    if (draftState.stage === 'loading') {
+      (draftState as any).total = guests.length
+    }
+    renderPanel()
+
+    const needFetch = guests.filter(g => !g.linkedin_name && g.linkedin_url)
+    const alreadyCached = guests.filter(g => !!g.linkedin_name)
+
+    const buildDraft = (fetchedNames: { id: string; linkedin_name: string }[]) => {
+      // Merge cached + freshly fetched names
+      const nameMap = new Map<string, string>()
+      for (const g of guests) nameMap.set(g.id, g.linkedin_name || g.name || '')
+      for (const f of fetchedNames) if (f.linkedin_name) nameMap.set(f.id, f.linkedin_name)
+      for (const g of alreadyCached) nameMap.set(g.id, g.linkedin_name)
+
+      const hostMentions = hosts
+        .map(h => h.linkedin_name || h.name || '')
+        .filter(Boolean)
+        .map(n => `@${n}`)
+        .join(' ')
+      const shortName = shortenEventName(eventName)
+      const postText = `Thanks ${hostMentions} for organizing the ${shortName} event!`
+      const guestNames = guests.map(g => nameMap.get(g.id) || g.name || '').filter(Boolean)
+
+      draftState = { stage: 'ready', eventId, eventShortName: shortName, postText, guestNames, totalGuests }
+      renderPanel()
+    }
+
+    if (needFetch.length === 0) {
+      buildDraft([])
+      return
+    }
+
+    chrome.runtime.sendMessage(
+      { type: 'GET_LINKEDIN_NAMES', contacts: needFetch.map(g => ({ id: g.id, linkedin_url: g.linkedin_url })) },
+      (fetched) => buildDraft(fetched ?? [])
+    )
+  })
+}
+
 function etaString(done: number, total: number, startTime: number): string {
   if (done === 0) return ''
   const elapsed = (Date.now() - startTime) / 1000
@@ -203,8 +274,8 @@ function etaString(done: number, total: number, startTime: number): string {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
-function renderChart(chartData: {date:string,cumulative:number}[]): string {
-  if (chartData.length < 2) return '<p class="ihn-chart-empty">No connections sent yet</p>'
+function renderChart(chartData: {date:string,cumulative:number}[], hasPending = false): string {
+  if (chartData.length < 2) return `<p class="ihn-chart-empty">${hasPending ? 'First send coming soon' : 'No connections sent yet'}</p>`
   const W = 312, H = 100
   const pad = { t: 8, r: 8, b: 20, l: 32 }
   const maxVal = chartData[chartData.length - 1].cumulative
@@ -377,6 +448,7 @@ function renderPanel() {
       state = { type: 'progress' }
       renderPanel()
       chrome.runtime.sendMessage({ type: 'GET_PAUSED_EVENTS' }, (resp) => { pausedEvents = resp?.pausedEvents ?? [] })
+      chrome.runtime.sendMessage({ type: 'GET_CAMPAIGN_PAUSED' }, (resp) => { campaignPaused = resp?.paused ?? false })
       chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
         progressData = resp
         if (state.type === 'progress') renderPanel()
@@ -398,8 +470,27 @@ function renderPanel() {
     })
   } else if (state.type === 'progress') {
     titleEl.textContent = 'Progress'
-    subtitleEl.textContent = ''
     const data = progressData
+
+    // Compute totals upfront (needed for subtitle + body)
+    let totalSent = 0
+    let totalPending = 0
+    for (const event of data?.events ?? []) {
+      for (const c of event.contacts ?? []) {
+        const s = c.connection_queue?.[0]?.status
+        if (['sent','accepted'].includes(s)) totalSent++
+        else if (s === 'pending') totalPending++
+      }
+    }
+
+    const isRunning = !!(data && totalPending > 0 && !campaignPaused)
+    const isPaused  = !!(data && totalPending > 0 && campaignPaused)
+    const isDone    = !!(data && totalPending === 0 && data.events.length > 0)
+    subtitleEl.innerHTML = !data ? ''
+      : isRunning ? '<span class="ihn-status-pill ihn-pill-running">● Running</span>'
+      : isPaused  ? '<span class="ihn-status-pill ihn-pill-paused">● Paused</span>'
+      : isDone    ? '<span class="ihn-status-pill ihn-pill-done">✓ Done</span>'
+      : ''
 
     if (exportPickerOpen) {
       body.innerHTML = `
@@ -446,29 +537,119 @@ function renderPanel() {
       return
     }
 
-    // Total from status (accurate even without chart data)
-    let totalSent = 0
-    let totalPending = 0
-    for (const event of data?.events ?? []) {
-      for (const c of event.contacts ?? []) {
-        const s = c.connection_queue?.[0]?.status
-        if (['sent','accepted'].includes(s)) totalSent++
-        else if (s === 'pending') totalPending++
+    if (draftPickerOpen) {
+      const events = data?.events ?? []
+
+      if (draftState.stage === 'pick') {
+        if (events.length === 1) {
+          // Skip picker, go straight to loading
+          const ev = events[0]
+          draftState = { stage: 'loading', eventId: ev.id, eventName: ev.name ?? '', total: 0 }
+          startDraftFetch(ev.id, ev.name ?? '')
+        }
+        body.innerHTML = `
+          <div class="ihn-export-picker">
+            <p class="ihn-export-picker-title">Which event?</p>
+            <div class="ihn-export-picker-list">
+              ${events.map((ev: any) => `
+                <button class="ihn-draft-event-btn ihn-cta-btn ihn-cta-btn-secondary" data-event-id="${escHtml(ev.id)}" data-event-name="${escHtml(ev.name ?? '')}">
+                  ${escHtml(ev.name ?? 'Untitled event')}
+                </button>
+              `).join('')}
+            </div>
+            <div class="ihn-export-picker-actions">
+              <button id="ihn-draft-cancel-btn">Cancel</button>
+            </div>
+          </div>
+        `
+        panelEl.querySelectorAll<HTMLButtonElement>('.ihn-draft-event-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const evId = btn.dataset.eventId!
+            const evName = btn.dataset.eventName!
+            draftState = { stage: 'loading', eventId: evId, eventName: evName, total: 0 }
+            startDraftFetch(evId, evName)
+            renderPanel()
+          })
+        })
+        panelEl.querySelector('#ihn-draft-cancel-btn')?.addEventListener('click', () => {
+          draftPickerOpen = false
+          renderPanel()
+        })
+        return
+      }
+
+      if (draftState.stage === 'loading') {
+        const approxSecs = Math.max(15, draftState.total)
+        body.innerHTML = `
+          <div class="ihn-draft-loading">
+            <div class="ihn-draft-spinner"></div>
+            <p class="ihn-draft-loading-msg">Getting LinkedIn names…</p>
+            <p class="ihn-draft-loading-sub">Visiting each profile to get their real LinkedIn name — takes ~${approxSecs} seconds</p>
+            <button id="ihn-draft-cancel-btn" style="margin-top:12px">Cancel</button>
+          </div>
+        `
+        panelEl.querySelector('#ihn-draft-cancel-btn')?.addEventListener('click', () => {
+          draftPickerOpen = false
+          renderPanel()
+        })
+        return
+      }
+
+      if (draftState.stage === 'ready') {
+        const { postText, guestNames, totalGuests, eventId, eventShortName } = draftState
+        body.innerHTML = `
+          <div class="ihn-draft-ready">
+            <p class="ihn-draft-section-label">Copy this as your post:</p>
+            <textarea id="ihn-draft-textarea" class="ihn-draft-textarea">${escHtml(postText)}</textarea>
+            <button id="ihn-draft-copy-btn" class="ihn-cta-btn ihn-cta-btn-primary">Copy post</button>
+
+            <p class="ihn-draft-section-label" style="margin-top:14px">Tag these people in your photo:</p>
+            <p class="ihn-draft-tag-hint">In the LinkedIn app: tap your photo → Tag people → search each name below</p>
+            <div class="ihn-draft-names">${guestNames.map(n => `<span class="ihn-draft-name">${escHtml(n)}</span>`).join('')}</div>
+            ${totalGuests > 15 ? `<button id="ihn-draft-shuffle-btn" class="ihn-cta-btn ihn-cta-btn-secondary" data-event-id="${escHtml(eventId)}" data-event-short="${escHtml(eventShortName)}" style="margin-top:8px">Shuffle (${totalGuests} guests total)</button>` : ''}
+
+            <button id="ihn-draft-cancel-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Done</button>
+          </div>
+        `
+        panelEl.querySelector('#ihn-draft-copy-btn')?.addEventListener('click', () => {
+          const text = (panelEl.querySelector('#ihn-draft-textarea') as HTMLTextAreaElement)?.value ?? postText
+          navigator.clipboard.writeText(text).catch(() => {})
+          const btn = panelEl.querySelector('#ihn-draft-copy-btn') as HTMLButtonElement
+          if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy post' }, 2000) }
+        })
+        panelEl.querySelector('#ihn-draft-shuffle-btn')?.addEventListener('click', () => {
+          const btn = panelEl.querySelector('#ihn-draft-shuffle-btn') as HTMLButtonElement
+          const evId = btn.dataset.eventId!
+          const evShort = btn.dataset.eventShort!
+          // Re-fetch with a new random sample
+          draftState = { stage: 'loading', eventId: evId, eventName: evShort, total: 0 }
+          startDraftFetch(evId, evShort)
+          renderPanel()
+        })
+        panelEl.querySelector('#ihn-draft-cancel-btn')?.addEventListener('click', () => {
+          draftPickerOpen = false
+          renderPanel()
+        })
+        return
       }
     }
-    const topLabel = totalSent > 0
+
+    const topLabel = !data
+      ? '…'
+      : totalSent > 0
       ? `${totalSent} sent total`
       : totalPending > 0
       ? `${totalPending} queued · sending soon`
       : '0 sent'
     body.innerHTML = `
       <div class="ihn-chart-wrap">
-        ${data ? renderChart(data.chartData) : '<p class="ihn-chart-empty">Loading…</p>'}
+        ${data ? renderChart(data.chartData, totalPending > 0) : '<p class="ihn-chart-empty">Loading…</p>'}
       </div>
       <div class="ihn-results-header">
         <p class="ihn-total-sent">${topLabel}</p>
         <button id="ihn-progress-export-csv" title="Export CSV" class="ihn-export-btn">${icons.download} CSV</button>
       </div>
+      ${isRunning ? '<p class="ihn-keep-open-note">This panel can be closed · keep Chrome open</p>' : ''}
       <div class="ihn-events-list">
         ${(data?.events ?? []).map((event: any) => {
           const contacts = event.contacts ?? []
@@ -483,7 +664,7 @@ function renderPanel() {
           const eventBadge = sentCount > 0
             ? `<span class="ihn-event-badge">${sentCount} sent</span>`
             : pendingCount > 0
-            ? `<span class="ihn-event-badge ihn-event-badge-queued">${pendingCount} queued</span>`
+            ? `<span class="ihn-event-badge ${isEventPaused ? 'ihn-event-badge-paused' : 'ihn-event-badge-queued'}">${pendingCount} queued${isEventPaused ? ' · paused' : ''}</span>`
             : ''
           return `<div class="ihn-event-row" data-event-id="${escHtml(event.id)}">
             <div class="ihn-event-header">
@@ -521,6 +702,7 @@ function renderPanel() {
         }).join('')}
         ${!data || data.events.length === 0 ? '<p class="ihn-empty">No events yet.</p>' : ''}
       </div>
+      ${data && data.events.length > 0 ? `<button id="ihn-draft-post-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">✍️ Draft LinkedIn post</button>` : ''}
     `
     panelEl.querySelectorAll<HTMLButtonElement>('.ihn-event-pause-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -542,6 +724,11 @@ function renderPanel() {
         else expandedEvents.add(id)
         renderPanel()
       })
+    })
+    panelEl.querySelector('#ihn-draft-post-btn')?.addEventListener('click', () => {
+      draftPickerOpen = true
+      draftState = { stage: 'pick' }
+      renderPanel()
     })
     panelEl.querySelector('#ihn-progress-export-csv')?.addEventListener('click', () => {
       exportPickerOpen = true
@@ -707,6 +894,7 @@ function handleLaunch() {
       progressData = null
       renderPanel()
       chrome.runtime.sendMessage({ type: 'GET_PAUSED_EVENTS' }, (resp) => { pausedEvents = resp?.pausedEvents ?? [] })
+      chrome.runtime.sendMessage({ type: 'GET_CAMPAIGN_PAUSED' }, (resp) => { campaignPaused = resp?.paused ?? false })
       chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
         progressData = resp
         if (state.type === 'progress') renderPanel()
@@ -746,23 +934,17 @@ async function handleImportClick(rescan = false): Promise<void> {
     : allUrls
 
   if (toEnrich.length === 0) {
-    // Already up to date — go straight to progress view
-    state = { type: 'progress' }
-    progressData = null
+    // Already up to date — show already_scanned so user can view results or scan for new attendees
+    state = {
+      type: 'already_scanned',
+      count: existingUrls.length,
+      linkedInCount,
+      eventId: cachedEventId ?? '',
+      eventName,
+      eventLocation,
+      noNew: true,
+    }
     renderPanel()
-    chrome.runtime.sendMessage({ type: 'GET_PAUSED_EVENTS' }, (resp) => { pausedEvents = resp?.pausedEvents ?? [] })
-    chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
-      progressData = resp
-      if (state.type === 'progress') renderPanel()
-    })
-    if (progressRefreshTimer) clearInterval(progressRefreshTimer)
-    progressRefreshTimer = setInterval(() => {
-      if (state.type !== 'progress') { clearInterval(progressRefreshTimer!); progressRefreshTimer = null; return }
-      chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, (resp) => {
-        progressData = resp
-        if (state.type === 'progress') renderPanel()
-      })
-    }, 30000)
     return
   }
 
