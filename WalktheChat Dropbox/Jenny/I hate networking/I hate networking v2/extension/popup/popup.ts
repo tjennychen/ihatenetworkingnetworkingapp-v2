@@ -13,7 +13,11 @@ const brandHtml = `
 async function init() {
   const root = document.getElementById('root')!
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  const isLuma = (tab.url ?? '').includes('lu.ma') || (tab.url ?? '').includes('luma.com')
+  const tabUrl = tab.url ?? ''
+  const isLuma = tabUrl.includes('lu.ma') || tabUrl.includes('luma.com')
+  const nonEventPaths = ['', '/', '/home', '/calendar', '/events', '/discover', '/explore', '/settings', '/dashboard']
+  const lumaPath = (() => { try { return new URL(tabUrl).pathname } catch { return '' } })()
+  const isLumaEventPage = isLuma && !nonEventPaths.includes(lumaPath) && lumaPath.split('/').length === 2
 
   // Fetch data in parallel
   const [progressResp, pausedResp, statusResp] = await Promise.all([
@@ -58,14 +62,14 @@ async function init() {
       <div class="idle-wrap">
         <div class="idle-emoji">🤝</div>
         <div class="idle-title">No active campaign</div>
-        <div class="idle-sub">${isLuma ? 'Find attendees and connect on LinkedIn.' : 'Start from any Luma event page.'}</div>
-        ${isLuma
+        <div class="idle-sub">${isLumaEventPage ? 'Find attendees and connect on LinkedIn.' : 'Navigate to a specific event page on Luma first.'}</div>
+        ${isLumaEventPage
           ? `<button class="btn-primary" id="btnScan">Scan this event →</button>`
-          : `<button class="btn-secondary" id="btnLuma">Open Luma.com →</button>`
+          : `<button class="btn-secondary" id="btnLuma">${isLuma ? 'Go to an event page →' : 'Open Luma.com →'}</button>`
         }
       </div>
     `
-    if (isLuma) {
+    if (isLumaEventPage) {
       root.querySelector('#btnScan')!.addEventListener('click', () => {
         chrome.tabs.sendMessage(tab.id!, { type: 'OPEN_PANEL' })
         window.close()
@@ -111,7 +115,7 @@ async function init() {
     </div>
   ` : ''
 
-  const scanBtnHtml = isLuma
+  const scanBtnHtml = isLumaEventPage
     ? `<div class="section"><button class="btn-secondary" id="btnScan">Scan another event →</button></div>`
     : ''
 
@@ -150,7 +154,7 @@ async function init() {
     init() // re-render with new state
   })
 
-  if (isLuma) {
+  if (isLumaEventPage) {
     root.querySelector('#btnScan')?.addEventListener('click', () => {
       chrome.tabs.sendMessage(tab.id!, { type: 'OPEN_PANEL' })
       window.close()
