@@ -161,6 +161,7 @@ function shortEventLabel(name: string): string {
   // Remove parentheticals and content after : or — or -
   let s = name
     .replace(/\(.*?\)/g, '')
+    .replace(/#\d+/g, '')        // strip series numbers like #14
     .replace(/[:\-–—].*$/, '')
     .replace(/[^\w\s]/gu, ' ')   // strip emoji and punctuation
     .replace(/\s+/g, ' ')
@@ -168,10 +169,10 @@ function shortEventLabel(name: string): string {
   // If "with [Word]" pattern, take the word(s) after "with"
   const withMatch = s.match(/\bwith\s+(\S+(?:\s+\S+)?)/i)
   if (withMatch) return withMatch[1].trim()
-  // Otherwise strip generic filler words, return first 2 meaningful words
-  const filler = new Set(['making','money','night','day','the','a','an','and','or','for','of','in','at','to','from','ship','it','tonight','session','event','meetup','workshop','vibe','coding','open','mat','finder'])
-  const words = s.split(/\s+/).filter(w => w.length > 1 && !filler.has(w.toLowerCase()))
-  return words.slice(0, 2).join(' ')
+  // Otherwise strip generic filler words, return first 3 meaningful words
+  const filler = new Set(['making','money','day','the','a','an','and','or','for','of','in','at','to','from','ship','it','tonight','session','event','meetup','workshop','open','mat','finder'])
+  const words = s.split(/\s+/).filter(w => w.length > 1 && !filler.has(w.toLowerCase()) && !/^\d+$/.test(w))
+  return words.slice(0, 3).join(' ')
 }
 
 function defaultNote(eventName: string): string {
@@ -702,7 +703,7 @@ function renderPanel() {
         ${!data || data.events.length === 0 ? '<p class="ihn-empty">No events yet.</p>' : ''}
       </div>
       ${data && data.events.length > 0 ? `<button id="ihn-draft-post-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">✍️ Draft LinkedIn post</button>` : ''}
-      <p style="margin:12px 0 0;font-size:11px;color:#999;text-align:center">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank" style="color:#999">Jenny Chen</a></p>
+      <p style="margin:12px 0 0;font-size:11px;color:#999;text-align:center">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank" style="color:#999;cursor:pointer">Jenny Chen</a></p>
     `
     panelEl.querySelectorAll<HTMLButtonElement>('.ihn-event-pause-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {

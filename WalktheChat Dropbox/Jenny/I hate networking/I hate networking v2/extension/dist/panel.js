@@ -187,12 +187,12 @@
   var draftPickerOpen = false;
   var draftState = { stage: "pick" };
   function shortEventLabel(name) {
-    let s2 = name.replace(/\(.*?\)/g, "").replace(/[:\-–—].*$/, "").replace(/[^\w\s]/gu, " ").replace(/\s+/g, " ").trim();
+    let s2 = name.replace(/\(.*?\)/g, "").replace(/#\d+/g, "").replace(/[:\-–—].*$/, "").replace(/[^\w\s]/gu, " ").replace(/\s+/g, " ").trim();
     const withMatch = s2.match(/\bwith\s+(\S+(?:\s+\S+)?)/i);
     if (withMatch) return withMatch[1].trim();
-    const filler = /* @__PURE__ */ new Set(["making", "money", "night", "day", "the", "a", "an", "and", "or", "for", "of", "in", "at", "to", "from", "ship", "it", "tonight", "session", "event", "meetup", "workshop", "vibe", "coding", "open", "mat", "finder"]);
-    const words = s2.split(/\s+/).filter((w) => w.length > 1 && !filler.has(w.toLowerCase()));
-    return words.slice(0, 2).join(" ");
+    const filler = /* @__PURE__ */ new Set(["making", "money", "day", "the", "a", "an", "and", "or", "for", "of", "in", "at", "to", "from", "ship", "it", "tonight", "session", "event", "meetup", "workshop", "open", "mat", "finder"]);
+    const words = s2.split(/\s+/).filter((w) => w.length > 1 && !filler.has(w.toLowerCase()) && !/^\d+$/.test(w));
+    return words.slice(0, 3).join(" ");
   }
   function defaultNote(eventName) {
     const label = shortEventLabel(eventName);
@@ -668,7 +668,7 @@
         ${!data || data.events.length === 0 ? '<p class="ihn-empty">No events yet.</p>' : ""}
       </div>
       ${data && data.events.length > 0 ? `<button id="ihn-draft-post-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">\u270D\uFE0F Draft LinkedIn post</button>` : ""}
-      <p style="margin:12px 0 0;font-size:11px;color:#999;text-align:center">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank" style="color:#999">Jenny Chen</a></p>
+      <p style="margin:12px 0 0;font-size:11px;color:#999;text-align:center">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank" style="color:#999;cursor:pointer">Jenny Chen</a></p>
     `;
       panelEl.querySelectorAll(".ihn-event-pause-btn").forEach((btn) => {
         btn.addEventListener("click", (e) => {
