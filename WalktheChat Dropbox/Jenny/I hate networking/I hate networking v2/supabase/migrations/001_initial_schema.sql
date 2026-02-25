@@ -66,3 +66,6 @@ CREATE INDEX ON events(user_id, created_at DESC);
 CREATE INDEX ON contacts(user_id, event_id);
 CREATE INDEX ON connection_queue(user_id, status, scheduled_at);
 CREATE INDEX ON usage_logs(user_id, action, created_at DESC);
+
+-- 2026-02-25: add linkedin_name for LinkedIn post drafter
+-- ALTER TABLE contacts ADD COLUMN IF NOT EXISTS linkedin_name TEXT DEFAULT '';
