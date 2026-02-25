@@ -14,15 +14,14 @@ const links = [
 export default function Nav() {
   const pathname = usePathname()
   const router = useRouter()
-  const supabase = createClient()
-
   async function handleLogout() {
+    const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')
   }
 
   return (
-    <nav className="fixed left-0 top-0 h-full w-56 bg-white border-r border-gray-100 flex flex-col p-4">
+    <nav className="fixed left-0 top-0 h-full w-56 bg-white z-50 border-r border-gray-100 flex flex-col p-4">
       <div className="mb-8">
         <span className="text-sm font-bold text-gray-900">I Hate Networking</span>
       </div>

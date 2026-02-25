@@ -3,8 +3,9 @@
   "name": "I Hate Networking",
   "version": "1.0.0",
   "description": "Connect with Luma event attendees on LinkedIn",
-  "permissions": ["storage", "tabs", "alarms", "activeTab"],
+  "permissions": ["storage", "tabs", "alarms", "activeTab", "cookies"],
   "host_permissions": [
+    "https://lu.ma/*",
     "https://*.lu.ma/*",
     "https://luma.com/*",
     "https://www.linkedin.com/*",
@@ -16,12 +17,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://*.lu.ma/*", "https://luma.com/*"],
+      "matches": ["https://lu.ma/*", "https://*.lu.ma/*", "https://luma.com/*"],
       "js": ["dist/luma.js"],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://*.lu.ma/*", "https://luma.com/*"],
+      "matches": ["https://lu.ma/*", "https://*.lu.ma/*", "https://luma.com/*"],
       "js": ["dist/panel.js"],
       "css": ["dist/panel.css"],
       "run_at": "document_idle"

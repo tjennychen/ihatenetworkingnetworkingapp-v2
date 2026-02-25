@@ -22,6 +22,10 @@ function StatusDot({ queue }: { queue: QueueItem[] }) {
     return <span className="text-green-500 text-xs" title="Sent">●</span>
   }
 
+  if (latest.status === 'pending') {
+    return <span className="text-gray-300 text-xs" title="Queued">●</span>
+  }
+
   if (latest.status === 'failed') {
     return (
       <span className="inline-flex items-center gap-0.5">
@@ -106,6 +110,9 @@ export default function CampaignsPage() {
                   <div className="border-t border-gray-100">
                     {/* Legend */}
                     <div className="px-4 py-2 flex items-center gap-4 bg-gray-50 border-b border-gray-100">
+                      <span className="text-xs text-gray-500 flex items-center gap-1">
+                        <span className="text-gray-300">●</span> queued
+                      </span>
                       <span className="text-xs text-gray-500 flex items-center gap-1">
                         <span className="text-green-500">●</span> sent
                       </span>

@@ -423,3 +423,34 @@
   font-family: inherit;
   text-decoration: underline;
 }
+
+/* Status dots in contacts view */
+.ihn-status-dot {
+  font-size: 8px;
+  line-height: 1;
+  margin-right: 2px;
+}
+.ihn-status-sent  { color: #22c55e; }
+.ihn-status-failed { color: #ef4444; }
+.ihn-status-pending { color: #d1d5db; }
+
+/* Progress view */
+.ihn-chart-wrap { margin: 8px 0 4px; }
+.ihn-chart-empty { font-size: 12px; color: #9ca3af; text-align: center; padding: 16px 0; margin: 0; }
+.ihn-total-sent { font-size: 11px; color: #6b7280; margin: 0 0 12px; }
+.ihn-events-list { display: flex; flex-direction: column; gap: 4px; }
+.ihn-event-row { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+.ihn-event-header { display: flex; align-items: center; gap: 6px; padding: 8px 10px; cursor: pointer; background: #f9fafb; }
+.ihn-event-header:hover { background: #f3f4f6; }
+.ihn-event-chevron { font-size: 9px; color: #9ca3af; }
+.ihn-event-name { flex: 1; font-size: 13px; font-weight: 500; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ihn-event-badge { font-size: 11px; color: #6b7280; background: #e5e7eb; padding: 1px 6px; border-radius: 10px; flex-shrink: 0; }
+.ihn-event-contacts { padding: 4px 10px 8px; display: flex; flex-direction: column; gap: 4px; }
+.ihn-contact-row { display: flex; align-items: center; justify-content: space-between; }
+.ihn-contact-name { font-size: 12px; color: #374151; }
+.ihn-status-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 500; }
+.ihn-status-badge.ihn-status-pending  { background: #f3f4f6; color: #6b7280; }
+.ihn-status-badge.ihn-status-sent     { background: #dbeafe; color: #1d4ed8; }
+.ihn-status-badge.ihn-status-accepted { background: #dcfce7; color: #16a34a; }
+.ihn-status-badge.ihn-status-failed   { background: #fee2e2; color: #dc2626; }
+.ihn-empty { font-size: 12px; color: #9ca3af; text-align: center; padding: 12px 0; margin: 0; }

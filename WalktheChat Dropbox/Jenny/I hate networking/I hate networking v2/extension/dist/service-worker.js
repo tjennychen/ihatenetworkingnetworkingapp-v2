@@ -11538,6 +11538,12 @@ ${suffix}`;
   function getSupabase() {
     return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }
+  function getAuthedSupabase(accessToken) {
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } }
+    });
+  }
 
   // lib/rate-limiter.ts
   var DAILY_LIMIT = 40;
@@ -11595,7 +11601,7 @@ ${suffix}`;
         }
         await chrome.storage.local.set({ session: data.session });
         sendResponse({ success: true });
-      });
+      }).catch((err) => sendResponse({ success: false, error: err?.message ?? "Login failed" }));
       return true;
     }
     if (msg.type === "SIGN_UP") {
@@ -11612,7 +11618,7 @@ ${suffix}`;
         } else {
           sendResponse({ success: true, sessionReady: false });
         }
-      });
+      }).catch((err) => sendResponse({ success: false, error: err?.message ?? "Sign up failed" }));
       return true;
     }
     if (msg.type === "LAUNCH_CAMPAIGN") {
@@ -11620,16 +11626,91 @@ ${suffix}`;
       launchCampaign({ eventId, note, lumaUrl, eventName, contacts }).then((result) => sendResponse(result));
       return true;
     }
+    if (msg.type === "GET_EVENT_BY_URL") {
+      getSession().then(async (session) => {
+        if (!session) {
+          sendResponse({ eventId: "", existingUrls: [], linkedInCount: 0 });
+          return;
+        }
+        const supabase = getAuthedSupabase(session.access_token);
+        const { data: event } = await supabase.from("events").select("id").eq("luma_url", msg.lumaUrl).eq("user_id", session.user.id).single();
+        if (!event) {
+          sendResponse({ eventId: "", existingUrls: [], linkedInCount: 0 });
+          return;
+        }
+        const { data: contacts } = await supabase.from("contacts").select("luma_profile_url, linkedin_url, name, instagram_url, is_host").eq("event_id", event.id);
+        const existingUrls = (contacts ?? []).map((c) => c.luma_profile_url);
+        const linkedInCount = (contacts ?? []).filter((c) => c.linkedin_url).length;
+        sendResponse({ eventId: event.id, existingUrls, linkedInCount, contacts: contacts ?? [] });
+      });
+      return true;
+    }
+    if (msg.type === "GET_RECENT_CONTACTS") {
+      getSession().then(async (session) => {
+        if (!session) {
+          sendResponse({ events: [] });
+          return;
+        }
+        const supabase = getAuthedSupabase(session.access_token);
+        const { data } = await supabase.from("events").select("id, name, contacts(id, name, headline, linkedin_url, connection_queue(status))").eq("user_id", session.user.id).order("created_at", { ascending: false }).limit(5);
+        sendResponse({ events: data ?? [] });
+      });
+      return true;
+    }
+    if (msg.type === "GET_PROGRESS_DATA") {
+      getSession().then(async (session) => {
+        if (!session) {
+          sendResponse({ chartData: [], events: [] });
+          return;
+        }
+        const supabase = getAuthedSupabase(session.access_token);
+        const { data: queueRows } = await supabase.from("connection_queue").select("sent_at").eq("user_id", session.user.id).not("sent_at", "is", null).order("sent_at", { ascending: true });
+        const dayCounts = {};
+        for (const row of queueRows ?? []) {
+          const day = row.sent_at.slice(0, 10);
+          dayCounts[day] = (dayCounts[day] ?? 0) + 1;
+        }
+        let cum = 0;
+        const chartData = Object.keys(dayCounts).sort().map((d) => {
+          cum += dayCounts[d];
+          return { date: d, cumulative: cum };
+        });
+        const { data: events } = await supabase.from("events").select("id, name, contacts(id, name, linkedin_url, instagram_url, connection_queue(status))").eq("user_id", session.user.id).order("created_at", { ascending: false });
+        sendResponse({ chartData, events: events ?? [] });
+      });
+      return true;
+    }
+    if (msg.type === "GET_CONTACT_STATUSES") {
+      getSession().then(async (session) => {
+        if (!session) {
+          sendResponse({ statuses: [] });
+          return;
+        }
+        const supabase = getAuthedSupabase(session.access_token);
+        const { data } = await supabase.from("contacts").select("linkedin_url, connection_queue(status)").eq("event_id", msg.eventId).eq("user_id", session.user.id);
+        const statuses = (data ?? []).filter((c) => c.linkedin_url && c.connection_queue?.[0]?.status).map((c) => ({ linkedInUrl: c.linkedin_url, status: c.connection_queue[0].status }));
+        sendResponse({ statuses });
+      });
+      return true;
+    }
   });
   async function getSession() {
     const { session } = await chrome.storage.local.get("session");
+    if (!session) return null;
+    const expiresAt2 = session.expires_at ?? 0;
+    if (Date.now() / 1e3 >= expiresAt2 - 60) {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.auth.refreshSession({ refresh_token: session.refresh_token });
+      if (error || !data.session) return null;
+      await chrome.storage.local.set({ session: data.session });
+      return data.session;
+    }
     return session;
   }
   async function saveContacts(data) {
     const session = await getSession();
     if (!session) return 0;
-    const supabase = getSupabase();
-    await supabase.auth.setSession(session);
+    const supabase = getAuthedSupabase(session.access_token);
     const { data: event } = await supabase.from("events").upsert(
       { user_id: session.user.id, luma_url: data.lumaUrl, name: data.eventName },
       { onConflict: "luma_url,user_id" }
@@ -11652,28 +11733,28 @@ ${suffix}`;
   async function saveEnrichedContacts(data) {
     const session = await getSession();
     if (!session) return { eventId: "", found: 0, total: 0 };
-    const supabase = getSupabase();
-    await supabase.auth.setSession(session);
-    const { data: event } = await supabase.from("events").upsert(
+    const supabase = getAuthedSupabase(session.access_token);
+    const { data: event, error: eventError } = await supabase.from("events").upsert(
       { user_id: session.user.id, luma_url: data.lumaUrl, name: data.eventName, campaign_status: "draft" },
       { onConflict: "luma_url,user_id" }
     ).select().single();
-    if (!event) return { eventId: "", found: 0, total: 0 };
+    if (!event) {
+      console.error("[IHN] event upsert failed:", eventError);
+      return { eventId: "", found: 0, total: 0 };
+    }
     const total = data.contacts.length;
     let found = 0;
     for (const contact of data.contacts) {
-      const { url, isHost, name, linkedInUrl, instagramUrl } = contact;
-      const firstName = name.split(" ")[0];
+      const { url, isHost, name, linkedInUrl, instagramUrl, twitterUrl } = contact;
       const { data: saved } = await supabase.from("contacts").upsert(
         {
           user_id: session.user.id,
           event_id: event.id,
           luma_profile_url: url,
           name,
-          first_name: firstName,
-          last_name: name.split(" ").slice(1).join(" "),
           linkedin_url: linkedInUrl,
           instagram_url: instagramUrl || null,
+          twitter_url: twitterUrl || "",
           is_host: isHost
         },
         { onConflict: "event_id,luma_profile_url" }
@@ -11694,8 +11775,7 @@ ${suffix}`;
   async function launchCampaign(data) {
     const session = await getSession();
     if (!session) return { queued: 0, eventId: "" };
-    const supabase = getSupabase();
-    await supabase.auth.setSession(session);
+    const supabase = getAuthedSupabase(session.access_token);
     let eventId = data.eventId;
     if (!eventId && data.contacts?.length && data.lumaUrl) {
       const saved = await saveEnrichedContacts({
@@ -11728,8 +11808,7 @@ ${suffix}`;
   async function processNextQueueItem() {
     const session = await getSession();
     if (!session) return;
-    const supabase = getSupabase();
-    await supabase.auth.setSession(session);
+    const supabase = getAuthedSupabase(session.access_token);
     const sentToday = await getSentTodayCount(supabase, session.user.id);
     const { canSend } = checkDailyLimit(sentToday);
     if (!canSend) return;
@@ -11740,10 +11819,21 @@ ${suffix}`;
       await supabase.from("connection_queue").update({ status: "failed", error: "no_linkedin_url" }).eq("id", item.id);
       return;
     }
-    const tab = await chrome.tabs.create({ url: linkedinUrl, active: false });
+    const win = await chrome.windows.create({
+      url: linkedinUrl,
+      type: "popup",
+      left: -2e3,
+      top: -2e3,
+      width: 100,
+      height: 100,
+      focused: false
+    });
+    const tabId = win.tabs[0].id;
     await new Promise((r) => setTimeout(r, 3e3));
     const result = await new Promise((resolve) => {
-      chrome.tabs.sendMessage(tab.id, { type: "CONNECT", note: item.note || "" }, (response) => {
+      const firstName = item.contacts?.name?.split(" ")[0] || "";
+      const resolvedNote = (item.note || "").replace(/\[first name\]/gi, firstName);
+      chrome.tabs.sendMessage(tabId, { type: "CONNECT", note: resolvedNote }, (response) => {
         resolve(response ?? { success: false, error: "no_response" });
       });
     });
@@ -11756,14 +11846,14 @@ ${suffix}`;
         user_id: session.user.id,
         action: "connection_sent"
       });
+      const delayMinutes = 8 + Math.random() * 7;
+      await supabase.from("connection_queue").update({ scheduled_at: new Date(Date.now() + delayMinutes * 6e4).toISOString() }).eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1);
     } else {
       await supabase.from("connection_queue").update({
         status: "failed",
         error: result.error ?? "unknown"
       }).eq("id", item.id);
     }
-    chrome.tabs.remove(tab.id);
-    const delayMinutes = 8 + Math.random() * 7;
-    await supabase.from("connection_queue").update({ scheduled_at: new Date(Date.now() + delayMinutes * 6e4).toISOString() }).eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1);
+    await chrome.windows.remove(win.id);
   }
 })();

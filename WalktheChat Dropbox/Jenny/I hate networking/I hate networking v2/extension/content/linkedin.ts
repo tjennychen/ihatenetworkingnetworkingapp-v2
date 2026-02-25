@@ -24,10 +24,13 @@ async function openMoreActionsIfNeeded(): Promise<void> {
 }
 
 async function dismissPremiumPaywall(): Promise<boolean> {
-  const paywall = document.querySelector('[class*="premium"], [class*="upsell"]')
+  const paywall = document.querySelector(
+    '[class*="premium-upsell"], [class*="premium_upsell"], [data-test-modal*="premium"], ' +
+    '[class*="upsell"], [aria-label*="Premium"]'
+  )
   if (!paywall) return false
   const closeBtn = document.querySelector<HTMLButtonElement>(
-    '[aria-label="Dismiss"], [aria-label="Close"], button[data-modal-dismiss]'
+    '[aria-label="Dismiss"], [aria-label="Close"], [data-test-modal-close-btn], button[data-modal-dismiss]'
   )
   closeBtn?.click()
   await new Promise(r => setTimeout(r, 500))
@@ -55,14 +58,17 @@ async function sendConnection(note?: string): Promise<{ success: boolean; error?
   connectBtn.click()
   await new Promise(r => setTimeout(r, 800 + Math.random() * 700))
 
-  const addNoteBtn = findButtonByText('Add a note')
-  if (addNoteBtn) {
-    if (await dismissPremiumPaywall()) {
-      // paywall dismissed — fall through to send without note
-    } else if (note) {
-      addNoteBtn.click()
-      await new Promise(r => setTimeout(r, 500))
+  // Dismiss any premium popup that appears immediately after clicking Connect
+  await dismissPremiumPaywall()
 
+  const addNoteBtn = findButtonByText('Add a note')
+  if (addNoteBtn && note) {
+    addNoteBtn.click()
+    await new Promise(r => setTimeout(r, 500))
+
+    // Premium may also appear after clicking "Add a note"
+    const paywalled = await dismissPremiumPaywall()
+    if (!paywalled) {
       const textarea = document.querySelector<HTMLTextAreaElement>(
         'textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
       )

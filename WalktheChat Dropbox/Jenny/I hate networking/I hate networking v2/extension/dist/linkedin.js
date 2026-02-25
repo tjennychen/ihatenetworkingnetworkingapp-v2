@@ -21,10 +21,12 @@
     }
   }
   async function dismissPremiumPaywall() {
-    const paywall = document.querySelector('[class*="premium"], [class*="upsell"]');
+    const paywall = document.querySelector(
+      '[class*="premium-upsell"], [class*="premium_upsell"], [data-test-modal*="premium"], [class*="upsell"], [aria-label*="Premium"]'
+    );
     if (!paywall) return false;
     const closeBtn = document.querySelector(
-      '[aria-label="Dismiss"], [aria-label="Close"], button[data-modal-dismiss]'
+      '[aria-label="Dismiss"], [aria-label="Close"], [data-test-modal-close-btn], button[data-modal-dismiss]'
     );
     closeBtn?.click();
     await new Promise((r) => setTimeout(r, 500));
@@ -45,12 +47,13 @@
     }
     connectBtn.click();
     await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
+    await dismissPremiumPaywall();
     const addNoteBtn = findButtonByText("Add a note");
-    if (addNoteBtn) {
-      if (await dismissPremiumPaywall()) {
-      } else if (note) {
-        addNoteBtn.click();
-        await new Promise((r) => setTimeout(r, 500));
+    if (addNoteBtn && note) {
+      addNoteBtn.click();
+      await new Promise((r) => setTimeout(r, 500));
+      const paywalled = await dismissPremiumPaywall();
+      if (!paywalled) {
         const textarea = document.querySelector(
           'textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
         );

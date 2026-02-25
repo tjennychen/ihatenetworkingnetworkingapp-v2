@@ -8,21 +8,18 @@
       content.innerHTML = `
       <div class="login-prompt">
         Not logged in.<br><br>
-        <a href="http://localhost:3000/login" target="_blank">Open dashboard to log in</a>
+        <a href="https://ihn-dashboard.vercel.app/login" target="_blank">Open dashboard to log in</a>
       </div>`;
       return;
     }
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const url = tab.url ?? "";
-    const isLuma = url.includes("lu.ma") || url.includes("luma.com");
+    const isLuma = (tab.url ?? "").includes("lu.ma") || (tab.url ?? "").includes("luma.com");
     if (!isLuma) {
       content.innerHTML = '<div class="not-luma">Navigate to a Luma event page to get started.</div>';
       return;
     }
-    content.innerHTML = `
-    <button class="btn-primary" id="btnConnect">Connect with Attendees &rarr;</button>
-  `;
-    document.getElementById("btnConnect").addEventListener("click", async () => {
+    content.innerHTML = `<button class="btn-primary" id="btnScan">Scan this event \u2192</button>`;
+    document.getElementById("btnScan").addEventListener("click", () => {
       chrome.tabs.sendMessage(tab.id, { type: "OPEN_PANEL" });
       window.close();
     });

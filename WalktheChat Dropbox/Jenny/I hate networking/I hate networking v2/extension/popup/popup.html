@@ -4,12 +4,16 @@
   <meta charset="utf-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, sans-serif; width: 280px; padding: 16px; background: #fff; }
-    .header { font-size: 13px; font-weight: 700; color: #111; margin-bottom: 4px; }
-    .subtitle { font-size: 11px; color: #888; margin-bottom: 16px; }
+    body { font-family: -apple-system, sans-serif; width: 360px; background: #fff; }
+    .nav {
+      font-size: 13px; font-weight: 700; color: #111;
+      padding: 12px 16px; border-bottom: 1px solid #f0f0f0;
+      background: #fff; position: sticky; top: 0;
+    }
+    .content { padding: 12px 16px; max-height: 480px; overflow-y: auto; }
     button {
       width: 100%; padding: 10px 14px; border: none; border-radius: 8px;
-      font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 12px;
       transition: opacity 0.15s;
     }
     button:hover { opacity: 0.85; }
@@ -18,11 +22,29 @@
     .not-luma { font-size: 12px; color: #888; text-align: center; padding: 12px 0; }
     .login-prompt { font-size: 12px; color: #888; text-align: center; padding: 12px 0; }
     .login-prompt a { color: #4f46e5; text-decoration: none; }
+    .empty { font-size: 12px; color: #aaa; text-align: center; padding: 16px 0; }
+    .event-group { margin-bottom: 14px; }
+    .event-name {
+      font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase;
+      letter-spacing: 0.04em; margin-bottom: 6px;
+    }
+    .contact-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 0; border-bottom: 1px solid #f5f5f5;
+    }
+    .contact-row:last-child { border-bottom: none; }
+    .contact-info { flex: 1; min-width: 0; }
+    .contact-name { font-size: 13px; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .contact-headline { font-size: 11px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dot { font-size: 10px; flex-shrink: 0; width: 14px; text-align: center; }
+    .dot-pending { color: #ccc; }
+    .dot-sent, .dot-accepted { color: #22c55e; }
+    .dot-failed { color: #ef4444; }
   </style>
 </head>
 <body>
-  <div class="header">I Hate Networking</div>
-  <div id="content"></div>
+  <div class="nav">I Hate Networking</div>
+  <div class="content" id="content"></div>
   <script src="../dist/popup.js"></script>
 </body>
 </html>

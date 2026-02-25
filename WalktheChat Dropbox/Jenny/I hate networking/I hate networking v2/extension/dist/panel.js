@@ -109,7 +109,10 @@
   var enrichedContacts = [];
   var panelEl = null;
   var noteValue = "";
+  var contactStatuses = /* @__PURE__ */ new Map();
   var authMode = "signup";
+  var progressData = null;
+  var expandedEvents = /* @__PURE__ */ new Set();
   var DEFAULT_NOTE = "Hi [first name], I was also at the event. I'd love to stay connected!";
   var MAX_NOTE = 300;
   async function checkLinkedInLogin() {
@@ -129,6 +132,27 @@
     const remaining = Math.ceil((total - done) * perItem);
     if (remaining < 60) return `~${remaining}s remaining`;
     return `~${Math.ceil(remaining / 60)} min remaining`;
+  }
+  function renderChart(chartData) {
+    if (chartData.length < 2) return '<p class="ihn-chart-empty">No connections sent yet</p>';
+    const W = 312, H = 100;
+    const pad = { t: 8, r: 8, b: 20, l: 32 };
+    const maxVal = chartData[chartData.length - 1].cumulative;
+    const xS = (i) => pad.l + i / (chartData.length - 1) * (W - pad.l - pad.r);
+    const yS = (v) => pad.t + (1 - v / maxVal) * (H - pad.t - pad.b);
+    const pts = chartData.map((d, i) => `${xS(i)},${yS(d.cumulative)}`).join(" ");
+    const area = `${xS(0)},${H - pad.b} ${pts} ${xS(chartData.length - 1)},${H - pad.b}`;
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <defs><linearGradient id="ihn-cg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0.03"/>
+    </linearGradient></defs>
+    <polygon points="${area}" fill="url(#ihn-cg)"/>
+    <polyline points="${pts}" fill="none" stroke="#6366f1" stroke-width="1.5" stroke-linejoin="round"/>
+    <text x="${pad.l}" y="${H}" font-size="9" fill="#9ca3af">${chartData[0].date.slice(5)}</text>
+    <text x="${W - pad.r}" y="${H}" font-size="9" fill="#9ca3af" text-anchor="end">${chartData[chartData.length - 1].date.slice(5)}</text>
+    <text x="${pad.l - 4}" y="${pad.t + 6}" font-size="9" fill="#9ca3af" text-anchor="end">${maxVal}</text>
+  </svg>`;
   }
   function renderPanel() {
     if (!panelEl) return;
@@ -273,9 +297,12 @@
       <button id="ihn-scan-another" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Scan another event</button>
     `;
       panelEl?.querySelector("#ihn-view-contacts")?.addEventListener("click", () => {
-        if (state.type !== "launched") return;
-        state = { type: "contacts", queued: state.queued, eventId: state.eventId };
+        state = { type: "progress" };
         renderPanel();
+        chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
+          progressData = resp;
+          if (state.type === "progress") renderPanel();
+        });
       });
       panelEl?.querySelector("#ihn-scan-another")?.addEventListener("click", () => {
         state = { type: "idle" };
@@ -283,6 +310,70 @@
         noteValue = "";
         closePanel();
       });
+    } else if (state.type === "progress") {
+      titleEl.textContent = "Progress";
+      subtitleEl.textContent = "";
+      const data = progressData;
+      const totalSent = data ? data.chartData[data.chartData.length - 1]?.cumulative ?? 0 : 0;
+      body.innerHTML = `
+      <div class="ihn-chart-wrap">
+        ${data ? renderChart(data.chartData) : '<p class="ihn-chart-empty">Loading\u2026</p>'}
+      </div>
+      <div class="ihn-results-header">
+        <p class="ihn-total-sent">${totalSent} sent total</p>
+        <button id="ihn-progress-export-csv" title="Export CSV" class="ihn-export-btn">&#8681; CSV</button>
+      </div>
+      <div class="ihn-events-list">
+        ${(data?.events ?? []).map((event) => {
+        const contacts = event.contacts ?? [];
+        const sentCount = contacts.filter(
+          (c) => ["sent", "accepted"].includes(c.connection_queue?.[0]?.status)
+        ).length;
+        const expanded = expandedEvents.has(event.id);
+        return `<div class="ihn-event-row" data-event-id="${escHtml(event.id)}">
+            <div class="ihn-event-header">
+              <span class="ihn-event-chevron">${expanded ? "\u25BC" : "\u25B6"}</span>
+              <span class="ihn-event-name">${escHtml(event.name ?? "Untitled event")}</span>
+              <span class="ihn-event-badge">${sentCount} sent</span>
+            </div>
+            ${expanded ? `<div class="ihn-event-contacts">${contacts.map((c) => {
+          const status = c.connection_queue?.[0]?.status ?? "pending";
+          return `<div class="ihn-contact-row">
+                <span class="ihn-contact-name">${escHtml(c.name ?? "\u2014")}</span>
+                <span class="ihn-status-badge ihn-status-${escHtml(status)}">${escHtml(status)}</span>
+              </div>`;
+        }).join("")}</div>` : ""}
+          </div>`;
+      }).join("")}
+        ${!data || data.events.length === 0 ? '<p class="ihn-empty">No events yet.</p>' : ""}
+      </div>
+    `;
+      panelEl.querySelectorAll(".ihn-event-header").forEach((header) => {
+        header.addEventListener("click", () => {
+          const row = header.closest("[data-event-id]");
+          const id = row?.dataset.eventId;
+          if (!id) return;
+          if (expandedEvents.has(id)) expandedEvents.delete(id);
+          else expandedEvents.add(id);
+          renderPanel();
+        });
+      });
+      panelEl.querySelector("#ihn-progress-export-csv")?.addEventListener("click", () => {
+        if (!progressData) return;
+        const rows = [["Event", "Name", "LinkedIn", "Instagram", "Status"]];
+        for (const event of progressData.events) {
+          for (const c of event.contacts ?? []) {
+            const status = c.connection_queue?.[0]?.status ?? "pending";
+            rows.push([event.name ?? "", c.name ?? "", c.linkedin_url ?? "", c.instagram_url ?? "", status]);
+          }
+        }
+        const csv = rows.map((r) => r.map((v) => `"${(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+        a.download = "ihn_progress_contacts.csv";
+        a.click();
+      });
+      return;
     } else if (state.type === "contacts") {
       titleEl.textContent = "Contacts";
       subtitleEl.textContent = "";
@@ -292,11 +383,14 @@
         const hasLI = !!c.linkedInUrl;
         const hasIG = !!c.instagramUrl;
         const hasX = !!c.twitterUrl;
+        const status = c.linkedInUrl ? contactStatuses.get(c.linkedInUrl) ?? null : null;
+        const statusDot = status === "sent" || status === "accepted" ? '<span class="ihn-status-dot ihn-status-sent">\u25CF</span>' : status === "failed" ? '<span class="ihn-status-dot ihn-status-failed">\u25CF</span>' : status === "pending" ? '<span class="ihn-status-dot ihn-status-pending">\u25CF</span>' : "";
         return `
         <div class="ihn-lead-row">
           <div class="ihn-lead-initials">${escHtml(initials)}</div>
           <div class="ihn-lead-name">${escHtml(c.name)}</div>
           <div class="ihn-lead-badges">
+            ${statusDot}
             ${hasLI ? `<a href="${escHtml(c.linkedInUrl)}" target="_blank" class="ihn-badge ihn-badge-li">in</a>` : ""}
             ${hasIG ? `<a href="${escHtml(c.instagramUrl)}" target="_blank" class="ihn-badge ihn-badge-ig">ig</a>` : ""}
             ${hasX ? `<a href="${escHtml(c.twitterUrl)}" target="_blank" class="ihn-badge ihn-badge-x">x</a>` : ""}
@@ -417,11 +511,44 @@
       ...hostProfileUrls.map((u) => ({ url: u, isHost: true })),
       ...guestProfileUrls.map((u) => ({ url: u, isHost: false }))
     ];
-    const total = allUrls.length;
+    const { eventId: cachedEventId, existingUrls, linkedInCount, contacts: existingContacts } = await new Promise(
+      (resolve) => chrome.runtime.sendMessage({ type: "GET_EVENT_BY_URL", lumaUrl: location.href }, resolve)
+    );
+    const existingSet = new Set(existingUrls);
+    const toEnrich = existingUrls.length > 0 ? allUrls.filter((u) => !existingSet.has(u.url)) : allUrls;
+    if (toEnrich.length === 0) {
+      enrichedContacts = existingContacts.map((c) => ({
+        url: c.luma_profile_url ?? "",
+        isHost: c.is_host ?? false,
+        name: c.name ?? "",
+        linkedInUrl: c.linkedin_url ?? "",
+        instagramUrl: c.instagram_url ?? "",
+        twitterUrl: ""
+      }));
+      noteValue = DEFAULT_NOTE;
+      state = {
+        type: "results",
+        found: linkedInCount,
+        total: existingUrls.length,
+        eventId: cachedEventId,
+        linkedInReady: false,
+        eventName,
+        eventLocation
+      };
+      renderPanel();
+      checkLinkedInLogin().then((ready) => {
+        if (state.type === "results" && ready) {
+          state = { ...state, linkedInReady: true };
+          renderPanel();
+        }
+      });
+      return;
+    }
+    const total = toEnrich.length;
     const startTime = Date.now();
     const enriched = [];
-    for (let i = 0; i < allUrls.length; i++) {
-      const { url, isHost } = allUrls[i];
+    for (let i = 0; i < toEnrich.length; i++) {
+      const { url, isHost } = toEnrich[i];
       let displayName = "";
       let linkedInUrl = "";
       let instagramUrl = "";
@@ -444,7 +571,6 @@
       renderPanel();
     }
     enrichedContacts = enriched;
-    const guests = enriched.filter((c) => !c.isHost);
     chrome.runtime.sendMessage(
       { type: "START_ENRICHMENT", data: { lumaUrl: location.href, eventName, contacts: enriched } },
       (result) => {
@@ -453,9 +579,9 @@
           noteValue = DEFAULT_NOTE;
           state = {
             type: "results",
-            found: enriched.filter((c) => c.linkedInUrl).length,
-            total: enriched.length,
-            eventId: result?.eventId ?? "",
+            found: enriched.filter((c) => c.linkedInUrl).length + linkedInCount,
+            total: enriched.length + existingUrls.length,
+            eventId: result?.eventId ?? cachedEventId ?? "",
             linkedInReady,
             eventName,
             eventLocation
