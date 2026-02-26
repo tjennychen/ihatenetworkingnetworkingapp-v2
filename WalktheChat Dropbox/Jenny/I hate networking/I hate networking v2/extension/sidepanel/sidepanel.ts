@@ -180,7 +180,7 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
         <div class="stat-label">Connected</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num">${pending}</div>
+        <div class="stat-num">${state.pending}</div>
         <div class="stat-label">Queued</div>
       </div>
       ${failed > 0 ? `
@@ -255,6 +255,8 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
     ${activityHtml}
     ${scanCta}
 
+    <p style="text-align:center;font-size:11px;color:#9ca3af;margin:8px 16px 0;">Closing this panel won't stop your campaign.</p>
+
     <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
   `
 
@@ -274,11 +276,15 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
 
 async function render(): Promise<void> {
   renderLoading()
-  const state = await resolveAppState()
-  if (state.type === 'landing') {
-    renderLanding(state.ctx)
-  } else if (state.type === 'campaign') {
-    await renderCampaign(state)
+  try {
+    const state = await resolveAppState()
+    if (state.type === 'landing') {
+      renderLanding(state.ctx)
+    } else if (state.type === 'campaign') {
+      await renderCampaign(state)
+    }
+  } catch (err) {
+    root.innerHTML = `<div style="padding:40px 20px;text-align:center;color:#ef4444;font-size:13px;">Something went wrong. Try closing and reopening the panel.<br><br><small style="color:#9ca3af">${err}</small></div>`
   }
 }
 

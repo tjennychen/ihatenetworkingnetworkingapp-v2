@@ -111,7 +111,7 @@
     ]);
     const events = progressResp?.events ?? [];
     const nextAt = storageData.nextScheduledAt ?? null;
-    let sent = 0, pending = 0, failed = 0;
+    let sent = 0, dbPending = 0, failed = 0;
     const recentActivity = [];
     for (const event of events) {
       for (const contact of event.contacts ?? []) {
@@ -120,16 +120,16 @@
           sent++;
           recentActivity.push({ name: contact.name ?? "", eventName: event.name ?? "" });
         } else if (status === "pending") {
-          pending++;
+          dbPending++;
         } else if (status === "failed") {
           failed++;
         }
       }
     }
-    const total = sent + pending + failed;
+    const total = sent + dbPending + failed;
     const pct = total > 0 ? Math.round(sent / total * 100) : 0;
-    const isRunning = pending > 0 && !state.paused;
-    const statusHtml = isRunning ? `<span class="status-pill pill-running"><span class="dot"></span>Running</span>` : state.paused ? `<span class="status-pill pill-paused"><span class="dot"></span>Paused</span>` : `<span class="status-pill" style="background:#f3f4f6;color:#6b7280"><span class="dot" style="background:#d1d5db"></span>Done</span>`;
+    const isRunning = state.pending > 0 && !state.paused;
+    const statusHtml = isRunning ? `<span class="status-pill pill-running"><span class="dot"></span>Running</span>` : state.paused ? `<span class="status-pill pill-paused"><span class="dot"></span>Paused</span>` : `<span class="status-pill pill-done"><span class="dot"></span>Done</span>`;
     const statsHtml = `
     <div class="stats-row" style="margin:0 16px;">
       <div class="stat-card">
@@ -137,7 +137,7 @@
         <div class="stat-label">Connected</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num">${pending}</div>
+        <div class="stat-num">${state.pending}</div>
         <div class="stat-label">Queued</div>
       </div>
       ${failed > 0 ? `
@@ -201,11 +201,13 @@
     <div class="section">
       ${statsHtml}
       ${progressHtml}
-      ${pending > 0 ? `<div class="pause-row"><button class="btn btn-secondary" id="${pauseBtnId}">${pauseBtnLabel}</button></div>` : ""}
+      ${state.pending > 0 ? `<div class="pause-row"><button class="btn btn-secondary" id="${pauseBtnId}">${pauseBtnLabel}</button></div>` : ""}
     </div>
 
     ${activityHtml}
     ${scanCta}
+
+    <p style="text-align:center;font-size:11px;color:#9ca3af;margin:8px 16px 0;">Closing this panel won't stop your campaign.</p>
 
     <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
   `;
@@ -221,11 +223,15 @@
   }
   async function render() {
     renderLoading();
-    const state = await resolveAppState();
-    if (state.type === "landing") {
-      renderLanding(state.ctx);
-    } else if (state.type === "campaign") {
-      await renderCampaign(state);
+    try {
+      const state = await resolveAppState();
+      if (state.type === "landing") {
+        renderLanding(state.ctx);
+      } else if (state.type === "campaign") {
+        await renderCampaign(state);
+      }
+    } catch (err) {
+      root.innerHTML = `<div style="padding:40px 20px;text-align:center;color:#ef4444;font-size:13px;">Something went wrong. Try closing and reopening the panel.<br><br><small style="color:#9ca3af">${err}</small></div>`;
     }
   }
   chrome.tabs.onActivated.addListener(() => render());
