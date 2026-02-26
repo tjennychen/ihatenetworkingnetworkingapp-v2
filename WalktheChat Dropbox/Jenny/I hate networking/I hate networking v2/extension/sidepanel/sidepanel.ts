@@ -298,7 +298,7 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   })
   if (state.ctx.kind === 'luma-event') {
     const eventCtx = state.ctx
-    document.getElementById('btnScan')?.addEventListener('click', () => startScan(eventCtx))
+    document.getElementById('btnScan')?.addEventListener('click', () => startScan(eventCtx, true))
   }
 }
 
@@ -345,9 +345,9 @@ function wireAuthGate(): void {
 
 // ── Scan flow ─────────────────────────────────────────────────────────────────
 
-function startScan(ctx: Extract<TabContext, { kind: 'luma-event' }>): void {
+function startScan(ctx: Extract<TabContext, { kind: 'luma-event' }>, hasCampaign = false): void {
   scanState = { type: 'scanning', phase: 'starting', done: 0, total: 0, currentName: '', startTime: Date.now() }
-  renderEventPage(ctx)
+  renderEventPage(ctx, hasCampaign)
   chrome.tabs.sendMessage(ctx.tabId, { type: 'START_SCAN' })
 }
 
@@ -359,7 +359,7 @@ async function launchCampaign(s: Extract<ScanState, { type: 'results' }>): Promi
   render()
 }
 
-async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>): Promise<void> {
+async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>, hasCampaign = false): Promise<void> {
   if (scanState.type === 'idle') {
     const existing: { eventId: string; existingUrls: string[]; linkedInCount: number } = await new Promise(resolve => {
       chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
@@ -388,7 +388,7 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>)
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `
-    document.getElementById('btnScan')!.addEventListener('click', () => startScan(ctx))
+    document.getElementById('btnScan')!.addEventListener('click', () => startScan(ctx, hasCampaign))
     return
   }
 
@@ -407,11 +407,11 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>)
       </div>
       <div class="section">
         <button class="btn btn-primary" id="btnRescan">Scan again for new attendees</button>
-        <button class="btn btn-secondary" id="btnViewProgress" style="margin-top:8px;">View campaign progress</button>
+        ${hasCampaign ? `<button class="btn btn-secondary" id="btnViewProgress" style="margin-top:8px;">View campaign progress</button>` : ''}
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `
-    document.getElementById('btnRescan')!.addEventListener('click', () => startScan(ctx))
+    document.getElementById('btnRescan')!.addEventListener('click', () => startScan(ctx, hasCampaign))
     document.getElementById('btnViewProgress')!.addEventListener('click', () => {
       scanState = { type: 'idle' }
       render()
@@ -523,16 +523,18 @@ async function render(): Promise<void> {
   try {
     const [state, ctx] = await Promise.all([resolveAppState(), resolveTabContext()])
 
+    const hasCampaign = state.type === 'campaign'
+
     // Mid-scan: always show event page view regardless of campaign state
     if (scanState.type !== 'idle' && ctx.kind === 'luma-event') {
-      await renderEventPage(ctx)
+      await renderEventPage(ctx, hasCampaign)
       return
     }
 
     if (state.type === 'campaign') {
       await renderCampaign(state)
     } else if (ctx.kind === 'luma-event') {
-      await renderEventPage(ctx)
+      await renderEventPage(ctx, hasCampaign)
     } else {
       renderLanding(state.ctx)
     }

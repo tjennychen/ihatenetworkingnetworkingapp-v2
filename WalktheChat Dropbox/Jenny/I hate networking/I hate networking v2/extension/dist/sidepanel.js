@@ -238,7 +238,7 @@
     });
     if (state.ctx.kind === "luma-event") {
       const eventCtx = state.ctx;
-      document.getElementById("btnScan")?.addEventListener("click", () => startScan(eventCtx));
+      document.getElementById("btnScan")?.addEventListener("click", () => startScan(eventCtx, true));
     }
   }
   function renderAuthGate() {
@@ -276,9 +276,9 @@
       }
     });
   }
-  function startScan(ctx) {
+  function startScan(ctx, hasCampaign = false) {
     scanState = { type: "scanning", phase: "starting", done: 0, total: 0, currentName: "", startTime: Date.now() };
-    renderEventPage(ctx);
+    renderEventPage(ctx, hasCampaign);
     chrome.tabs.sendMessage(ctx.tabId, { type: "START_SCAN" });
   }
   async function launchCampaign(s) {
@@ -288,7 +288,7 @@
     scanState = { type: "launched", queued: result.queued, eventId: result.eventId };
     render();
   }
-  async function renderEventPage(ctx) {
+  async function renderEventPage(ctx, hasCampaign = false) {
     if (scanState.type === "idle") {
       const existing = await new Promise((resolve) => {
         chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
@@ -316,7 +316,7 @@
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `;
-      document.getElementById("btnScan").addEventListener("click", () => startScan(ctx));
+      document.getElementById("btnScan").addEventListener("click", () => startScan(ctx, hasCampaign));
       return;
     }
     if (scanState.type === "already_scanned") {
@@ -334,11 +334,11 @@
       </div>
       <div class="section">
         <button class="btn btn-primary" id="btnRescan">Scan again for new attendees</button>
-        <button class="btn btn-secondary" id="btnViewProgress" style="margin-top:8px;">View campaign progress</button>
+        ${hasCampaign ? `<button class="btn btn-secondary" id="btnViewProgress" style="margin-top:8px;">View campaign progress</button>` : ""}
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `;
-      document.getElementById("btnRescan").addEventListener("click", () => startScan(ctx));
+      document.getElementById("btnRescan").addEventListener("click", () => startScan(ctx, hasCampaign));
       document.getElementById("btnViewProgress").addEventListener("click", () => {
         scanState = { type: "idle" };
         render();
@@ -442,14 +442,15 @@
     renderLoading();
     try {
       const [state, ctx] = await Promise.all([resolveAppState(), resolveTabContext()]);
+      const hasCampaign = state.type === "campaign";
       if (scanState.type !== "idle" && ctx.kind === "luma-event") {
-        await renderEventPage(ctx);
+        await renderEventPage(ctx, hasCampaign);
         return;
       }
       if (state.type === "campaign") {
         await renderCampaign(state);
       } else if (ctx.kind === "luma-event") {
-        await renderEventPage(ctx);
+        await renderEventPage(ctx, hasCampaign);
       } else {
         renderLanding(state.ctx);
       }
