@@ -3,11 +3,13 @@ import { checkDailyLimit, getSentTodayCount } from '../lib/rate-limiter'
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
   console.log('I Hate Networking extension installed')
 })
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
 })
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -39,6 +41,7 @@ chrome.runtime.onMessageExternal.addListener(async (msg) => {
     console.log('Session stored from dashboard')
   }
 })
+
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'CHECK_LINKEDIN_LOGIN') {
@@ -117,7 +120,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (!event) { sendResponse({ eventId: '', existingUrls: [], linkedInCount: 0 }); return }
       const { data: contacts } = await supabase
         .from('contacts')
-        .select('luma_profile_url, linkedin_url, name, instagram_url, is_host')
+        .select('luma_profile_url, linkedin_url, name, instagram_url, twitter_url, website_url, is_host')
         .eq('event_id', event.id)
       const existingUrls = (contacts ?? []).map((c: any) => c.luma_profile_url)
       const linkedInCount = (contacts ?? []).filter((c: any) => c.linkedin_url).length
@@ -130,13 +133,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     getSession().then(async (session) => {
       if (!session) { sendResponse({ events: [] }); return }
       const supabase = getAuthedSupabase(session.access_token)
-      const { data } = await supabase
+      const { data: events } = await supabase
         .from('events')
-        .select('id, name, contacts(id, name, headline, linkedin_url, connection_queue(status))')
+        .select('id, name, contacts(id, name, linkedin_url)')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false })
         .limit(5)
-      sendResponse({ events: data ?? [] })
+      const { data: allQueue } = await supabase
+        .from('connection_queue')
+        .select('contact_id, status')
+        .eq('user_id', session.user.id)
+      const queueByContact = new Map<string, string>()
+      for (const q of allQueue ?? []) {
+        if (!queueByContact.has(q.contact_id)) queueByContact.set(q.contact_id, q.status)
+      }
+      const eventsWithQueue = (events ?? []).map((e: any) => ({
+        ...e,
+        contacts: (e.contacts ?? []).map((c: any) => ({
+          ...c,
+          connection_queue: queueByContact.has(c.id) ? [{ status: queueByContact.get(c.id) }] : [],
+        })),
+      }))
+      sendResponse({ events: eventsWithQueue })
     })
     return true
   }
@@ -166,14 +184,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return { date: d, cumulative: cum }
       })
 
-      // Event list: all events with contacts + statuses
+      // Events + contacts (no nested connection_queue — fetched separately to avoid PostgREST auth issues)
       const { data: events } = await supabase
         .from('events')
-        .select('id, name, contacts(id, name, linkedin_url, instagram_url, connection_queue(status, error))')
+        .select('id, name, contacts(id, name, linkedin_url, instagram_url, twitter_url, website_url)')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false })
 
-      sendResponse({ chartData, events: events ?? [] })
+      // All queue statuses for this user — explicit user_id filter bypasses nested select auth issues
+      const { data: allQueue } = await supabase
+        .from('connection_queue')
+        .select('contact_id, status, error')
+        .eq('user_id', session.user.id)
+
+      // Build lookup: contact_id → queue entry
+      const queueByContact = new Map<string, { status: string; error: string }>()
+      for (const q of allQueue ?? []) {
+        if (!queueByContact.has(q.contact_id)) queueByContact.set(q.contact_id, q)
+      }
+
+      // Attach queue data to contacts
+      const eventsWithQueue = (events ?? []).map((e: any) => ({
+        ...e,
+        contacts: (e.contacts ?? []).map((c: any) => ({
+          ...c,
+          connection_queue: queueByContact.has(c.id) ? [queueByContact.get(c.id)] : [],
+        })),
+      }))
+
+      sendResponse({ chartData, events: eventsWithQueue })
     })
     return true
   }
@@ -377,7 +416,7 @@ async function saveEnrichedContacts(data: {
   tabId: number
   lumaUrl: string
   eventName: string
-  contacts: { url: string; isHost: boolean; name: string; linkedInUrl: string; instagramUrl: string; twitterUrl: string }[]
+  contacts: { url: string; isHost: boolean; name: string; linkedInUrl: string; instagramUrl: string; twitterUrl: string; websiteUrl: string }[]
 }): Promise<{ eventId: string; found: number; total: number }> {
   const session = await getSession()
   if (!session) return { eventId: '', found: 0, total: 0 }
@@ -403,7 +442,7 @@ async function saveEnrichedContacts(data: {
   let found = 0
 
   for (const contact of data.contacts) {
-    const { url, isHost, name, linkedInUrl, instagramUrl, twitterUrl } = contact
+    const { url, isHost, name, linkedInUrl, instagramUrl, twitterUrl, websiteUrl } = contact
 
     const { data: saved } = await supabase
       .from('contacts')
@@ -416,6 +455,7 @@ async function saveEnrichedContacts(data: {
           linkedin_url: linkedInUrl,
           instagram_url: instagramUrl || null,
           twitter_url: twitterUrl || '',
+          website_url: websiteUrl || '',
           is_host: isHost,
         },
         { onConflict: 'event_id,luma_profile_url' }
@@ -442,7 +482,7 @@ async function saveEnrichedContacts(data: {
 async function launchCampaign(data: {
   eventId: string; note: string
   lumaUrl?: string; eventName?: string
-  contacts?: { url: string; name: string; linkedInUrl: string; isHost: boolean; instagramUrl: string; twitterUrl: string }[]
+  contacts?: { url: string; name: string; linkedInUrl: string; isHost: boolean; instagramUrl: string; twitterUrl: string; websiteUrl: string }[]
 }): Promise<{ queued: number; eventId: string }> {
   const session = await getSession()
   if (!session) return { queued: 0, eventId: '' }
@@ -561,10 +601,11 @@ async function processNextQueueItem(): Promise<void> {
     return
   }
 
-  // Open as background tab — no visible popup window
+  // Open in minimized window — invisible to user
   const fullUrl = linkedinUrl.replace('https://linkedin.com/', 'https://www.linkedin.com/')
-  const tab = await chrome.tabs.create({ url: fullUrl, active: false })
-  const tabId = tab.id!
+  const connWin = await chrome.windows.create({ url: fullUrl, focused: false, state: 'minimized' })
+  const tabId = connWin.tabs![0].id!
+  const connWinId = connWin.id!
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(resolve, 15000) // hard fallback
     chrome.tabs.onUpdated.addListener(function listener(tid, info) {
@@ -629,10 +670,18 @@ async function processNextQueueItem(): Promise<void> {
       status: 'failed',
       error: result.error ?? 'unknown',
     }).eq('id', item.id)
-    // No delay — next item processes on next alarm tick (~30s)
+    // Schedule next item with human-like delay even after failures
+    const failDelayMinutes = 8 + Math.random() * 12 // 8–20 min
+    const nextFailAt = new Date(Date.now() + failDelayMinutes * 60000).toISOString()
+    await supabase.from('connection_queue')
+      .update({ scheduled_at: nextFailAt })
+      .eq('user_id', session.user.id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+      .limit(1)
     const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
     await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) })
   }
 
-  await chrome.tabs.remove(tabId)
+  await chrome.windows.remove(connWinId).catch(() => {})
 }
