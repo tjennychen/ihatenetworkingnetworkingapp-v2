@@ -95,7 +95,7 @@
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-text">
-          <div class="step-title">Connections send automatically</div>
+          <div class="step-title">LinkedIn connections send automatically</div>
           <div class="step-desc">35/day max \xB7 business hours only \xB7 keeps your account safe</div>
         </div>
       </div>
