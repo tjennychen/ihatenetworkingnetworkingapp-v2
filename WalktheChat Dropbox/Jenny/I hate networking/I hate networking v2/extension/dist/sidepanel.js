@@ -5,6 +5,10 @@
   var noteValue = "";
   var authMode = "signup";
   var MAX_NOTE = 300;
+  var expandedEvents = /* @__PURE__ */ new Set();
+  var draftState = "closed";
+  var draftViewOpen = false;
+  var draftNamesStartTime = 0;
   function escHtml(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -51,10 +55,18 @@
       resolveTabContext(),
       chrome.storage.local.get(["queuePending", "campaignPaused"])
     ]);
-    const pending = storage.queuePending ?? 0;
+    const storagePending = storage.queuePending ?? 0;
     const paused = storage.campaignPaused ?? false;
-    if (pending > 0 || paused) {
-      return { type: "campaign", pending, paused, ctx };
+    if (storagePending > 0 || paused) {
+      return { type: "campaign", pending: storagePending, paused, ctx };
+    }
+    const dbResp = await new Promise(
+      (r) => chrome.runtime.sendMessage({ type: "GET_PENDING_COUNT" }, r)
+    );
+    const dbPending = dbResp?.pending ?? 0;
+    if (dbPending > 0) {
+      await chrome.storage.local.set({ queuePending: dbPending });
+      return { type: "campaign", pending: dbPending, paused: false, ctx };
     }
     return { type: "landing", ctx };
   }
@@ -113,6 +125,140 @@
       chrome.tabs.create({ url: ctaHref });
     });
   }
+  async function startDraftFetch(eventId, eventName, state) {
+    draftState = { stage: "loading", eventId, eventName, fetching: 0 };
+    await renderDraftView(state);
+    const resp = await new Promise(
+      (resolve) => chrome.runtime.sendMessage({ type: "GET_DRAFT_DATA", eventId }, resolve)
+    );
+    if (!resp) {
+      draftState = "closed";
+      draftViewOpen = false;
+      render();
+      return;
+    }
+    const { hosts, guests, totalGuests } = resp;
+    const needFetch = [
+      ...hosts.filter((h) => !h.linkedin_name && h.linkedin_url),
+      ...guests.filter((g) => !g.linkedin_name && g.linkedin_url)
+    ];
+    if (needFetch.length > 0) {
+      draftNamesStartTime = Date.now();
+      draftState = { stage: "loading", eventId, eventName, fetching: needFetch.length };
+      await renderDraftView(state);
+    }
+    const fetchedNames = needFetch.length > 0 ? await new Promise(
+      (resolve) => chrome.runtime.sendMessage({ type: "GET_LINKEDIN_NAMES", contacts: needFetch.map((c) => ({ id: c.id, linkedin_url: c.linkedin_url })) }, resolve)
+    ) ?? [] : [];
+    const fetchedMap = new Map(fetchedNames.filter((f) => f.linkedin_name).map((f) => [f.id, f.linkedin_name]));
+    const nameMap = /* @__PURE__ */ new Map();
+    for (const g of [...guests, ...hosts]) nameMap.set(g.id, g.linkedin_name || g.name || "");
+    for (const [id, name] of fetchedMap) nameMap.set(id, name);
+    const hostMentions = hosts.map((h) => fetchedMap.get(h.id) || h.linkedin_name || h.name || "").filter(Boolean).map((n) => `@${n}`).join(" ");
+    const shortName = eventName.replace(/\s*·\s*[^·]+$/, "").replace(/\s*·\s*[^·]+$/, "").trim();
+    const postText = hostMentions ? `Thanks ${hostMentions} for organizing the ${shortName} event!` : `Thanks everyone for organizing the ${shortName} event!`;
+    const guestNames = guests.map((g) => nameMap.get(g.id) || g.name || "").filter(Boolean);
+    draftState = { stage: "ready", eventId, eventName, postText, guestNames, totalGuests };
+    await renderDraftView(state);
+  }
+  async function renderDraftView(state) {
+    const backBtn = `
+    <div class="compact-header">
+      <button class="btn-back" id="btnBackDraft">\u2190 Back</button>
+      <span class="compact-name" style="flex:1;text-align:center;">Draft LinkedIn post</span>
+      <span style="width:48px;"></span>
+    </div>
+  `;
+    const wireBack = () => {
+      document.getElementById("btnBackDraft")?.addEventListener("click", () => {
+        draftViewOpen = false;
+        draftState = "closed";
+        render();
+      });
+    };
+    if (typeof draftState === "object" && draftState.stage === "pick") {
+      root.innerHTML = backBtn + `<div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px;">Loading events\u2026</div>`;
+      wireBack();
+      const progressResp = await new Promise((r) => chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, r));
+      const events = progressResp?.events ?? [];
+      root.innerHTML = backBtn + `
+      <div style="padding:20px;">
+        <div style="font-size:13px;color:#374151;font-weight:600;margin-bottom:12px;">Which event?</div>
+        ${events.map((ev) => `
+          <button class="btn btn-secondary event-pick-btn" data-event-id="${escHtml(ev.id ?? "")}" data-event-name="${escHtml(ev.name ?? "")}" style="margin-bottom:8px;text-align:left;">
+            ${escHtml(ev.name ?? "Event")}
+          </button>
+        `).join("")}
+      </div>
+    `;
+      wireBack();
+      document.querySelectorAll(".event-pick-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const evId = btn.getAttribute("data-event-id") ?? "";
+          const evName = btn.getAttribute("data-event-name") ?? "";
+          startDraftFetch(evId, evName, state);
+        });
+      });
+      return;
+    }
+    if (typeof draftState === "object" && draftState.stage === "loading") {
+      const n = draftState.fetching;
+      const estSecs = n > 0 ? Math.ceil(n * 2) : 0;
+      const hint = n > 0 ? ` \xB7 ~${estSecs}s` : "";
+      root.innerHTML = backBtn + `
+      <div style="text-align:center;padding:60px 20px;">
+        <div style="color:#9ca3af;font-size:13px;" id="draftNamesProgress">
+          ${n > 0 ? `Fetching ${n} LinkedIn names${hint}` : "Building your post draft\u2026"}
+        </div>
+      </div>
+    `;
+      wireBack();
+      return;
+    }
+    if (typeof draftState === "object" && draftState.stage === "ready") {
+      const s = draftState;
+      const hasGuests = s.guestNames.length > 0;
+      root.innerHTML = backBtn + `
+      <div style="padding:20px;">
+        <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Post draft</div>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;font-size:13px;color:#374151;line-height:1.5;margin-bottom:8px;white-space:pre-wrap;">${escHtml(s.postText)}</div>
+        <button class="btn btn-secondary" id="btnCopyPost" style="margin-bottom:20px;width:auto;padding:6px 16px;">Copy</button>
+
+        ${hasGuests ? `
+        <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Guest names</div>
+        <div style="margin-bottom:8px;">
+          ${s.guestNames.map((n) => `<div class="draft-name-row">${escHtml(n)}</div>`).join("")}
+        </div>
+        ${s.totalGuests >= 15 ? `<button class="btn btn-secondary" id="btnDraftShuffle" style="margin-bottom:16px;">Shuffle (${s.totalGuests} total)</button>` : ""}
+        <div style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px;">
+          <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Tip: Tag attendees for more reach</div>
+          <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0;">In the LinkedIn app: tap your photo \u2192 Tag people \u2192 search each name above</p>
+        </div>
+        ` : ""}
+      </div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+    `;
+      wireBack();
+      document.getElementById("btnCopyPost")?.addEventListener("click", () => {
+        navigator.clipboard.writeText(s.postText).then(() => {
+          const btn = document.getElementById("btnCopyPost");
+          if (btn) {
+            btn.textContent = "Copied!";
+            setTimeout(() => {
+              if (btn) btn.textContent = "Copy";
+            }, 1500);
+          }
+        }).catch(() => {
+        });
+      });
+      document.getElementById("btnDraftShuffle")?.addEventListener("click", () => {
+        if (typeof draftState === "object" && draftState.stage === "ready") {
+          startDraftFetch(s.eventId, s.eventName, state);
+        }
+      });
+      return;
+    }
+  }
   function nextConnectionLabel(nextAt) {
     if (!nextAt) return "";
     const diff = new Date(nextAt).getTime() - Date.now();
@@ -128,18 +274,12 @@
     const events = progressResp?.events ?? [];
     const nextAt = storageData.nextScheduledAt ?? null;
     let sent = 0, dbPending = 0, failed = 0;
-    const recentActivity = [];
     for (const event of events) {
       for (const contact of event.contacts ?? []) {
         const status = contact.connection_queue?.[0]?.status;
-        if (status === "sent" || status === "accepted") {
-          sent++;
-          recentActivity.push({ name: contact.name ?? "", eventName: event.name ?? "" });
-        } else if (status === "pending") {
-          dbPending++;
-        } else if (status === "failed") {
-          failed++;
-        }
+        if (status === "sent" || status === "accepted") sent++;
+        else if (status === "pending") dbPending++;
+        else if (status === "failed") failed++;
       }
     }
     const total = sent + dbPending + failed;
@@ -153,13 +293,14 @@
         <div class="stat-label">Connected</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num">${state.pending}</div>
+        <div class="stat-num">${dbPending}</div>
         <div class="stat-label">Queued</div>
       </div>
       ${failed > 0 ? `
       <div class="stat-card">
-        <div class="stat-num red">${failed}</div>
+        <div class="stat-num" style="color:#9ca3af;">${failed}</div>
         <div class="stat-label">Skipped</div>
+        <div style="font-size:9px;color:#d1d5db;margin-top:2px;line-height:1.3;">already connected<br>or unavailable</div>
       </div>` : ""}
     </div>
   `;
@@ -178,29 +319,58 @@
   ` : "";
     const pauseBtnLabel = isRunning ? "\u23F8 Pause campaign" : "\u25B6 Resume campaign";
     const pauseBtnId = isRunning ? "btnPause" : "btnResume";
-    const activityHtml = recentActivity.length > 0 ? `
+    const eventsListHtml = events.length === 0 ? "" : `
     <div class="section">
       <div class="feed-header">
-        <span class="feed-title">Recently Connected</span>
+        <span class="feed-title">Events</span>
       </div>
-      <div class="feed-list">
-        ${recentActivity.map((a) => `
-          <div class="feed-row">
-            <div class="feed-avatar">${escHtml(initials(a.name))}</div>
-            <div class="feed-info">
-              <div class="feed-name">${escHtml(a.name)}</div>
+      <div class="events-list">
+        ${events.map((ev) => {
+      const evId = ev.id ?? "";
+      const contacts = ev.contacts ?? [];
+      const evSent = contacts.filter((c) => ["sent", "accepted"].includes(c.connection_queue?.[0]?.status ?? "")).length;
+      const evPending = contacts.filter((c) => c.connection_queue?.[0]?.status === "pending").length;
+      const isExpanded = expandedEvents.has(evId);
+      const badgeText = evPending > 0 ? `${evPending} queued` : evSent > 0 ? `${evSent} sent` : `${contacts.length} scanned`;
+      const badgeClass = evPending > 0 ? "queued" : "";
+      const contactsHtml = isExpanded ? `
+            <div class="event-contacts">
+              ${contacts.map((c) => {
+        const status = c.connection_queue?.[0]?.status ?? "";
+        const statusBadge = status ? `<span class="status-badge ${status}">${status}</span>` : "";
+        const liUrl = c.linkedin_url ?? "";
+        return `
+                  <div class="contact-row">
+                    <span class="contact-name">${escHtml(c.name ?? "")}</span>
+                    <div style="display:flex;align-items:center;gap:4px;">
+                      ${liUrl ? `<a href="${escHtml(liUrl)}" target="_blank" class="badge badge-li">in</a>` : ""}
+                      ${statusBadge}
+                    </div>
+                  </div>
+                `;
+      }).join("")}
             </div>
-            <span class="feed-event-tag" title="${escHtml(a.eventName)}">${escHtml(a.eventName)}</span>
-          </div>
-        `).join("")}
+          ` : "";
+      return `
+            <div class="event-row">
+              <div class="event-row-header" data-event-id="${escHtml(evId)}">
+                <span class="event-row-name">${escHtml(ev.name ?? "Event")}</span>
+                <span class="event-row-badge ${badgeClass}">${escHtml(badgeText)}</span>
+                <span class="chevron" data-chevron>${isExpanded ? "\u25B2" : "\u25BC"}</span>
+              </div>
+              ${contactsHtml}
+            </div>
+          `;
+    }).join("")}
       </div>
     </div>
-  ` : "";
-    const scanCta = state.ctx.kind === "luma-event" ? `
+  `;
+    const draftSectionHtml = `
     <div class="section">
-      <button class="btn btn-primary" id="btnScan">Scan this event's guest list</button>
+      <button class="btn btn-secondary" id="btnDraftPost">\u270D Draft a LinkedIn post</button>
     </div>
-  ` : `
+  `;
+    const scanCta = `
     <div class="section">
       <button class="btn btn-secondary" id="btnScanAnother">+ Scan another event</button>
     </div>
@@ -220,7 +390,8 @@
       ${state.pending > 0 ? `<div class="pause-row"><button class="btn btn-secondary" id="${pauseBtnId}">${pauseBtnLabel}</button></div>` : ""}
     </div>
 
-    ${activityHtml}
+    ${eventsListHtml}
+    ${draftSectionHtml}
     ${scanCta}
 
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin:8px 16px 0;">Closing this panel won't stop your campaign.</p>
@@ -236,10 +407,52 @@
     document.getElementById("btnScanAnother")?.addEventListener("click", () => {
       chrome.tabs.create({ url: "https://lu.ma" });
     });
-    if (state.ctx.kind === "luma-event") {
-      const eventCtx = state.ctx;
-      document.getElementById("btnScan")?.addEventListener("click", () => startScan(eventCtx, true));
-    }
+    document.querySelectorAll(".event-row-header").forEach((header) => {
+      header.addEventListener("click", () => {
+        const evId = header.getAttribute("data-event-id") ?? "";
+        const eventRow = header.parentElement;
+        const chevron = header.querySelector("[data-chevron]");
+        if (expandedEvents.has(evId)) {
+          expandedEvents.delete(evId);
+          eventRow.querySelector(".event-contacts")?.remove();
+          if (chevron) chevron.textContent = "\u25BC";
+        } else {
+          expandedEvents.add(evId);
+          const ev = events.find((e) => e.id === evId);
+          if (ev) {
+            if (chevron) chevron.textContent = "\u25B2";
+            const contactsDiv = document.createElement("div");
+            contactsDiv.className = "event-contacts";
+            contactsDiv.innerHTML = (ev.contacts ?? []).map((c) => {
+              const status = c.connection_queue?.[0]?.status ?? "";
+              const statusBadge = status ? `<span class="status-badge ${status}">${status}</span>` : "";
+              const liUrl = c.linkedin_url ?? "";
+              return `
+              <div class="contact-row">
+                <span class="contact-name">${escHtml(c.name ?? "")}</span>
+                <div style="display:flex;align-items:center;gap:4px;">
+                  ${liUrl ? `<a href="${escHtml(liUrl)}" target="_blank" class="badge badge-li">in</a>` : ""}
+                  ${statusBadge}
+                </div>
+              </div>
+            `;
+            }).join("");
+            eventRow.appendChild(contactsDiv);
+          }
+        }
+      });
+    });
+    document.getElementById("btnDraftPost")?.addEventListener("click", () => {
+      if (events.length === 0) return;
+      draftViewOpen = true;
+      draftState = "closed";
+      if (events.length === 1) {
+        startDraftFetch(events[0].id, events[0].name ?? "", state);
+      } else {
+        draftState = { stage: "pick" };
+        renderDraftView(state);
+      }
+    });
   }
   function renderAuthGate() {
     return `
@@ -447,7 +660,9 @@
         await renderEventPage(ctx, hasCampaign);
         return;
       }
-      if (state.type === "campaign") {
+      if (state.type === "campaign" && draftViewOpen) {
+        await renderDraftView(state);
+      } else if (state.type === "campaign") {
         await renderCampaign(state);
       } else if (ctx.kind === "luma-event") {
         await renderEventPage(ctx, hasCampaign);
@@ -459,6 +674,22 @@
     }
   }
   chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === "LINKEDIN_NAMES_PROGRESS") {
+      const el = document.getElementById("draftNamesProgress");
+      if (!el) return;
+      const done = msg.done;
+      const total = msg.total;
+      if (draftNamesStartTime > 0 && done > 0) {
+        const elapsed = (Date.now() - draftNamesStartTime) / 1e3;
+        const perItem = elapsed / done;
+        const remaining = Math.ceil((total - done) * perItem);
+        const eta = remaining > 0 ? ` \xB7 ~${remaining}s left` : "";
+        el.textContent = `Fetching names ${done} / ${total}${eta}`;
+      } else {
+        el.textContent = `Fetching names ${done} / ${total}`;
+      }
+      return;
+    }
     if (msg.type === "SCAN_PROGRESS") {
       if (scanState.type !== "scanning") return;
       scanState = {

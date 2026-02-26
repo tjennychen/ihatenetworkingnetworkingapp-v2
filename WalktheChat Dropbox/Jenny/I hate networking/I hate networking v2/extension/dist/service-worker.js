@@ -11601,6 +11601,18 @@ ${suffix}`;
       });
       return true;
     }
+    if (msg.type === "GET_PENDING_COUNT") {
+      getSession().then(async (session) => {
+        if (!session) {
+          sendResponse({ pending: 0 });
+          return;
+        }
+        const supabase = getAuthedSupabase(session.access_token);
+        const { count } = await supabase.from("connection_queue").select("*", { count: "exact", head: true }).eq("user_id", session.user.id).eq("status", "pending");
+        sendResponse({ pending: count ?? 0 });
+      });
+      return true;
+    }
     if (msg.type === "SAVE_CONTACTS") {
       saveContacts(msg.data).then((count) => sendResponse({ saved: count }));
       return true;
@@ -11812,38 +11824,45 @@ ${suffix}`;
           return;
         }
         const supabase = getAuthedSupabase(session.access_token);
-        const results = [];
-        for (const contact of msg.contacts) {
-          const url = contact.linkedin_url.replace("https://linkedin.com/", "https://www.linkedin.com/");
-          try {
-            const tab = await chrome.tabs.create({ url, active: false });
-            const tabId = tab.id;
+        const contacts = msg.contacts;
+        const linkedinTabs = await chrome.tabs.query({ url: "https://www.linkedin.com/in/*" });
+        let relayTabId = linkedinTabs[0]?.id ?? null;
+        let openedTabId = null;
+        if (!relayTabId) {
+          const existingWindows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+          if (existingWindows.length > 0 && contacts.length > 0) {
+            const windowId = existingWindows.find((w) => w.focused)?.id ?? existingWindows[0].id;
+            const firstUrl = contacts[0].linkedin_url.replace("https://linkedin.com/", "https://www.linkedin.com/");
+            const tab = await chrome.tabs.create({ url: firstUrl, active: false, windowId });
+            openedTabId = tab.id;
             await new Promise((resolve) => {
               const timeout = setTimeout(resolve, 15e3);
               chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-                if (tid === tabId && info.status === "complete") {
+                if (tid === openedTabId && info.status === "complete") {
                   chrome.tabs.onUpdated.removeListener(listener);
                   clearTimeout(timeout);
-                  setTimeout(resolve, 2500);
+                  setTimeout(resolve, 2e3);
                 }
               });
             });
-            const nameResult = await new Promise((resolve) => {
-              const timeout = setTimeout(() => resolve({ name: "" }), 1e4);
-              chrome.tabs.sendMessage(tabId, { type: "GET_LINKEDIN_NAME" }, (response) => {
-                clearTimeout(timeout);
-                resolve(response ?? { name: "" });
-              });
+            relayTabId = openedTabId;
+          }
+        }
+        let results = [];
+        if (relayTabId !== null) {
+          results = await new Promise((resolve) => {
+            const timeout = setTimeout(() => resolve([]), 12e4);
+            chrome.tabs.sendMessage(relayTabId, { type: "FETCH_LINKEDIN_PROFILES", contacts }, (response) => {
+              clearTimeout(timeout);
+              resolve(response ?? []);
             });
-            chrome.tabs.remove(tabId).catch(() => {
-            });
-            const linkedinName = nameResult.name || "";
-            if (linkedinName) {
-              await supabase.from("contacts").update({ linkedin_name: linkedinName }).eq("id", contact.id);
-            }
-            results.push({ id: contact.id, linkedin_name: linkedinName });
-          } catch {
-            results.push({ id: contact.id, linkedin_name: "" });
+          });
+        }
+        if (openedTabId) chrome.tabs.remove(openedTabId).catch(() => {
+        });
+        for (const r of results) {
+          if (r.linkedin_name) {
+            await supabase.from("contacts").update({ linkedin_name: r.linkedin_name }).eq("id", r.id);
           }
         }
         sendResponse(results);
@@ -12007,8 +12026,14 @@ ${suffix}`;
       await supabase.from("connection_queue").update({ status: "failed", error: "no_linkedin_url" }).eq("id", item.id);
       return;
     }
+    const existingWindows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+    if (existingWindows.length === 0) {
+      console.log("[IHN] No Chrome window open, deferring until user has Chrome open");
+      return;
+    }
+    const windowId = existingWindows.find((w) => w.focused)?.id ?? existingWindows[0].id;
     const fullUrl = linkedinUrl.replace("https://linkedin.com/", "https://www.linkedin.com/");
-    const connTab = await chrome.tabs.create({ url: fullUrl, active: false });
+    const connTab = await chrome.tabs.create({ url: fullUrl, active: false, windowId });
     const tabId = connTab.id;
     await new Promise((resolve) => {
       const timeout = setTimeout(resolve, 15e3);
@@ -12043,7 +12068,10 @@ ${suffix}`;
       });
       const delayMinutes = 15 + Math.random() * 15;
       const nextScheduledAt = new Date(Date.now() + delayMinutes * 6e4).toISOString();
-      await supabase.from("connection_queue").update({ scheduled_at: nextScheduledAt }).eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1);
+      const { data: nextItem } = await supabase.from("connection_queue").select("id").eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1).single();
+      if (nextItem) {
+        await supabase.from("connection_queue").update({ scheduled_at: nextScheduledAt }).eq("id", nextItem.id);
+      }
       const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
       await chrome.storage.local.set({
         queuePending: Math.max(0, (storedPending ?? 1) - 1),
@@ -12062,7 +12090,10 @@ ${suffix}`;
       }).eq("id", item.id);
       const failDelayMinutes = 8 + Math.random() * 12;
       const nextFailAt = new Date(Date.now() + failDelayMinutes * 6e4).toISOString();
-      await supabase.from("connection_queue").update({ scheduled_at: nextFailAt }).eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1);
+      const { data: nextFailItem } = await supabase.from("connection_queue").select("id").eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1).single();
+      if (nextFailItem) {
+        await supabase.from("connection_queue").update({ scheduled_at: nextFailAt }).eq("id", nextFailItem.id);
+      }
       const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
       await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) });
     }

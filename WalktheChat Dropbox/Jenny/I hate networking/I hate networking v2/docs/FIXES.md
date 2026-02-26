@@ -70,6 +70,18 @@ Track bugs that were fixed so they don't get reintroduced during rewrites.
 
 ---
 
+## [2026-02-26] Landing page shown when campaign is active
+
+**Symptom:** Side panel shows the landing page ("Event follow-up shouldn't be your second job") even when a campaign with pending connections is running.
+
+**Root cause:** `resolveAppState()` only checked `queuePending` in `chrome.storage.local` to detect an active campaign. Storage gets cleared when the extension is reloaded in dev mode (or if it becomes out of sync for any reason), so `queuePending` drops to 0 even though pending connections still exist in the DB.
+
+**Fix:** Added a `GET_PENDING_COUNT` handler in the service worker that does a lightweight DB query (count of pending queue items). `resolveAppState()` now falls back to this DB check when storage shows 0. If the DB has pending items, storage is resynced and the campaign view is shown.
+
+**Do not revert:** Do not remove the `GET_PENDING_COUNT` fallback. Storage is not a reliable source of truth for campaign state — the DB is.
+
+---
+
 ## Template for new entries
 
 ```

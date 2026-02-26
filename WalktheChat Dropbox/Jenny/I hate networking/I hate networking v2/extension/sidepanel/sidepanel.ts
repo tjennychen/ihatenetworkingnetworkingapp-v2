@@ -24,6 +24,16 @@ let noteValue = ''
 let authMode: 'signup' | 'signin' = 'signup'
 const MAX_NOTE = 300
 
+let expandedEvents = new Set<string>()
+type DraftState =
+  | 'closed'
+  | { stage: 'pick' }
+  | { stage: 'loading'; eventId: string; eventName: string; fetching: number }
+  | { stage: 'ready'; eventId: string; eventName: string; postText: string; guestNames: string[]; totalGuests: number }
+let draftState: DraftState = 'closed'
+let draftViewOpen = false
+let draftNamesStartTime = 0
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function escHtml(s: string): string {
@@ -76,10 +86,19 @@ async function resolveAppState(): Promise<AppState> {
     resolveTabContext(),
     chrome.storage.local.get(['queuePending', 'campaignPaused']),
   ])
-  const pending: number = storage.queuePending ?? 0
+  const storagePending: number = storage.queuePending ?? 0
   const paused: boolean = storage.campaignPaused ?? false
-  if (pending > 0 || paused) {
-    return { type: 'campaign', pending, paused, ctx }
+  if (storagePending > 0 || paused) {
+    return { type: 'campaign', pending: storagePending, paused, ctx }
+  }
+  // Storage may be out of sync (e.g. after extension reload). Check DB as fallback.
+  const dbResp: { pending: number } | null = await new Promise(r =>
+    chrome.runtime.sendMessage({ type: 'GET_PENDING_COUNT' }, r)
+  )
+  const dbPending = dbResp?.pending ?? 0
+  if (dbPending > 0) {
+    await chrome.storage.local.set({ queuePending: dbPending })
+    return { type: 'campaign', pending: dbPending, paused: false, ctx }
   }
   return { type: 'landing', ctx }
 }
@@ -154,6 +173,150 @@ function renderLanding(ctx: TabContext): void {
 
 // ── Campaign state ────────────────────────────────────────────────────────────
 
+async function startDraftFetch(eventId: string, eventName: string, state: Extract<AppState, { type: 'campaign' }>): Promise<void> {
+  draftState = { stage: 'loading', eventId, eventName, fetching: 0 }
+  await renderDraftView(state)
+
+  const resp: { hosts: any[]; guests: any[]; totalGuests: number } | null = await new Promise(resolve =>
+    chrome.runtime.sendMessage({ type: 'GET_DRAFT_DATA', eventId }, resolve)
+  )
+  if (!resp) { draftState = 'closed'; draftViewOpen = false; render(); return }
+
+  const { hosts, guests, totalGuests } = resp
+
+  const needFetch = [
+    ...hosts.filter((h: any) => !h.linkedin_name && h.linkedin_url),
+    ...guests.filter((g: any) => !g.linkedin_name && g.linkedin_url),
+  ]
+
+  if (needFetch.length > 0) {
+    draftNamesStartTime = Date.now()
+    draftState = { stage: 'loading', eventId, eventName, fetching: needFetch.length }
+    await renderDraftView(state)
+  }
+
+  const fetchedNames: { id: string; linkedin_name: string }[] = needFetch.length > 0
+    ? (await new Promise<any>(resolve =>
+        chrome.runtime.sendMessage({ type: 'GET_LINKEDIN_NAMES', contacts: needFetch.map((c: any) => ({ id: c.id, linkedin_url: c.linkedin_url })) }, resolve)
+      )) ?? []
+    : []
+
+  const fetchedMap = new Map(fetchedNames.filter(f => f.linkedin_name).map(f => [f.id, f.linkedin_name]))
+  const nameMap = new Map<string, string>()
+  for (const g of [...guests, ...hosts]) nameMap.set(g.id, g.linkedin_name || g.name || '')
+  for (const [id, name] of fetchedMap) nameMap.set(id, name)
+
+  const hostMentions = hosts
+    .map((h: any) => fetchedMap.get(h.id) || h.linkedin_name || h.name || '')
+    .filter(Boolean)
+    .map(n => `@${n}`)
+    .join(' ')
+
+  const shortName = eventName.replace(/\s*·\s*[^·]+$/, '').replace(/\s*·\s*[^·]+$/, '').trim()
+  const postText = hostMentions
+    ? `Thanks ${hostMentions} for organizing the ${shortName} event!`
+    : `Thanks everyone for organizing the ${shortName} event!`
+
+  const guestNames = guests.map((g: any) => nameMap.get(g.id) || g.name || '').filter(Boolean)
+  draftState = { stage: 'ready', eventId, eventName, postText, guestNames, totalGuests }
+  await renderDraftView(state)
+}
+
+// ── Draft full-page view (matches image 4: tip + plain name list) ─────────────
+
+async function renderDraftView(state: Extract<AppState, { type: 'campaign' }>): Promise<void> {
+  const backBtn = `
+    <div class="compact-header">
+      <button class="btn-back" id="btnBackDraft">← Back</button>
+      <span class="compact-name" style="flex:1;text-align:center;">Draft LinkedIn post</span>
+      <span style="width:48px;"></span>
+    </div>
+  `
+
+  const wireBack = () => {
+    document.getElementById('btnBackDraft')?.addEventListener('click', () => { draftViewOpen = false; draftState = 'closed'; render() })
+  }
+
+  if (typeof draftState === 'object' && draftState.stage === 'pick') {
+    root.innerHTML = backBtn + `<div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px;">Loading events…</div>`
+    wireBack()
+    const progressResp = await new Promise<any>(r => chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, r))
+    const events: any[] = progressResp?.events ?? []
+    root.innerHTML = backBtn + `
+      <div style="padding:20px;">
+        <div style="font-size:13px;color:#374151;font-weight:600;margin-bottom:12px;">Which event?</div>
+        ${events.map(ev => `
+          <button class="btn btn-secondary event-pick-btn" data-event-id="${escHtml(ev.id ?? '')}" data-event-name="${escHtml(ev.name ?? '')}" style="margin-bottom:8px;text-align:left;">
+            ${escHtml(ev.name ?? 'Event')}
+          </button>
+        `).join('')}
+      </div>
+    `
+    wireBack()
+    document.querySelectorAll<HTMLElement>('.event-pick-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const evId = btn.getAttribute('data-event-id') ?? ''
+        const evName = btn.getAttribute('data-event-name') ?? ''
+        startDraftFetch(evId, evName, state)
+      })
+    })
+    return
+  }
+
+  if (typeof draftState === 'object' && draftState.stage === 'loading') {
+    const n = draftState.fetching
+    const estSecs = n > 0 ? Math.ceil(n * 2) : 0
+    const hint = n > 0 ? ` · ~${estSecs}s` : ''
+    root.innerHTML = backBtn + `
+      <div style="text-align:center;padding:60px 20px;">
+        <div style="color:#9ca3af;font-size:13px;" id="draftNamesProgress">
+          ${n > 0 ? `Fetching ${n} LinkedIn names${hint}` : 'Building your post draft…'}
+        </div>
+      </div>
+    `
+    wireBack()
+    return
+  }
+
+  if (typeof draftState === 'object' && draftState.stage === 'ready') {
+    const s = draftState
+    const hasGuests = s.guestNames.length > 0
+    root.innerHTML = backBtn + `
+      <div style="padding:20px;">
+        <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Post draft</div>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;font-size:13px;color:#374151;line-height:1.5;margin-bottom:8px;white-space:pre-wrap;">${escHtml(s.postText)}</div>
+        <button class="btn btn-secondary" id="btnCopyPost" style="margin-bottom:20px;width:auto;padding:6px 16px;">Copy</button>
+
+        ${hasGuests ? `
+        <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Guest names</div>
+        <div style="margin-bottom:8px;">
+          ${s.guestNames.map(n => `<div class="draft-name-row">${escHtml(n)}</div>`).join('')}
+        </div>
+        ${s.totalGuests >= 15 ? `<button class="btn btn-secondary" id="btnDraftShuffle" style="margin-bottom:16px;">Shuffle (${s.totalGuests} total)</button>` : ''}
+        <div style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px;">
+          <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Tip: Tag attendees for more reach</div>
+          <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0;">In the LinkedIn app: tap your photo → Tag people → search each name above</p>
+        </div>
+        ` : ''}
+      </div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+    `
+    wireBack()
+    document.getElementById('btnCopyPost')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(s.postText).then(() => {
+        const btn = document.getElementById('btnCopyPost')
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { if (btn) btn.textContent = 'Copy' }, 1500) }
+      }).catch(() => {})
+    })
+    document.getElementById('btnDraftShuffle')?.addEventListener('click', () => {
+      if (typeof draftState === 'object' && draftState.stage === 'ready') {
+        startDraftFetch(s.eventId, s.eventName, state)
+      }
+    })
+    return
+  }
+}
+
 function nextConnectionLabel(nextAt: string | null): string {
   if (!nextAt) return ''
   const diff = new Date(nextAt).getTime() - Date.now()
@@ -163,7 +326,7 @@ function nextConnectionLabel(nextAt: string | null): string {
 }
 
 async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): Promise<void> {
-  // Fetch full progress data for activity feed
+  // Fetch full progress data
   const [progressResp, storageData] = await Promise.all([
     new Promise<any>(r => chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, r)),
     chrome.storage.local.get(['nextScheduledAt']),
@@ -172,21 +335,14 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   const events: any[] = progressResp?.events ?? []
   const nextAt: string | null = storageData.nextScheduledAt ?? null
 
-  // Tally stats + build activity list
+  // Tally stats
   let sent = 0, dbPending = 0, failed = 0
-  const recentActivity: { name: string; eventName: string }[] = []
-
   for (const event of events) {
     for (const contact of event.contacts ?? []) {
       const status = contact.connection_queue?.[0]?.status
-      if (status === 'sent' || status === 'accepted') {
-        sent++
-        recentActivity.push({ name: contact.name ?? '', eventName: event.name ?? '' })
-      } else if (status === 'pending') {
-        dbPending++
-      } else if (status === 'failed') {
-        failed++
-      }
+      if (status === 'sent' || status === 'accepted') sent++
+      else if (status === 'pending') dbPending++
+      else if (status === 'failed') failed++
     }
   }
 
@@ -207,13 +363,14 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
         <div class="stat-label">Connected</div>
       </div>
       <div class="stat-card">
-        <div class="stat-num">${state.pending}</div>
+        <div class="stat-num">${dbPending}</div>
         <div class="stat-label">Queued</div>
       </div>
       ${failed > 0 ? `
       <div class="stat-card">
-        <div class="stat-num red">${failed}</div>
+        <div class="stat-num" style="color:#9ca3af;">${failed}</div>
         <div class="stat-label">Skipped</div>
+        <div style="font-size:9px;color:#d1d5db;margin-top:2px;line-height:1.3;">already connected<br>or unavailable</div>
       </div>` : ''}
     </div>
   `
@@ -235,30 +392,63 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   const pauseBtnLabel = isRunning ? '⏸ Pause campaign' : '▶ Resume campaign'
   const pauseBtnId = isRunning ? 'btnPause' : 'btnResume'
 
-  const activityHtml = recentActivity.length > 0 ? `
+  // ── Expandable events list ─────────────────────────────────────────────────
+  const eventsListHtml = events.length === 0 ? '' : `
     <div class="section">
       <div class="feed-header">
-        <span class="feed-title">Recently Connected</span>
+        <span class="feed-title">Events</span>
       </div>
-      <div class="feed-list">
-        ${recentActivity.map(a => `
-          <div class="feed-row">
-            <div class="feed-avatar">${escHtml(initials(a.name))}</div>
-            <div class="feed-info">
-              <div class="feed-name">${escHtml(a.name)}</div>
+      <div class="events-list">
+        ${events.map(ev => {
+          const evId: string = ev.id ?? ''
+          const contacts: any[] = ev.contacts ?? []
+          const evSent = contacts.filter(c => ['sent', 'accepted'].includes(c.connection_queue?.[0]?.status ?? '')).length
+          const evPending = contacts.filter(c => c.connection_queue?.[0]?.status === 'pending').length
+          const isExpanded = expandedEvents.has(evId)
+          const badgeText = evPending > 0 ? `${evPending} queued` : evSent > 0 ? `${evSent} sent` : `${contacts.length} scanned`
+          const badgeClass = evPending > 0 ? 'queued' : ''
+          const contactsHtml = isExpanded ? `
+            <div class="event-contacts">
+              ${contacts.map(c => {
+                const status = c.connection_queue?.[0]?.status ?? ''
+                const statusBadge = status ? `<span class="status-badge ${status}">${status}</span>` : ''
+                const liUrl = c.linkedin_url ?? ''
+                return `
+                  <div class="contact-row">
+                    <span class="contact-name">${escHtml(c.name ?? '')}</span>
+                    <div style="display:flex;align-items:center;gap:4px;">
+                      ${liUrl ? `<a href="${escHtml(liUrl)}" target="_blank" class="badge badge-li">in</a>` : ''}
+                      ${statusBadge}
+                    </div>
+                  </div>
+                `
+              }).join('')}
             </div>
-            <span class="feed-event-tag" title="${escHtml(a.eventName)}">${escHtml(a.eventName)}</span>
-          </div>
-        `).join('')}
+          ` : ''
+          return `
+            <div class="event-row">
+              <div class="event-row-header" data-event-id="${escHtml(evId)}">
+                <span class="event-row-name">${escHtml(ev.name ?? 'Event')}</span>
+                <span class="event-row-badge ${badgeClass}">${escHtml(badgeText)}</span>
+                <span class="chevron" data-chevron>${isExpanded ? '▲' : '▼'}</span>
+              </div>
+              ${contactsHtml}
+            </div>
+          `
+        }).join('')}
       </div>
     </div>
-  ` : ''
+  `
 
-  const scanCta = state.ctx.kind === 'luma-event' ? `
+  // ── Draft button (navigates to full-page draft view) ──────────────────────
+  const draftSectionHtml = `
     <div class="section">
-      <button class="btn btn-primary" id="btnScan">Scan this event's guest list</button>
+      <button class="btn btn-secondary" id="btnDraftPost">✍ Draft a LinkedIn post</button>
     </div>
-  ` : `
+  `
+
+  // ── Scan CTA ───────────────────────────────────────────────────────────────
+  const scanCta = `
     <div class="section">
       <button class="btn btn-secondary" id="btnScanAnother">+ Scan another event</button>
     </div>
@@ -279,7 +469,8 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
       ${state.pending > 0 ? `<div class="pause-row"><button class="btn btn-secondary" id="${pauseBtnId}">${pauseBtnLabel}</button></div>` : ''}
     </div>
 
-    ${activityHtml}
+    ${eventsListHtml}
+    ${draftSectionHtml}
     ${scanCta}
 
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin:8px 16px 0;">Closing this panel won't stop your campaign.</p>
@@ -287,19 +478,68 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
     <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
   `
 
+  // ── Wire pause / resume ────────────────────────────────────────────────────
   document.getElementById('btnPause')?.addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'PAUSE_CAMPAIGN' }, () => render())
   })
   document.getElementById('btnResume')?.addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'RESUME_CAMPAIGN' }, () => render())
   })
+
+  // ── Wire scan CTA ──────────────────────────────────────────────────────────
   document.getElementById('btnScanAnother')?.addEventListener('click', () => {
     chrome.tabs.create({ url: 'https://lu.ma' })
   })
-  if (state.ctx.kind === 'luma-event') {
-    const eventCtx = state.ctx
-    document.getElementById('btnScan')?.addEventListener('click', () => startScan(eventCtx, true))
-  }
+
+  // ── Wire event row expansion (direct DOM — instant, no re-fetch) ───────────
+  document.querySelectorAll<HTMLElement>('.event-row-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const evId = header.getAttribute('data-event-id') ?? ''
+      const eventRow = header.parentElement!
+      const chevron = header.querySelector('[data-chevron]')
+      if (expandedEvents.has(evId)) {
+        expandedEvents.delete(evId)
+        eventRow.querySelector('.event-contacts')?.remove()
+        if (chevron) chevron.textContent = '▼'
+      } else {
+        expandedEvents.add(evId)
+        const ev = events.find(e => e.id === evId)
+        if (ev) {
+          if (chevron) chevron.textContent = '▲'
+          const contactsDiv = document.createElement('div')
+          contactsDiv.className = 'event-contacts'
+          contactsDiv.innerHTML = (ev.contacts ?? []).map((c: any) => {
+            const status = c.connection_queue?.[0]?.status ?? ''
+            const statusBadge = status ? `<span class="status-badge ${status}">${status}</span>` : ''
+            const liUrl = c.linkedin_url ?? ''
+            return `
+              <div class="contact-row">
+                <span class="contact-name">${escHtml(c.name ?? '')}</span>
+                <div style="display:flex;align-items:center;gap:4px;">
+                  ${liUrl ? `<a href="${escHtml(liUrl)}" target="_blank" class="badge badge-li">in</a>` : ''}
+                  ${statusBadge}
+                </div>
+              </div>
+            `
+          }).join('')
+          eventRow.appendChild(contactsDiv)
+        }
+      }
+    })
+  })
+
+  // ── Wire draft button → navigate to full-page draft view ──────────────────
+  document.getElementById('btnDraftPost')?.addEventListener('click', () => {
+    if (events.length === 0) return
+    draftViewOpen = true
+    draftState = 'closed'
+    if (events.length === 1) {
+      startDraftFetch(events[0].id, events[0].name ?? '', state)
+    } else {
+      draftState = { stage: 'pick' }
+      renderDraftView(state)
+    }
+  })
 }
 
 // ── Auth gate ─────────────────────────────────────────────────────────────────
@@ -531,7 +771,9 @@ async function render(): Promise<void> {
       return
     }
 
-    if (state.type === 'campaign') {
+    if (state.type === 'campaign' && draftViewOpen) {
+      await renderDraftView(state)
+    } else if (state.type === 'campaign') {
       await renderCampaign(state)
     } else if (ctx.kind === 'luma-event') {
       await renderEventPage(ctx, hasCampaign)
@@ -545,6 +787,22 @@ async function render(): Promise<void> {
 
 // Scan progress messages from luma.ts content script
 chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'LINKEDIN_NAMES_PROGRESS') {
+    const el = document.getElementById('draftNamesProgress')
+    if (!el) return
+    const done: number = msg.done
+    const total: number = msg.total
+    if (draftNamesStartTime > 0 && done > 0) {
+      const elapsed = (Date.now() - draftNamesStartTime) / 1000
+      const perItem = elapsed / done
+      const remaining = Math.ceil((total - done) * perItem)
+      const eta = remaining > 0 ? ` · ~${remaining}s left` : ''
+      el.textContent = `Fetching names ${done} / ${total}${eta}`
+    } else {
+      el.textContent = `Fetching names ${done} / ${total}`
+    }
+    return
+  }
   if (msg.type === 'SCAN_PROGRESS') {
     if (scanState.type !== 'scanning') return
     scanState = {
