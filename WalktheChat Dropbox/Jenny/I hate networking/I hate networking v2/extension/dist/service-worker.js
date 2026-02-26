@@ -12008,9 +12008,8 @@ ${suffix}`;
       return;
     }
     const fullUrl = linkedinUrl.replace("https://linkedin.com/", "https://www.linkedin.com/");
-    const connWin = await chrome.windows.create({ url: fullUrl, focused: false, state: "minimized" });
-    const tabId = connWin.tabs[0].id;
-    const connWinId = connWin.id;
+    const connTab = await chrome.tabs.create({ url: fullUrl, active: false });
+    const tabId = connTab.id;
     await new Promise((resolve) => {
       const timeout = setTimeout(resolve, 15e3);
       chrome.tabs.onUpdated.addListener(function listener(tid, info) {
@@ -12067,7 +12066,7 @@ ${suffix}`;
       const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
       await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) });
     }
-    await chrome.windows.remove(connWinId).catch(() => {
+    await chrome.tabs.remove(tabId).catch(() => {
     });
   }
 })();
