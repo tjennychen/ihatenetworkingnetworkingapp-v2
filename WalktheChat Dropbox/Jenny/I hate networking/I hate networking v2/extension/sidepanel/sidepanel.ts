@@ -146,7 +146,7 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   const nextAt: string | null = storageData.nextScheduledAt ?? null
 
   // Tally stats + build activity list
-  let sent = 0, pending = 0, failed = 0
+  let sent = 0, dbPending = 0, failed = 0
   const recentActivity: { name: string; eventName: string }[] = []
 
   for (const event of events) {
@@ -156,22 +156,22 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
         sent++
         recentActivity.push({ name: contact.name ?? '', eventName: event.name ?? '' })
       } else if (status === 'pending') {
-        pending++
+        dbPending++
       } else if (status === 'failed') {
         failed++
       }
     }
   }
 
-  const total = sent + pending + failed
+  const total = sent + dbPending + failed
   const pct = total > 0 ? Math.round((sent / total) * 100) : 0
-  const isRunning = pending > 0 && !state.paused
+  const isRunning = state.pending > 0 && !state.paused
 
   const statusHtml = isRunning
     ? `<span class="status-pill pill-running"><span class="dot"></span>Running</span>`
     : state.paused
     ? `<span class="status-pill pill-paused"><span class="dot"></span>Paused</span>`
-    : `<span class="status-pill" style="background:#f3f4f6;color:#6b7280"><span class="dot" style="background:#d1d5db"></span>Done</span>`
+    : `<span class="status-pill pill-done"><span class="dot"></span>Done</span>`
 
   const statsHtml = `
     <div class="stats-row" style="margin:0 16px;">
@@ -249,7 +249,7 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
     <div class="section">
       ${statsHtml}
       ${progressHtml}
-      ${pending > 0 ? `<div class="pause-row"><button class="btn btn-secondary" id="${pauseBtnId}">${pauseBtnLabel}</button></div>` : ''}
+      ${state.pending > 0 ? `<div class="pause-row"><button class="btn btn-secondary" id="${pauseBtnId}">${pauseBtnLabel}</button></div>` : ''}
     </div>
 
     ${activityHtml}
