@@ -68,7 +68,7 @@
     const step1desc = ctx.kind === "luma-other" ? "Open a specific event page on Luma" : "Open any event you attended on lu.ma";
     root.innerHTML = `
     <div class="hero">
-      <img src="../icons/icon48.png" class="hero-logo" alt="">
+      <img src="../icons/icon128.png" class="hero-logo" alt="">
       <div class="hero-name">I Hate Networking</div>
       <div class="hero-sub">networking, automated</div>
     </div>
