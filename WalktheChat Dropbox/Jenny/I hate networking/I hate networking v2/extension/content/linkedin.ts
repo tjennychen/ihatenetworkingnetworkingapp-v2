@@ -34,8 +34,11 @@ function findConnectButton(): HTMLButtonElement | null {
     'button[aria-label*="Connect"], [aria-label*="Connect with"], button[aria-label*="Invite"], [data-control-name="connect"]'
   )
   if (direct) return direct
-  // If a dropdown/menu is currently open, search it first (this is where Connect lives after clicking "More")
-  const openMenu = document.querySelector<Element>('[role="menu"]')
+  // If a dropdown/menu is currently open, search it for Connect.
+  // LinkedIn's artdeco-dropdown uses CSS classes, NOT role="menu" — check both.
+  const openMenu = document.querySelector<Element>(
+    '[role="menu"], .artdeco-dropdown__content--is-open, [data-test-dropdown-content]'
+  )
   if (openMenu) {
     // Check aria-label first (reference pattern), then text content fallback
     const ariaBtn = openMenu.querySelector<HTMLButtonElement>('[aria-label*="Connect"]')
@@ -48,7 +51,17 @@ function findConnectButton(): HTMLButtonElement | null {
     )
     if (divBtn) return divBtn as unknown as HTMLButtonElement
   }
-  // No dropdown open: scope text search to profile top card to avoid "More profiles" sidebar Connect buttons
+  // Fallback: search [role="menuitem"] / [role="option"] items anywhere on page —
+  // these only exist when a dropdown is open, so no risk of hitting sidebar buttons.
+  const menuItems = Array.from(document.querySelectorAll<HTMLElement>(
+    '[role="menuitem"], [role="option"], .artdeco-dropdown__item'
+  ))
+  const connectItem = menuItems.find(el =>
+    /^connect$/i.test(el.textContent?.trim() ?? '') ||
+    el.textContent?.trim().toLowerCase().startsWith('connect')
+  )
+  if (connectItem) return connectItem as unknown as HTMLButtonElement
+  // Last resort: scope text search to profile top card (handles inline dropdowns)
   return findButtonByText('Connect', getProfileTopCard())
 }
 
@@ -60,7 +73,7 @@ async function openMoreActionsIfNeeded(): Promise<void> {
   ) ?? findButtonByText('More', topCard)
   if (moreBtn) {
     moreBtn.click()
-    await new Promise(r => setTimeout(r, 600))
+    await new Promise(r => setTimeout(r, 800))
   }
 }
 

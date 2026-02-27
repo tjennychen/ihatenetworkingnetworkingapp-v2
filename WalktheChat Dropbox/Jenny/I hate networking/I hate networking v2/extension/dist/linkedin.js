@@ -26,7 +26,9 @@
       'button[aria-label*="Connect"], [aria-label*="Connect with"], button[aria-label*="Invite"], [data-control-name="connect"]'
     );
     if (direct) return direct;
-    const openMenu = document.querySelector('[role="menu"]');
+    const openMenu = document.querySelector(
+      '[role="menu"], .artdeco-dropdown__content--is-open, [data-test-dropdown-content]'
+    );
     if (openMenu) {
       const ariaBtn = openMenu.querySelector('[aria-label*="Connect"]');
       if (ariaBtn) return ariaBtn;
@@ -37,6 +39,13 @@
       );
       if (divBtn) return divBtn;
     }
+    const menuItems = Array.from(document.querySelectorAll(
+      '[role="menuitem"], [role="option"], .artdeco-dropdown__item'
+    ));
+    const connectItem = menuItems.find(
+      (el) => /^connect$/i.test(el.textContent?.trim() ?? "") || el.textContent?.trim().toLowerCase().startsWith("connect")
+    );
+    if (connectItem) return connectItem;
     return findButtonByText("Connect", getProfileTopCard());
   }
   async function openMoreActionsIfNeeded() {
@@ -46,7 +55,7 @@
     ) ?? findButtonByText("More", topCard);
     if (moreBtn) {
       moreBtn.click();
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 800));
     }
   }
   async function dismissPremiumPaywall() {
