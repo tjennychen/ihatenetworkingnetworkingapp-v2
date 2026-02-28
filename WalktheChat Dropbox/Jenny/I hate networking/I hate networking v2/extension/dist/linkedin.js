@@ -62,10 +62,10 @@
     const paywall = document.querySelector(
       '[class*="premium-upsell"], [class*="premium_upsell"], [data-test-modal*="premium"], [aria-label*="Premium"]'
     );
-    if (!paywall) return false;
-    const closeBtn = document.querySelector(
-      '[aria-label="Dismiss"], [aria-label="Close"], [data-test-modal-close-btn], button[data-modal-dismiss]'
-    );
+    const reactivateBtn = findButtonByText("Reactivate Premium");
+    if (!paywall && !reactivateBtn) return false;
+    const dialog = (reactivateBtn ?? paywall)?.closest('[role="dialog"]') ?? document;
+    const closeBtn = dialog.querySelector('[aria-label="Dismiss"], [aria-label="Close"], [data-test-modal-close-btn], button[data-modal-dismiss]') ?? document.querySelector('[aria-label="Dismiss"], [aria-label="Close"]');
     closeBtn?.click();
     await new Promise((r) => setTimeout(r, 500));
     return true;
@@ -156,15 +156,17 @@
           }
         } else {
           await setNoteQuotaReached();
-          await new Promise((r) => setTimeout(r, 800));
-          let retryBtn = findConnectButton();
-          if (!retryBtn) {
-            await openMoreActionsIfNeeded();
-            retryBtn = findConnectButton();
+          await new Promise((r) => setTimeout(r, 600));
+          if (!findButtonByText("Send without a note")) {
+            let retryBtn = findConnectButton();
+            if (!retryBtn) {
+              await openMoreActionsIfNeeded();
+              retryBtn = findConnectButton();
+            }
+            if (!retryBtn) return { success: false, error: "note_quota_reached" };
+            retryBtn.click();
+            await new Promise((r) => setTimeout(r, 800 + Math.random() * 500));
           }
-          if (!retryBtn) return { success: false, error: "note_quota_reached" };
-          retryBtn.click();
-          await new Promise((r) => setTimeout(r, 800 + Math.random() * 500));
         }
       }
     }

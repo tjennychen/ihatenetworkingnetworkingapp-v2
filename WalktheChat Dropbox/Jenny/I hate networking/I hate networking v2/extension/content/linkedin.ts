@@ -81,10 +81,14 @@ async function dismissPremiumPaywall(): Promise<boolean> {
   const paywall = document.querySelector(
     '[class*="premium-upsell"], [class*="premium_upsell"], [data-test-modal*="premium"], [aria-label*="Premium"]'
   )
-  if (!paywall) return false
-  const closeBtn = document.querySelector<HTMLButtonElement>(
-    '[aria-label="Dismiss"], [aria-label="Close"], [data-test-modal-close-btn], button[data-modal-dismiss]'
-  )
+  // Also detect "out of free custom notes" modal by presence of "Reactivate Premium" button
+  const reactivateBtn = findButtonByText('Reactivate Premium')
+  if (!paywall && !reactivateBtn) return false
+  // Find close button; fall back to any dismiss button in the same dialog
+  const dialog = (reactivateBtn ?? paywall)?.closest('[role="dialog"]') ?? document
+  const closeBtn =
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Dismiss"], [aria-label="Close"], [data-test-modal-close-btn], button[data-modal-dismiss]') ??
+    document.querySelector<HTMLButtonElement>('[aria-label="Dismiss"], [aria-label="Close"]')
   closeBtn?.click()
   await new Promise(r => setTimeout(r, 500))
   return true
@@ -209,13 +213,17 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
       } else {
         // Note quota hit — remember this so future connections skip the note entirely
         await setNoteQuotaReached()
-        // Back on profile page, retry Connect to get the modal again
-        await new Promise(r => setTimeout(r, 800))
-        let retryBtn = findConnectButton()
-        if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
-        if (!retryBtn) return { success: false, error: 'note_quota_reached' }
-        retryBtn.click()
-        await new Promise(r => setTimeout(r, 800 + Math.random() * 500))
+        await new Promise(r => setTimeout(r, 600))
+        // If "Send without a note" is already visible the connect modal is still open
+        // (paywall was an overlay on it) — no need to re-click Connect
+        if (!findButtonByText('Send without a note')) {
+          // Modal closed after paywall — need to re-find and re-click Connect
+          let retryBtn = findConnectButton()
+          if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
+          if (!retryBtn) return { success: false, error: 'note_quota_reached' }
+          retryBtn.click()
+          await new Promise(r => setTimeout(r, 800 + Math.random() * 500))
+        }
         // Fall through — sendBtn search below will find "Send without a note"
       }
     }
