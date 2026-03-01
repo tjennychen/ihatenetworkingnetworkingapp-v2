@@ -42,13 +42,12 @@ function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function generateCsv(selectedIds: Set<string>): string {
-  const rows = ['Event,Name,LinkedIn URL,Status']
-  for (const ev of events) {
+function generateCsv(selectedIds: Set<string>, evts: any[]): string {
+  const rows = ['Event,Name,LinkedIn URL,Instagram URL,Twitter/X URL,Website']
+  for (const ev of evts) {
     if (!selectedIds.has(ev.id ?? '')) continue
     for (const c of (ev.contacts ?? [])) {
-      const status = c.connection_queue?.[0]?.status ?? ''
-      const row = [ev.name ?? '', c.name ?? '', c.linkedin_url ?? '', status]
+      const row = [ev.name ?? '', c.name ?? '', c.linkedin_url ?? '', c.instagram_url ?? '', c.twitter_url ?? '', c.website_url ?? '']
         .map((v: string) => `"${v.replace(/"/g, '""')}"`)
         .join(',')
       rows.push(row)
@@ -57,14 +56,13 @@ function generateCsv(selectedIds: Set<string>): string {
   return rows.join('\n')
 }
 
-function downloadCsv(csv: string): void {
+function downloadCsv(csv: string, filename = 'connections.csv'): void {
   const blob = new Blob([csv], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'connections.csv'
+  a.download = filename
   a.click()
-  URL.revokeObjectURL(url)
 }
 
 function initials(name: string): string {
@@ -647,7 +645,7 @@ const dailySends: { date: string; count: number }[] = progressResp?.dailySends ?
     if (events.length === 1) {
       // Single event: skip selection UI, download immediately
       exportSelected = new Set(events.map((e: any) => e.id ?? ''))
-      downloadCsv(generateCsv(exportSelected))
+      downloadCsv(generateCsv(exportSelected, events))
     } else {
       // Multiple events: enter select mode, default all selected
       exportMode = true
@@ -662,7 +660,7 @@ const dailySends: { date: string; count: number }[] = progressResp?.dailySends ?
   })
 
   document.getElementById('btnDownloadCsv')?.addEventListener('click', () => {
-    downloadCsv(generateCsv(exportSelected))
+    downloadCsv(generateCsv(exportSelected, events))
     exportMode = false
     render()
   })
@@ -886,6 +884,7 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
         ${s.contacts.length > 0 ? `<div class="leads-list">${leadsHtml}</div>` : ''}
         <div class="field-label">Message <span class="char-count" id="charCount">(optional) ${noteValue.length}/${MAX_NOTE}</span></div>
         <textarea id="noteInput" maxlength="${MAX_NOTE}">${escHtml(noteValue)}</textarea>
+        ${s.contacts.length > 0 ? `<button class="btn btn-secondary" id="btnDownloadScanCsv" style="margin-top:8px;">Download CSV</button>` : ''}
         ${s.eventId ? `
           <div class="li-status ${linkedInReady ? 'ok' : 'warn'}">
             ${linkedInReady ? '✓ LinkedIn ready' : '⚠ Not logged into LinkedIn &nbsp;<a class="li-open" href="https://www.linkedin.com/login" target="_blank">Open LinkedIn ↗</a>'}
@@ -901,6 +900,15 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
       noteValue = (e.target as HTMLTextAreaElement).value
       const el = document.getElementById('charCount')
       if (el) el.textContent = `(optional) ${noteValue.length}/${MAX_NOTE}`
+    })
+    document.getElementById('btnDownloadScanCsv')?.addEventListener('click', () => {
+      const rows = [['Name', 'LinkedIn URL', 'Instagram URL', 'Twitter URL']]
+      for (const c of s.contacts) {
+        rows.push([c.name ?? '', c.linkedInUrl ?? '', c.instagramUrl ?? '', c.twitterUrl ?? ''])
+      }
+      const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n')
+      const slug = s.eventName.replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '').toLowerCase().slice(0, 30)
+      downloadCsv(csv, `luma_${slug}_contacts.csv`)
     })
     document.getElementById('btnConnect')?.addEventListener('click', () => launchCampaign(s))
     wireAuthGate()

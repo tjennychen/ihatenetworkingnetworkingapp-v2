@@ -14,26 +14,24 @@
   function escHtml(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
-  function generateCsv(selectedIds) {
-    const rows = ["Event,Name,LinkedIn URL,Status"];
-    for (const ev of events) {
+  function generateCsv(selectedIds, evts) {
+    const rows = ["Event,Name,LinkedIn URL,Instagram URL,Twitter/X URL,Website"];
+    for (const ev of evts) {
       if (!selectedIds.has(ev.id ?? "")) continue;
       for (const c of ev.contacts ?? []) {
-        const status = c.connection_queue?.[0]?.status ?? "";
-        const row = [ev.name ?? "", c.name ?? "", c.linkedin_url ?? "", status].map((v) => `"${v.replace(/"/g, '""')}"`).join(",");
+        const row = [ev.name ?? "", c.name ?? "", c.linkedin_url ?? "", c.instagram_url ?? "", c.twitter_url ?? "", c.website_url ?? ""].map((v) => `"${v.replace(/"/g, '""')}"`).join(",");
         rows.push(row);
       }
     }
     return rows.join("\n");
   }
-  function downloadCsv(csv) {
+  function downloadCsv(csv, filename = "connections.csv") {
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "connections.csv";
+    a.download = filename;
     a.click();
-    URL.revokeObjectURL(url);
   }
   function initials(name) {
     const parts = name.trim().split(/\s+/);
@@ -203,11 +201,11 @@
       root.innerHTML = backBtn + `<div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px;">Loading events\u2026</div>`;
       wireBack();
       const progressResp = await new Promise((r) => chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, r));
-      const events2 = progressResp?.events ?? [];
+      const events = progressResp?.events ?? [];
       root.innerHTML = backBtn + `
       <div style="padding:20px;">
         <div style="font-size:13px;color:#374151;font-weight:600;margin-bottom:12px;">Which event?</div>
-        ${events2.map((ev) => `
+        ${events.map((ev) => `
           <button class="btn btn-secondary event-pick-btn" data-event-id="${escHtml(ev.id ?? "")}" data-event-name="${escHtml(ev.name ?? "")}" style="margin-bottom:8px;text-align:left;">
             ${escHtml(ev.name ?? "Event")}
           </button>
@@ -333,12 +331,12 @@
       new Promise((r) => chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, r)),
       chrome.storage.local.get(["nextScheduledAt"])
     ]);
-    const events2 = progressResp?.events ?? [];
+    const events = progressResp?.events ?? [];
     const nextAt = storageData.nextScheduledAt ?? null;
     const dailySends = progressResp?.dailySends ?? [];
     const sentThisWeek = progressResp?.sentThisWeek ?? 0;
     let sent = 0, dbPending = 0, failed = 0;
-    for (const event of events2) {
+    for (const event of events) {
       for (const contact of event.contacts ?? []) {
         const status = contact.connection_queue?.[0]?.status;
         if (status === "sent" || status === "accepted") sent++;
@@ -385,10 +383,10 @@
   ` : "";
     const pauseBtnLabel = isRunning ? "\u23F8 Pause campaign" : "\u25B6 Resume campaign";
     const pauseBtnId = isRunning ? "btnPause" : "btnResume";
-    const eventsListHtml = events2.length === 0 ? "" : (() => {
+    const eventsListHtml = events.length === 0 ? "" : (() => {
       const exportBtn = exportMode ? `<button class="export-cancel-btn" id="btnExportCancel">Cancel</button>` : `<button class="export-trigger-btn" id="btnExportCsv">Export CSV</button>`;
       if (exportMode) {
-        const rowsHtml2 = events2.map((ev) => {
+        const rowsHtml2 = events.map((ev) => {
           const evId = ev.id ?? "";
           const contacts = ev.contacts ?? [];
           const checked = exportSelected.has(evId);
@@ -411,7 +409,7 @@
         </div>
       `;
       }
-      const rowsHtml = events2.map((ev) => {
+      const rowsHtml = events.map((ev) => {
         const evId = ev.id ?? "";
         const contacts = ev.contacts ?? [];
         const evSent = contacts.filter((c) => ["sent", "accepted"].includes(c.connection_queue?.[0]?.status ?? "")).length;
@@ -516,7 +514,7 @@
           if (chevron) chevron.textContent = "\u25BC";
         } else {
           expandedEvents.add(evId);
-          const ev = events2.find((e) => e.id === evId);
+          const ev = events.find((e) => e.id === evId);
           if (ev) {
             if (chevron) chevron.textContent = "\u25B2";
             const contactsDiv = document.createElement("div");
@@ -541,12 +539,12 @@
       });
     });
     document.getElementById("btnExportCsv")?.addEventListener("click", () => {
-      if (events2.length === 1) {
-        exportSelected = new Set(events2.map((e) => e.id ?? ""));
-        downloadCsv(generateCsv(exportSelected));
+      if (events.length === 1) {
+        exportSelected = new Set(events.map((e) => e.id ?? ""));
+        downloadCsv(generateCsv(exportSelected, events));
       } else {
         exportMode = true;
-        exportSelected = new Set(events2.map((e) => e.id ?? ""));
+        exportSelected = new Set(events.map((e) => e.id ?? ""));
         render();
       }
     });
@@ -555,7 +553,7 @@
       render();
     });
     document.getElementById("btnDownloadCsv")?.addEventListener("click", () => {
-      downloadCsv(generateCsv(exportSelected));
+      downloadCsv(generateCsv(exportSelected, events));
       exportMode = false;
       render();
     });
@@ -572,11 +570,11 @@
       });
     });
     document.getElementById("btnDraftPost")?.addEventListener("click", () => {
-      if (events2.length === 0) return;
+      if (events.length === 0) return;
       draftViewOpen = true;
       draftState = "closed";
-      if (events2.length === 1) {
-        startDraftFetch(events2[0].id, events2[0].name ?? "", state);
+      if (events.length === 1) {
+        startDraftFetch(events[0].id, events[0].name ?? "", state);
       } else {
         draftState = { stage: "pick" };
         renderDraftView(state);
@@ -759,6 +757,7 @@
         ${s.contacts.length > 0 ? `<div class="leads-list">${leadsHtml}</div>` : ""}
         <div class="field-label">Message <span class="char-count" id="charCount">(optional) ${noteValue.length}/${MAX_NOTE}</span></div>
         <textarea id="noteInput" maxlength="${MAX_NOTE}">${escHtml(noteValue)}</textarea>
+        ${s.contacts.length > 0 ? `<button class="btn btn-secondary" id="btnDownloadScanCsv" style="margin-top:8px;">Download CSV</button>` : ""}
         ${s.eventId ? `
           <div class="li-status ${linkedInReady ? "ok" : "warn"}">
             ${linkedInReady ? "\u2713 LinkedIn ready" : '\u26A0 Not logged into LinkedIn &nbsp;<a class="li-open" href="https://www.linkedin.com/login" target="_blank">Open LinkedIn \u2197</a>'}
@@ -774,6 +773,15 @@
         noteValue = e.target.value;
         const el = document.getElementById("charCount");
         if (el) el.textContent = `(optional) ${noteValue.length}/${MAX_NOTE}`;
+      });
+      document.getElementById("btnDownloadScanCsv")?.addEventListener("click", () => {
+        const rows = [["Name", "LinkedIn URL", "Instagram URL", "Twitter URL"]];
+        for (const c of s.contacts) {
+          rows.push([c.name ?? "", c.linkedInUrl ?? "", c.instagramUrl ?? "", c.twitterUrl ?? ""]);
+        }
+        const csv = rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+        const slug = s.eventName.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "").toLowerCase().slice(0, 30);
+        downloadCsv(csv, `luma_${slug}_contacts.csv`);
       });
       document.getElementById("btnConnect")?.addEventListener("click", () => launchCampaign(s));
       wireAuthGate();
