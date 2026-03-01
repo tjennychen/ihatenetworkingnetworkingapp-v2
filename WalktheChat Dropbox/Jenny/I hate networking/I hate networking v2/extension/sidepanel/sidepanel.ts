@@ -25,6 +25,8 @@ let authMode: 'signup' | 'signin' = 'signup'
 const MAX_NOTE = 300
 
 let expandedEvents = new Set<string>()
+let exportMode = false
+let exportSelected = new Set<string>()
 type DraftState =
   | 'closed'
   | { stage: 'pick' }
@@ -38,6 +40,31 @@ let draftNamesStartTime = 0
 
 function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function generateCsv(selectedIds: Set<string>): string {
+  const rows = ['Event,Name,LinkedIn URL,Status']
+  for (const ev of events) {
+    if (!selectedIds.has(ev.id ?? '')) continue
+    for (const c of (ev.contacts ?? [])) {
+      const status = c.connection_queue?.[0]?.status ?? ''
+      const row = [ev.name ?? '', c.name ?? '', c.linkedin_url ?? '', status]
+        .map((v: string) => `"${v.replace(/"/g, '""')}"`)
+        .join(',')
+      rows.push(row)
+    }
+  }
+  return rows.join('\n')
+}
+
+function downloadCsv(csv: string): void {
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'connections.csv'
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 function initials(name: string): string {
@@ -217,7 +244,7 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
     ? `Thanks ${hostMentions} for organizing the ${shortName} event!`
     : `Thanks everyone for organizing the ${shortName} event!`
 
-  const guestNames = guests.map((g: any) => nameMap.get(g.id) || g.name || '').filter(Boolean)
+  const guestNames = guests.map((g: any) => fetchedMap.get(g.id) || g.linkedin_name || '').filter(Boolean)
   draftState = { stage: 'ready', eventId, eventName, postText, guestNames, totalGuests }
   await renderDraftView(state)
 }
@@ -317,6 +344,46 @@ async function renderDraftView(state: Extract<AppState, { type: 'campaign' }>): 
   }
 }
 
+function renderWeekChart(dailySends: { date: string; count: number }[]): string {
+  if (dailySends.length < 2) return ''
+  const W = 320, H = 64, padX = 4, padY = 6
+  const max = Math.max(...dailySends.map(d => d.count), 1)
+  const n = dailySends.length
+  const pts = dailySends.map((d, i) => ({
+    x: padX + (i / (n - 1)) * (W - padX * 2),
+    y: padY + (1 - d.count / max) * (H - padY * 2),
+    count: d.count,
+    date: d.date,
+  }))
+  const coordStr = pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L ')
+  const linePath = `M ${coordStr}`
+  const areaPath = `${linePath} L ${pts[n - 1].x.toFixed(1)},${H} L ${pts[0].x.toFixed(1)},${H} Z`
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const labels = pts.map(p => {
+    const name = dayNames[new Date(p.date + 'T12:00:00').getDay()]
+    return `<text x="${p.x.toFixed(1)}" y="${H + 14}" text-anchor="middle" font-size="9" fill="#9ca3af">${name}</text>`
+  }).join('')
+  const dots = pts.filter(p => p.count > 0).map(p =>
+    `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.5" fill="#22c55e"/>`
+  ).join('')
+  return `
+    <div style="padding:4px 16px 0;">
+      <svg viewBox="0 0 ${W} ${H + 18}" width="100%" style="display:block;overflow:visible;">
+        <defs>
+          <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#22c55e" stop-opacity="0.2"/>
+            <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="${areaPath}" fill="url(#chartFill)"/>
+        <path d="${linePath}" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        ${dots}
+        ${labels}
+      </svg>
+    </div>
+  `
+}
+
 function nextConnectionLabel(nextAt: string | null): string {
   if (!nextAt) return ''
   const diff = new Date(nextAt).getTime() - Date.now()
@@ -334,8 +401,10 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
 
   const events: any[] = progressResp?.events ?? []
   const nextAt: string | null = storageData.nextScheduledAt ?? null
+const dailySends: { date: string; count: number }[] = progressResp?.dailySends ?? []
+  const sentThisWeek: number = progressResp?.sentThisWeek ?? 0
 
-  // Tally stats
+  // Tally stats (all-time, used for progress bar %)
   let sent = 0, dbPending = 0, failed = 0
   for (const event of events) {
     for (const contact of event.contacts ?? []) {
@@ -359,8 +428,9 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   const statsHtml = `
     <div class="stats-row" style="margin:0 16px;">
       <div class="stat-card">
-        <div class="stat-num green">${sent}</div>
+        <div class="stat-num green">${sentThisWeek}</div>
         <div class="stat-label">Connected</div>
+        <div style="font-size:9px;color:#9ca3af;margin-top:1px;">this week</div>
       </div>
       <div class="stat-card">
         <div class="stat-num">${dbPending}</div>
@@ -373,6 +443,7 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
         <div style="font-size:9px;color:#d1d5db;margin-top:2px;line-height:1.3;">already connected<br>or unavailable</div>
       </div>` : ''}
     </div>
+    ${renderWeekChart(dailySends)}
   `
 
   const progressHtml = total > 0 ? `
@@ -393,52 +464,87 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   const pauseBtnId = isRunning ? 'btnPause' : 'btnResume'
 
   // ── Expandable events list ─────────────────────────────────────────────────
-  const eventsListHtml = events.length === 0 ? '' : `
-    <div class="section">
-      <div class="feed-header">
-        <span class="feed-title">Events</span>
-      </div>
-      <div class="events-list">
-        ${events.map(ev => {
-          const evId: string = ev.id ?? ''
-          const contacts: any[] = ev.contacts ?? []
-          const evSent = contacts.filter(c => ['sent', 'accepted'].includes(c.connection_queue?.[0]?.status ?? '')).length
-          const evPending = contacts.filter(c => c.connection_queue?.[0]?.status === 'pending').length
-          const isExpanded = expandedEvents.has(evId)
-          const badgeText = evPending > 0 ? `${evPending} queued` : evSent > 0 ? `${evSent} sent` : `${contacts.length} scanned`
-          const badgeClass = evPending > 0 ? 'queued' : ''
-          const contactsHtml = isExpanded ? `
-            <div class="event-contacts">
-              ${contacts.map(c => {
-                const status = c.connection_queue?.[0]?.status ?? ''
-                const statusBadge = status ? `<span class="status-badge ${status}">${status}</span>` : ''
-                const liUrl = c.linkedin_url ?? ''
-                return `
-                  <div class="contact-row">
-                    <span class="contact-name">${escHtml(c.name ?? '')}</span>
-                    <div style="display:flex;align-items:center;gap:4px;">
-                      ${liUrl ? `<a href="${escHtml(liUrl)}" target="_blank" class="badge badge-li">in</a>` : ''}
-                      ${statusBadge}
-                    </div>
-                  </div>
-                `
-              }).join('')}
-            </div>
-          ` : ''
-          return `
-            <div class="event-row">
-              <div class="event-row-header" data-event-id="${escHtml(evId)}">
-                <span class="event-row-name">${escHtml(ev.name ?? 'Event')}</span>
-                <span class="event-row-badge ${badgeClass}">${escHtml(badgeText)}</span>
-                <span class="chevron" data-chevron>${isExpanded ? '▲' : '▼'}</span>
+  const eventsListHtml = events.length === 0 ? '' : (() => {
+    const exportBtn = exportMode
+      ? `<button class="export-cancel-btn" id="btnExportCancel">Cancel</button>`
+      : `<button class="export-trigger-btn" id="btnExportCsv">Export CSV</button>`
+
+    if (exportMode) {
+      // Selectable export mode
+      const rowsHtml = events.map((ev: any) => {
+        const evId: string = ev.id ?? ''
+        const contacts: any[] = ev.contacts ?? []
+        const checked = exportSelected.has(evId)
+        return `
+          <label class="event-export-row ${checked ? 'export-checked' : ''}" data-export-id="${escHtml(evId)}">
+            <input type="checkbox" class="export-check" data-event-id="${escHtml(evId)}" ${checked ? 'checked' : ''}>
+            <span class="event-row-name">${escHtml(ev.name ?? 'Event')}</span>
+            <span class="event-row-badge">${contacts.length} contacts</span>
+          </label>
+        `
+      }).join('')
+
+      return `
+        <div class="section">
+          <div class="feed-header">
+            <span class="feed-title">Select events to export</span>
+            ${exportBtn}
+          </div>
+          <div class="events-list">${rowsHtml}</div>
+          <button class="btn btn-primary" id="btnDownloadCsv" style="margin-top:10px;">Download CSV</button>
+        </div>
+      `
+    }
+
+    // Normal expandable mode
+    const rowsHtml = events.map((ev: any) => {
+      const evId: string = ev.id ?? ''
+      const contacts: any[] = ev.contacts ?? []
+      const evSent = contacts.filter((c: any) => ['sent', 'accepted'].includes(c.connection_queue?.[0]?.status ?? '')).length
+      const evPending = contacts.filter((c: any) => c.connection_queue?.[0]?.status === 'pending').length
+      const isExpanded = expandedEvents.has(evId)
+      const badgeText = evPending > 0 ? `${evPending} queued` : evSent > 0 ? `${evSent} sent` : `${contacts.length} scanned`
+      const badgeClass = evPending > 0 ? 'queued' : ''
+      const contactsHtml = isExpanded ? `
+        <div class="event-contacts">
+          ${contacts.map((c: any) => {
+            const status = c.connection_queue?.[0]?.status ?? ''
+            const statusBadge = status ? `<span class="status-badge ${status}">${status}</span>` : ''
+            const liUrl = c.linkedin_url ?? ''
+            return `
+              <div class="contact-row">
+                <span class="contact-name">${escHtml(c.name ?? '')}</span>
+                <div style="display:flex;align-items:center;gap:4px;">
+                  ${liUrl ? `<a href="${escHtml(liUrl)}" target="_blank" class="badge badge-li">in</a>` : ''}
+                  ${statusBadge}
+                </div>
               </div>
-              ${contactsHtml}
-            </div>
-          `
-        }).join('')}
+            `
+          }).join('')}
+        </div>
+      ` : ''
+      return `
+        <div class="event-row">
+          <div class="event-row-header" data-event-id="${escHtml(evId)}">
+            <span class="event-row-name">${escHtml(ev.name ?? 'Event')}</span>
+            <span class="event-row-badge ${badgeClass}">${escHtml(badgeText)}</span>
+            <span class="chevron" data-chevron>${isExpanded ? '▲' : '▼'}</span>
+          </div>
+          ${contactsHtml}
+        </div>
+      `
+    }).join('')
+
+    return `
+      <div class="section">
+        <div class="feed-header">
+          <span class="feed-title">Events</span>
+          ${exportBtn}
+        </div>
+        <div class="events-list">${rowsHtml}</div>
       </div>
-    </div>
-  `
+    `
+  })()
 
   // ── Draft button (navigates to full-page draft view) ──────────────────────
   const draftSectionHtml = `
@@ -453,6 +559,7 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
       <button class="btn btn-secondary" id="btnScanAnother">+ Scan another event</button>
     </div>
   `
+
 
   root.innerHTML = `
     <div class="compact-header">
@@ -488,7 +595,14 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
 
   // ── Wire scan CTA ──────────────────────────────────────────────────────────
   document.getElementById('btnScanAnother')?.addEventListener('click', () => {
-    chrome.tabs.create({ url: 'https://lu.ma' })
+    if (state.ctx.kind === 'luma-event') {
+      // Already on an event page — scan it directly
+      scanState = { type: 'idle' }
+      renderEventPage(state.ctx, true)
+    } else {
+      // Not on an event page — go to Luma
+      chrome.tabs.create({ url: 'https://lu.ma' })
+    }
   })
 
   // ── Wire event row expansion (direct DOM — instant, no re-fetch) ───────────
@@ -525,6 +639,45 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
           eventRow.appendChild(contactsDiv)
         }
       }
+    })
+  })
+
+  // ── Wire CSV export ────────────────────────────────────────────────────────
+  document.getElementById('btnExportCsv')?.addEventListener('click', () => {
+    if (events.length === 1) {
+      // Single event: skip selection UI, download immediately
+      exportSelected = new Set(events.map((e: any) => e.id ?? ''))
+      downloadCsv(generateCsv(exportSelected))
+    } else {
+      // Multiple events: enter select mode, default all selected
+      exportMode = true
+      exportSelected = new Set(events.map((e: any) => e.id ?? ''))
+      render()
+    }
+  })
+
+  document.getElementById('btnExportCancel')?.addEventListener('click', () => {
+    exportMode = false
+    render()
+  })
+
+  document.getElementById('btnDownloadCsv')?.addEventListener('click', () => {
+    downloadCsv(generateCsv(exportSelected))
+    exportMode = false
+    render()
+  })
+
+  document.querySelectorAll<HTMLInputElement>('.export-check').forEach(checkbox => {
+    checkbox.addEventListener('change', () => {
+      const evId = checkbox.getAttribute('data-event-id') ?? ''
+      if (checkbox.checked) {
+        exportSelected.add(evId)
+      } else {
+        exportSelected.delete(evId)
+      }
+      // Update row highlight without full re-render
+      const row = checkbox.closest('.event-export-row')
+      if (row) row.classList.toggle('export-checked', checkbox.checked)
     })
   })
 
@@ -601,13 +754,13 @@ async function launchCampaign(s: Extract<ScanState, { type: 'results' }>): Promi
 
 async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>, hasCampaign = false): Promise<void> {
   if (scanState.type === 'idle') {
-    const existing: { eventId: string; existingUrls: string[]; linkedInCount: number } = await new Promise(resolve => {
+    const existing: { eventId: string; eventName?: string; existingUrls: string[]; linkedInCount: number } = await new Promise(resolve => {
       chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
         chrome.runtime.sendMessage({ type: 'GET_EVENT_BY_URL', lumaUrl: tab?.url ?? '' }, resolve)
       })
     })
     if (existing?.eventId && existing.existingUrls.length > 0) {
-      scanState = { type: 'already_scanned', count: existing.existingUrls.length, linkedInCount: existing.linkedInCount, eventId: existing.eventId, eventName: ctx.eventName }
+      scanState = { type: 'already_scanned', count: existing.existingUrls.length, linkedInCount: existing.linkedInCount, eventId: existing.eventId, eventName: existing.eventName || ctx.eventName }
     }
   }
 
@@ -634,6 +787,10 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
 
   if (scanState.type === 'already_scanned') {
     const s = scanState
+    if (!noteValue) noteValue = defaultNote(s.eventName)
+    const linkedInReady: boolean = await new Promise(resolve =>
+      chrome.runtime.sendMessage({ type: 'CHECK_LINKEDIN_LOGIN' }, r => resolve(r?.loggedIn ?? false))
+    )
     root.innerHTML = `
       <div class="compact-header">
         <div class="compact-brand">
@@ -646,13 +803,33 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
         <div class="already-count" style="margin-top:8px;font-size:13px;color:#6b7280;">${s.count} attendees scanned · ${s.linkedInCount} on LinkedIn</div>
       </div>
       <div class="section">
-        <button class="btn btn-primary" id="btnRescan">Scan again for new attendees</button>
+        <div class="field-label">Message <span class="char-count" id="charCount">(optional) ${noteValue.length}/${MAX_NOTE}</span></div>
+        <textarea id="noteInput" maxlength="${MAX_NOTE}">${escHtml(noteValue)}</textarea>
+        <div class="li-status ${linkedInReady ? 'ok' : 'warn'}">
+          ${linkedInReady ? '✓ LinkedIn ready' : '⚠ Not logged into LinkedIn &nbsp;<a class="li-open" href="https://www.linkedin.com/login" target="_blank">Open LinkedIn ↗</a>'}
+        </div>
+        <button class="btn btn-primary" id="btnLaunch" ${linkedInReady ? '' : 'disabled'} style="margin-top:8px;">
+          Send connection requests to ${s.linkedInCount} people
+        </button>
+        <button class="btn btn-secondary" id="btnRescan" style="margin-top:8px;">Scan again for new attendees</button>
         ${hasCampaign ? `<button class="btn btn-secondary" id="btnViewProgress" style="margin-top:8px;">View campaign progress</button>` : ''}
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `
+    document.getElementById('noteInput')?.addEventListener('input', (e) => {
+      noteValue = (e.target as HTMLTextAreaElement).value
+      const el = document.getElementById('charCount')
+      if (el) el.textContent = `(optional) ${noteValue.length}/${MAX_NOTE}`
+    })
+    document.getElementById('btnLaunch')?.addEventListener('click', async () => {
+      const result: { queued: number; eventId: string } = await new Promise(resolve => {
+        chrome.runtime.sendMessage({ type: 'LAUNCH_CAMPAIGN', data: { eventId: s.eventId, note: noteValue } }, resolve)
+      })
+      scanState = { type: 'launched', queued: result.queued, eventId: result.eventId }
+      render()
+    })
     document.getElementById('btnRescan')!.addEventListener('click', () => startScan(ctx, hasCampaign))
-    document.getElementById('btnViewProgress')!.addEventListener('click', () => {
+    document.getElementById('btnViewProgress')?.addEventListener('click', () => {
       scanState = { type: 'idle' }
       render()
     })

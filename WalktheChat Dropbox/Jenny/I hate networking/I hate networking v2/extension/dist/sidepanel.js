@@ -6,11 +6,34 @@
   var authMode = "signup";
   var MAX_NOTE = 300;
   var expandedEvents = /* @__PURE__ */ new Set();
+  var exportMode = false;
+  var exportSelected = /* @__PURE__ */ new Set();
   var draftState = "closed";
   var draftViewOpen = false;
   var draftNamesStartTime = 0;
   function escHtml(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function generateCsv(selectedIds) {
+    const rows = ["Event,Name,LinkedIn URL,Status"];
+    for (const ev of events) {
+      if (!selectedIds.has(ev.id ?? "")) continue;
+      for (const c of ev.contacts ?? []) {
+        const status = c.connection_queue?.[0]?.status ?? "";
+        const row = [ev.name ?? "", c.name ?? "", c.linkedin_url ?? "", status].map((v) => `"${v.replace(/"/g, '""')}"`).join(",");
+        rows.push(row);
+      }
+    }
+    return rows.join("\n");
+  }
+  function downloadCsv(csv) {
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "connections.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   }
   function initials(name) {
     const parts = name.trim().split(/\s+/);
@@ -157,7 +180,7 @@
     const hostMentions = hosts.map((h) => fetchedMap.get(h.id) || h.linkedin_name || h.name || "").filter(Boolean).map((n) => `@${n}`).join(" ");
     const shortName = eventName.replace(/\s*·\s*[^·]+$/, "").replace(/\s*·\s*[^·]+$/, "").trim();
     const postText = hostMentions ? `Thanks ${hostMentions} for organizing the ${shortName} event!` : `Thanks everyone for organizing the ${shortName} event!`;
-    const guestNames = guests.map((g) => nameMap.get(g.id) || g.name || "").filter(Boolean);
+    const guestNames = guests.map((g) => fetchedMap.get(g.id) || g.linkedin_name || "").filter(Boolean);
     draftState = { stage: "ready", eventId, eventName, postText, guestNames, totalGuests };
     await renderDraftView(state);
   }
@@ -180,11 +203,11 @@
       root.innerHTML = backBtn + `<div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px;">Loading events\u2026</div>`;
       wireBack();
       const progressResp = await new Promise((r) => chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, r));
-      const events = progressResp?.events ?? [];
+      const events2 = progressResp?.events ?? [];
       root.innerHTML = backBtn + `
       <div style="padding:20px;">
         <div style="font-size:13px;color:#374151;font-weight:600;margin-bottom:12px;">Which event?</div>
-        ${events.map((ev) => `
+        ${events2.map((ev) => `
           <button class="btn btn-secondary event-pick-btn" data-event-id="${escHtml(ev.id ?? "")}" data-event-name="${escHtml(ev.name ?? "")}" style="margin-bottom:8px;text-align:left;">
             ${escHtml(ev.name ?? "Event")}
           </button>
@@ -259,6 +282,45 @@
       return;
     }
   }
+  function renderWeekChart(dailySends) {
+    if (dailySends.length < 2) return "";
+    const W = 320, H = 64, padX = 4, padY = 6;
+    const max = Math.max(...dailySends.map((d) => d.count), 1);
+    const n = dailySends.length;
+    const pts = dailySends.map((d, i) => ({
+      x: padX + i / (n - 1) * (W - padX * 2),
+      y: padY + (1 - d.count / max) * (H - padY * 2),
+      count: d.count,
+      date: d.date
+    }));
+    const coordStr = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" L ");
+    const linePath = `M ${coordStr}`;
+    const areaPath = `${linePath} L ${pts[n - 1].x.toFixed(1)},${H} L ${pts[0].x.toFixed(1)},${H} Z`;
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const labels = pts.map((p) => {
+      const name = dayNames[(/* @__PURE__ */ new Date(p.date + "T12:00:00")).getDay()];
+      return `<text x="${p.x.toFixed(1)}" y="${H + 14}" text-anchor="middle" font-size="9" fill="#9ca3af">${name}</text>`;
+    }).join("");
+    const dots = pts.filter((p) => p.count > 0).map(
+      (p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.5" fill="#22c55e"/>`
+    ).join("");
+    return `
+    <div style="padding:4px 16px 0;">
+      <svg viewBox="0 0 ${W} ${H + 18}" width="100%" style="display:block;overflow:visible;">
+        <defs>
+          <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#22c55e" stop-opacity="0.2"/>
+            <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="${areaPath}" fill="url(#chartFill)"/>
+        <path d="${linePath}" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        ${dots}
+        ${labels}
+      </svg>
+    </div>
+  `;
+  }
   function nextConnectionLabel(nextAt) {
     if (!nextAt) return "";
     const diff = new Date(nextAt).getTime() - Date.now();
@@ -271,10 +333,12 @@
       new Promise((r) => chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, r)),
       chrome.storage.local.get(["nextScheduledAt"])
     ]);
-    const events = progressResp?.events ?? [];
+    const events2 = progressResp?.events ?? [];
     const nextAt = storageData.nextScheduledAt ?? null;
+    const dailySends = progressResp?.dailySends ?? [];
+    const sentThisWeek = progressResp?.sentThisWeek ?? 0;
     let sent = 0, dbPending = 0, failed = 0;
-    for (const event of events) {
+    for (const event of events2) {
       for (const contact of event.contacts ?? []) {
         const status = contact.connection_queue?.[0]?.status;
         if (status === "sent" || status === "accepted") sent++;
@@ -289,8 +353,9 @@
     const statsHtml = `
     <div class="stats-row" style="margin:0 16px;">
       <div class="stat-card">
-        <div class="stat-num green">${sent}</div>
+        <div class="stat-num green">${sentThisWeek}</div>
         <div class="stat-label">Connected</div>
+        <div style="font-size:9px;color:#9ca3af;margin-top:1px;">this week</div>
       </div>
       <div class="stat-card">
         <div class="stat-num">${dbPending}</div>
@@ -303,6 +368,7 @@
         <div style="font-size:9px;color:#d1d5db;margin-top:2px;line-height:1.3;">already connected<br>or unavailable</div>
       </div>` : ""}
     </div>
+    ${renderWeekChart(dailySends)}
   `;
     const progressHtml = total > 0 ? `
     <div style="padding:0 16px;">
@@ -319,52 +385,79 @@
   ` : "";
     const pauseBtnLabel = isRunning ? "\u23F8 Pause campaign" : "\u25B6 Resume campaign";
     const pauseBtnId = isRunning ? "btnPause" : "btnResume";
-    const eventsListHtml = events.length === 0 ? "" : `
-    <div class="section">
-      <div class="feed-header">
-        <span class="feed-title">Events</span>
-      </div>
-      <div class="events-list">
-        ${events.map((ev) => {
-      const evId = ev.id ?? "";
-      const contacts = ev.contacts ?? [];
-      const evSent = contacts.filter((c) => ["sent", "accepted"].includes(c.connection_queue?.[0]?.status ?? "")).length;
-      const evPending = contacts.filter((c) => c.connection_queue?.[0]?.status === "pending").length;
-      const isExpanded = expandedEvents.has(evId);
-      const badgeText = evPending > 0 ? `${evPending} queued` : evSent > 0 ? `${evSent} sent` : `${contacts.length} scanned`;
-      const badgeClass = evPending > 0 ? "queued" : "";
-      const contactsHtml = isExpanded ? `
-            <div class="event-contacts">
-              ${contacts.map((c) => {
-        const status = c.connection_queue?.[0]?.status ?? "";
-        const statusBadge = status ? `<span class="status-badge ${status}">${status}</span>` : "";
-        const liUrl = c.linkedin_url ?? "";
+    const eventsListHtml = events2.length === 0 ? "" : (() => {
+      const exportBtn = exportMode ? `<button class="export-cancel-btn" id="btnExportCancel">Cancel</button>` : `<button class="export-trigger-btn" id="btnExportCsv">Export CSV</button>`;
+      if (exportMode) {
+        const rowsHtml2 = events2.map((ev) => {
+          const evId = ev.id ?? "";
+          const contacts = ev.contacts ?? [];
+          const checked = exportSelected.has(evId);
+          return `
+          <label class="event-export-row ${checked ? "export-checked" : ""}" data-export-id="${escHtml(evId)}">
+            <input type="checkbox" class="export-check" data-event-id="${escHtml(evId)}" ${checked ? "checked" : ""}>
+            <span class="event-row-name">${escHtml(ev.name ?? "Event")}</span>
+            <span class="event-row-badge">${contacts.length} contacts</span>
+          </label>
+        `;
+        }).join("");
         return `
-                  <div class="contact-row">
-                    <span class="contact-name">${escHtml(c.name ?? "")}</span>
-                    <div style="display:flex;align-items:center;gap:4px;">
-                      ${liUrl ? `<a href="${escHtml(liUrl)}" target="_blank" class="badge badge-li">in</a>` : ""}
-                      ${statusBadge}
-                    </div>
-                  </div>
-                `;
-      }).join("")}
-            </div>
-          ` : "";
-      return `
-            <div class="event-row">
-              <div class="event-row-header" data-event-id="${escHtml(evId)}">
-                <span class="event-row-name">${escHtml(ev.name ?? "Event")}</span>
-                <span class="event-row-badge ${badgeClass}">${escHtml(badgeText)}</span>
-                <span class="chevron" data-chevron>${isExpanded ? "\u25B2" : "\u25BC"}</span>
+        <div class="section">
+          <div class="feed-header">
+            <span class="feed-title">Select events to export</span>
+            ${exportBtn}
+          </div>
+          <div class="events-list">${rowsHtml2}</div>
+          <button class="btn btn-primary" id="btnDownloadCsv" style="margin-top:10px;">Download CSV</button>
+        </div>
+      `;
+      }
+      const rowsHtml = events2.map((ev) => {
+        const evId = ev.id ?? "";
+        const contacts = ev.contacts ?? [];
+        const evSent = contacts.filter((c) => ["sent", "accepted"].includes(c.connection_queue?.[0]?.status ?? "")).length;
+        const evPending = contacts.filter((c) => c.connection_queue?.[0]?.status === "pending").length;
+        const isExpanded = expandedEvents.has(evId);
+        const badgeText = evPending > 0 ? `${evPending} queued` : evSent > 0 ? `${evSent} sent` : `${contacts.length} scanned`;
+        const badgeClass = evPending > 0 ? "queued" : "";
+        const contactsHtml = isExpanded ? `
+        <div class="event-contacts">
+          ${contacts.map((c) => {
+          const status = c.connection_queue?.[0]?.status ?? "";
+          const statusBadge = status ? `<span class="status-badge ${status}">${status}</span>` : "";
+          const liUrl = c.linkedin_url ?? "";
+          return `
+              <div class="contact-row">
+                <span class="contact-name">${escHtml(c.name ?? "")}</span>
+                <div style="display:flex;align-items:center;gap:4px;">
+                  ${liUrl ? `<a href="${escHtml(liUrl)}" target="_blank" class="badge badge-li">in</a>` : ""}
+                  ${statusBadge}
+                </div>
               </div>
-              ${contactsHtml}
-            </div>
-          `;
-    }).join("")}
+            `;
+        }).join("")}
+        </div>
+      ` : "";
+        return `
+        <div class="event-row">
+          <div class="event-row-header" data-event-id="${escHtml(evId)}">
+            <span class="event-row-name">${escHtml(ev.name ?? "Event")}</span>
+            <span class="event-row-badge ${badgeClass}">${escHtml(badgeText)}</span>
+            <span class="chevron" data-chevron>${isExpanded ? "\u25B2" : "\u25BC"}</span>
+          </div>
+          ${contactsHtml}
+        </div>
+      `;
+      }).join("");
+      return `
+      <div class="section">
+        <div class="feed-header">
+          <span class="feed-title">Events</span>
+          ${exportBtn}
+        </div>
+        <div class="events-list">${rowsHtml}</div>
       </div>
-    </div>
-  `;
+    `;
+    })();
     const draftSectionHtml = `
     <div class="section">
       <button class="btn btn-secondary" id="btnDraftPost">\u270D Draft a LinkedIn post</button>
@@ -405,7 +498,12 @@
       chrome.runtime.sendMessage({ type: "RESUME_CAMPAIGN" }, () => render());
     });
     document.getElementById("btnScanAnother")?.addEventListener("click", () => {
-      chrome.tabs.create({ url: "https://lu.ma" });
+      if (state.ctx.kind === "luma-event") {
+        scanState = { type: "idle" };
+        renderEventPage(state.ctx, true);
+      } else {
+        chrome.tabs.create({ url: "https://lu.ma" });
+      }
     });
     document.querySelectorAll(".event-row-header").forEach((header) => {
       header.addEventListener("click", () => {
@@ -418,7 +516,7 @@
           if (chevron) chevron.textContent = "\u25BC";
         } else {
           expandedEvents.add(evId);
-          const ev = events.find((e) => e.id === evId);
+          const ev = events2.find((e) => e.id === evId);
           if (ev) {
             if (chevron) chevron.textContent = "\u25B2";
             const contactsDiv = document.createElement("div");
@@ -442,12 +540,43 @@
         }
       });
     });
+    document.getElementById("btnExportCsv")?.addEventListener("click", () => {
+      if (events2.length === 1) {
+        exportSelected = new Set(events2.map((e) => e.id ?? ""));
+        downloadCsv(generateCsv(exportSelected));
+      } else {
+        exportMode = true;
+        exportSelected = new Set(events2.map((e) => e.id ?? ""));
+        render();
+      }
+    });
+    document.getElementById("btnExportCancel")?.addEventListener("click", () => {
+      exportMode = false;
+      render();
+    });
+    document.getElementById("btnDownloadCsv")?.addEventListener("click", () => {
+      downloadCsv(generateCsv(exportSelected));
+      exportMode = false;
+      render();
+    });
+    document.querySelectorAll(".export-check").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const evId = checkbox.getAttribute("data-event-id") ?? "";
+        if (checkbox.checked) {
+          exportSelected.add(evId);
+        } else {
+          exportSelected.delete(evId);
+        }
+        const row = checkbox.closest(".event-export-row");
+        if (row) row.classList.toggle("export-checked", checkbox.checked);
+      });
+    });
     document.getElementById("btnDraftPost")?.addEventListener("click", () => {
-      if (events.length === 0) return;
+      if (events2.length === 0) return;
       draftViewOpen = true;
       draftState = "closed";
-      if (events.length === 1) {
-        startDraftFetch(events[0].id, events[0].name ?? "", state);
+      if (events2.length === 1) {
+        startDraftFetch(events2[0].id, events2[0].name ?? "", state);
       } else {
         draftState = { stage: "pick" };
         renderDraftView(state);
@@ -509,7 +638,7 @@
         });
       });
       if (existing?.eventId && existing.existingUrls.length > 0) {
-        scanState = { type: "already_scanned", count: existing.existingUrls.length, linkedInCount: existing.linkedInCount, eventId: existing.eventId, eventName: ctx.eventName };
+        scanState = { type: "already_scanned", count: existing.existingUrls.length, linkedInCount: existing.linkedInCount, eventId: existing.eventId, eventName: existing.eventName || ctx.eventName };
       }
     }
     if (scanState.type === "idle") {
@@ -534,6 +663,10 @@
     }
     if (scanState.type === "already_scanned") {
       const s = scanState;
+      if (!noteValue) noteValue = defaultNote(s.eventName);
+      const linkedInReady = await new Promise(
+        (resolve) => chrome.runtime.sendMessage({ type: "CHECK_LINKEDIN_LOGIN" }, (r) => resolve(r?.loggedIn ?? false))
+      );
       root.innerHTML = `
       <div class="compact-header">
         <div class="compact-brand">
@@ -546,13 +679,33 @@
         <div class="already-count" style="margin-top:8px;font-size:13px;color:#6b7280;">${s.count} attendees scanned \xB7 ${s.linkedInCount} on LinkedIn</div>
       </div>
       <div class="section">
-        <button class="btn btn-primary" id="btnRescan">Scan again for new attendees</button>
+        <div class="field-label">Message <span class="char-count" id="charCount">(optional) ${noteValue.length}/${MAX_NOTE}</span></div>
+        <textarea id="noteInput" maxlength="${MAX_NOTE}">${escHtml(noteValue)}</textarea>
+        <div class="li-status ${linkedInReady ? "ok" : "warn"}">
+          ${linkedInReady ? "\u2713 LinkedIn ready" : '\u26A0 Not logged into LinkedIn &nbsp;<a class="li-open" href="https://www.linkedin.com/login" target="_blank">Open LinkedIn \u2197</a>'}
+        </div>
+        <button class="btn btn-primary" id="btnLaunch" ${linkedInReady ? "" : "disabled"} style="margin-top:8px;">
+          Send connection requests to ${s.linkedInCount} people
+        </button>
+        <button class="btn btn-secondary" id="btnRescan" style="margin-top:8px;">Scan again for new attendees</button>
         ${hasCampaign ? `<button class="btn btn-secondary" id="btnViewProgress" style="margin-top:8px;">View campaign progress</button>` : ""}
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `;
+      document.getElementById("noteInput")?.addEventListener("input", (e) => {
+        noteValue = e.target.value;
+        const el = document.getElementById("charCount");
+        if (el) el.textContent = `(optional) ${noteValue.length}/${MAX_NOTE}`;
+      });
+      document.getElementById("btnLaunch")?.addEventListener("click", async () => {
+        const result = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: "LAUNCH_CAMPAIGN", data: { eventId: s.eventId, note: noteValue } }, resolve);
+        });
+        scanState = { type: "launched", queued: result.queued, eventId: result.eventId };
+        render();
+      });
       document.getElementById("btnRescan").addEventListener("click", () => startScan(ctx, hasCampaign));
-      document.getElementById("btnViewProgress").addEventListener("click", () => {
+      document.getElementById("btnViewProgress")?.addEventListener("click", () => {
         scanState = { type: "idle" };
         render();
       });
