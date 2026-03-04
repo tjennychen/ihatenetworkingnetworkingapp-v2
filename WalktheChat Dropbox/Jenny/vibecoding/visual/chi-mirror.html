@@ -18,7 +18,34 @@ video{display:none;position:absolute}
 <body>
 <video id="vid" autoplay playsinline muted></video>
 <canvas id="c"></canvas>
-<div id="ui"></div>
+<div id="ui">
+  <!-- Logo top-left -->
+  <div style="position:absolute;top:16px;left:20px;display:flex;align-items:center;gap:10px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;width:22px;height:22px">
+      <div style="background:#FF6B35;border-radius:1px"></div>
+      <div style="border:1px solid #FF8C5A;border-radius:1px"></div>
+      <div style="background:#FF6B35;border-radius:1px"></div>
+      <div style="border:1px solid #FF8C5A;border-radius:1px"></div>
+      <div style="background:#FF6B35;border-radius:1px"></div>
+      <div style="border:1px solid #FF8C5A;border-radius:1px"></div>
+      <div style="background:#FF6B35;border-radius:1px"></div>
+      <div style="border:1px solid #FF8C5A;border-radius:1px"></div>
+      <div style="background:#FF6B35;border-radius:1px"></div>
+    </div>
+    <span style="font-family:'Press Start 2P',monospace;font-size:7px;color:#FF6B35;letter-spacing:.05em">PUZZLE ACUT.</span>
+  </div>
+
+  <!-- Element badge top-right -->
+  <div id="element-badge" style="position:absolute;top:16px;right:20px;padding:6px 14px;border:1.5px solid #FF6B35;border-radius:2px;background:rgba(13,5,0,0.7)">
+    <span id="element-icon" style="font-size:16px">🔥</span>
+    <span id="element-name" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#FF6B35;margin-left:6px;letter-spacing:.08em">FIRE</span>
+  </div>
+
+  <!-- Reading bottom-center -->
+  <div id="reading" style="position:absolute;bottom:110px;left:50%;transform:translateX(-50%);text-align:center;max-width:360px">
+    <p id="reading-text" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#FFB88A;letter-spacing:.06em;line-height:1.6"></p>
+  </div>
+</div>
 <script>
 const vid = document.getElementById('vid');
 const canvas = document.getElementById('c');
@@ -314,6 +341,50 @@ startAudio().catch(console.error);
 let prevNoseX = null, prevNoseY = null;
 let yangScore = 50;
 let stillFrames = 0;
+const ELEMENT_UI = {
+  water: { icon: '💧', color: '#6B35FF', name: 'Water', readings: [
+    'Kidney chi flowing — rest is medicine',
+    'Water nourishes Wood — trust the process',
+    'Deep reserves within you — draw from them',
+  ]},
+  wood:  { icon: '🌿', color: '#35FF6B', name: 'Wood', readings: [
+    'Liver awake — let the tension move through',
+    'Wood energy rises — vision is clear today',
+    'Growth requires release — what can you let go?',
+  ]},
+  fire:  { icon: '🔥', color: '#FF4D1C', name: 'Fire', readings: [
+    'Heart energy rising — stay present, breathe',
+    'Fire warms the spirit — connection is near',
+    'Yang is high — channel it with intention',
+  ]},
+  earth: { icon: '🌕', color: '#FFB835', name: 'Earth', readings: [
+    'Spleen grounded — nourish yourself today',
+    'Earth steadies all — you are supported',
+    'Center holds — digest what you have received',
+  ]},
+  metal: { icon: '✨', color: '#F0F0FF', name: 'Metal', readings: [
+    'Lung clarity — release what no longer serves',
+    'Metal purifies — breathe in, let go',
+    'Autumn energy — honor endings and beginnings',
+  ]},
+};
+
+let lastElementForUI = null;
+let lastReadingIdx = 0;
+
+function updateUI() {
+  const el = dominantElement;
+  if (el === lastElementForUI) return;
+  lastElementForUI = el;
+  const cfg = ELEMENT_UI[el];
+  document.getElementById('element-icon').textContent = cfg.icon;
+  document.getElementById('element-name').textContent = cfg.name.toUpperCase();
+  document.getElementById('element-name').style.color = cfg.color;
+  document.getElementById('element-badge').style.borderColor = cfg.color;
+  lastReadingIdx = (lastReadingIdx + 1) % cfg.readings.length;
+  document.getElementById('reading-text').textContent = cfg.readings[lastReadingIdx];
+}
+
 let lastBeatTime = 0;
 let prevFireLevel = 0;
 
@@ -345,6 +416,7 @@ function render() {
   drawAcupoints(Date.now());
   updateYinYang();
   drawYinYangMeter();
+  updateUI();
 
   requestAnimationFrame(render);
 }
