@@ -25,6 +25,38 @@ const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 let landmarks = null; // 468 points [{x,y,z}] normalized 0-1
 
+// Meridian paths: arrays of landmark indices tracing each meridian across the face
+const MERIDIANS = {
+  stomach:       { pts: [234, 93, 132, 58, 172, 136, 150, 149, 176, 148], color: '#FFB835', name: 'ST' },
+  largeIntestine:{ pts: [2, 326, 327, 2, 97, 98, 60], color: '#FF6B35', name: 'LI' },
+  tripleWarmer:  { pts: [234, 227, 137, 177, 215, 58], color: '#FF4D9D', name: 'TW' },
+  bladder:       { pts: [10, 151, 9, 8, 168, 6, 197, 195, 5, 4, 1], color: '#35AAFF', name: 'BL' },
+  governing:     { pts: [10, 151, 9, 8, 168, 6, 197, 195, 5, 4, 1, 2], color: '#C0C0FF', name: 'GV' },
+  conception:    { pts: [152, 175, 14, 13, 12, 11, 0, 267, 269], color: '#FFD700', name: 'CV' },
+};
+
+// Helper: convert normalized landmark to canvas coords
+function lmToCanvas(lm) {
+  return { x: lm.x * canvas.width, y: lm.y * canvas.height };
+}
+
+// Draw meridian lines (debug — will replace with particles later)
+function drawMeridians() {
+  if (!landmarks) return;
+  Object.values(MERIDIANS).forEach(m => {
+    ctx.strokeStyle = m.color;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    m.pts.forEach((idx, i) => {
+      const pt = lmToCanvas(landmarks[idx]);
+      i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y);
+    });
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  });
+}
+
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -59,6 +91,7 @@ function drawDebug() {
       ctx.fill();
     });
   }
+  drawMeridians();
   requestAnimationFrame(drawDebug);
 }
 drawDebug();
