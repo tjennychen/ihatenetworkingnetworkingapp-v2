@@ -211,7 +211,7 @@ function drawGL() {
   gl.uniform1f(glUniforms.hueShift,   parseFloat(document.getElementById('ctrl-hue')?.value    ?? 0.0));
   gl.uniform2f(glUniforms.resolution, glCanvas.width, glCanvas.height);
   gl.uniform2f(glUniforms.motionXY,   window.motionData?.x ?? 0.5, window.motionData?.y ?? 0.5);
-  gl.uniform1f(glUniforms.intensity,  window.motionData?.intensity ?? 0);
+  gl.uniform1f(glUniforms.intensity,  Math.min(1, (window.motionData?.intensity ?? 0) + gestureShaderBoost));
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
@@ -219,6 +219,7 @@ let landmarks = null; // 468 points [{x,y,z}] normalized 0-1
 let handLandmarks = { left: null, right: null };
 let poseLandmarks = null;
 window.motionData = { x: 0.5, y: 0.5, intensity: 0 };
+let gestureShaderBoost = 0;
 let prevHandCentroid = null;
 
 // Audio / Five Elements state
@@ -417,6 +418,82 @@ function processGestures() {
   if (gesture !== activeGesture) {
     activeGesture = gesture;
     if (gesture) triggerGestureEffect(gesture);
+  }
+}
+
+function triggerGestureEffect(gesture) {
+  const readingEl = document.getElementById('reading-text');
+  if (readingEl && GESTURE_READINGS[gesture]) {
+    readingEl.textContent = GESTURE_READINGS[gesture];
+    clearTimeout(gestureReadingTimer);
+    gestureReadingTimer = setTimeout(() => {
+      const cfg = ELEMENT_UI[dominantElement];
+      if (cfg && readingEl) readingEl.textContent = cfg.readings[lastReadingIdx];
+    }, 3000);
+  }
+
+  switch (gesture) {
+    case 'open_palm':
+      gestureShaderBoost = 0.8;
+      for (let i = 0; i < 30 && particles.length < MAX_PARTICLES; i++) {
+        const x = Math.random() * canvas.width;
+        const p = new Particle(x, 0, 'earth', Math.PI / 2 + (Math.random() - 0.5) * 0.3);
+        p.vy = 0.8 + Math.random();
+        particles.push(p);
+      }
+      break;
+
+    case 'peace':
+      gestureShaderBoost = 0.5;
+      ['left', 'right'].forEach(side => {
+        const hand = handLandmarks[side];
+        if (!hand) return;
+        const pt = lmToCanvas(hand[9]);
+        for (let i = 0; i < 15 && particles.length < MAX_PARTICLES; i++) {
+          const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.8;
+          particles.push(new Particle(pt.x, pt.y, 'wood', angle));
+        }
+      });
+      break;
+
+    case 'point': {
+      gestureShaderBoost = 0.3;
+      const hand = handLandmarks.right || handLandmarks.left;
+      if (hand) {
+        const tip  = lmToCanvas(hand[8]);
+        const base = lmToCanvas(hand[6]);
+        const angle = Math.atan2(tip.y - base.y, tip.x - base.x);
+        for (let i = 0; i < 20 && particles.length < MAX_PARTICLES; i++) {
+          particles.push(new Particle(tip.x, tip.y, dominantElement, angle + (Math.random() - 0.5) * 0.2));
+        }
+      }
+      break;
+    }
+
+    case 'fist':
+      gestureShaderBoost = 1.0;
+      ['left', 'right'].forEach(side => {
+        const hand = handLandmarks[side];
+        if (!hand) return;
+        const pt = lmToCanvas(hand[9]);
+        for (let i = 0; i < 20 && particles.length < MAX_PARTICLES; i++) {
+          const startX = pt.x + (Math.random() - 0.5) * 200;
+          const startY = pt.y + (Math.random() - 0.5) * 200;
+          const angle = Math.atan2(pt.y - startY, pt.x - startX);
+          particles.push(new Particle(startX, startY, 'water', angle));
+        }
+      });
+      break;
+
+    case 'both_raised':
+      gestureShaderBoost = 0.6;
+      yangScore = Math.min(100, yangScore + 30);
+      break;
+
+    case 'namaste':
+      gestureShaderBoost = 0.4;
+      yangScore = yangScore * 0.7 + 50 * 0.3;
+      break;
   }
 }
 
@@ -644,6 +721,15 @@ const ELEMENT_UI = {
     'Metal purifies — breathe in, let go',
     'Autumn energy — honor endings and beginnings',
   ]},
+};
+
+const GESTURE_READINGS = {
+  open_palm:   'Open channels — chi flows freely',
+  peace:       'Creative force rising — Wood energy',
+  point:       'Where intention goes, energy follows',
+  fist:        'Gathering jing — store your essence',
+  both_raised: 'Heart fire — lifting the spirit',
+  namaste:     'Shen is clear — heart and mind united',
 };
 
 let lastElementForUI = null;
