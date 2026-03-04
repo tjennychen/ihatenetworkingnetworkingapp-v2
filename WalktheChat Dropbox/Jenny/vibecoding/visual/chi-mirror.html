@@ -81,6 +81,88 @@ function lmToCanvas(lm) {
   return { x: lm.x * canvas.width, y: lm.y * canvas.height };
 }
 
+const ELEMENT_CONFIG = {
+  water: { color: '#6B35FF', glowColor: 'rgba(107,53,255,', name: 'Water', organ: 'Kidney' },
+  wood:  { color: '#35FF6B', glowColor: 'rgba(53,255,107,',  name: 'Wood',  organ: 'Liver'  },
+  fire:  { color: '#FF4D1C', glowColor: 'rgba(255,77,28,',   name: 'Fire',  organ: 'Heart'  },
+  earth: { color: '#FFB835', glowColor: 'rgba(255,184,53,',  name: 'Earth', organ: 'Spleen' },
+  metal: { color: '#F0F0FF', glowColor: 'rgba(240,240,255,', name: 'Metal', organ: 'Lung'   },
+};
+
+const particles = [];
+const MAX_PARTICLES = 400;
+
+class Particle {
+  constructor(x, y, element, meridianDir) {
+    this.x = x;
+    this.y = y;
+    this.element = element;
+    const cfg = ELEMENT_CONFIG[element];
+    this.color = cfg.color;
+    this.glowColor = cfg.glowColor;
+    const angle = meridianDir + (Math.random() - 0.5) * 0.6;
+    const speed = 0.8 + Math.random() * 1.5;
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.life = 1.0;
+    this.decay = 0.008 + Math.random() * 0.012;
+    this.size = 2 + Math.random() * 3;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vx *= 0.98;
+    this.vy *= 0.98;
+    this.life -= this.decay;
+  }
+  draw(ctx) {
+    if (this.life <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = this.life * 0.85;
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function spawnMeridianParticles() {
+  if (!landmarks) return;
+  const element = dominantElement;
+  const level = elementLevels[element];
+  if (level < 0.03) return;
+  const meridianKeys = Object.keys(MERIDIANS);
+  const m = MERIDIANS[meridianKeys[Math.floor(Math.random() * meridianKeys.length)]];
+  const pts = m.pts;
+  const segIdx = Math.floor(Math.random() * (pts.length - 1));
+  const p0 = lmToCanvas(landmarks[pts[segIdx]]);
+  const p1 = lmToCanvas(landmarks[pts[segIdx + 1]]);
+  const dx = p1.x - p0.x;
+  const dy = p1.y - p0.y;
+  const angle = Math.atan2(dy, dx);
+  const t = Math.random();
+  const sx = p0.x + dx * t;
+  const sy = p0.y + dy * t;
+  const count = Math.floor(level * 3) + 1;
+  for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
+    particles.push(new Particle(sx, sy, element, angle));
+  }
+}
+
+function beatBurst() {
+  if (!landmarks) return;
+  const nose = lmToCanvas(landmarks[4]);
+  const element = dominantElement;
+  const count = 20;
+  for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    particles.push(new Particle(nose.x, nose.y, element, angle));
+  }
+}
+
 // Draw meridian lines (debug — will replace with particles later)
 function drawMeridians() {
   if (!landmarks) return;
@@ -119,25 +201,37 @@ const camera = new Camera(vid, {
 camera.start();
 startAudio().catch(console.error);
 
-// Debug: draw dots at each landmark
-function drawDebug() {
+let lastBeatTime = 0;
+let prevFireLevel = 0;
+
+function render() {
   updateElements();
-  ctx.fillStyle = '#0D0500';
+
+  // Fade trail
+  ctx.fillStyle = 'rgba(13, 5, 0, 0.18)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  if (landmarks) {
-    ctx.fillStyle = '#FF6B35';
-    landmarks.forEach(p => {
-      const x = p.x * canvas.width;
-      const y = p.y * canvas.height;
-      ctx.beginPath();
-      ctx.arc(x, y, 2, 0, Math.PI * 2);
-      ctx.fill();
-    });
+
+  // Beat detection: fire level spike
+  const fireLevel = elementLevels.fire;
+  if (fireLevel > prevFireLevel + 0.15 && Date.now() - lastBeatTime > 200) {
+    beatBurst();
+    lastBeatTime = Date.now();
   }
-  drawMeridians();
-  requestAnimationFrame(drawDebug);
+  prevFireLevel = fireLevel * 0.85 + prevFireLevel * 0.15;
+
+  // Spawn particles along meridians
+  if (Math.random() < 0.4) spawnMeridianParticles();
+
+  // Update + draw particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    particles[i].update();
+    particles[i].draw(ctx);
+    if (particles[i].life <= 0) particles.splice(i, 1);
+  }
+
+  requestAnimationFrame(render);
 }
-drawDebug();
+render();
 </script>
 </body>
 </html>
