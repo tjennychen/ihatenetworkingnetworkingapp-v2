@@ -81,6 +81,15 @@ function lmToCanvas(lm) {
   return { x: lm.x * canvas.width, y: lm.y * canvas.height };
 }
 
+const ACUPOINTS = [
+  { idx: 9,   name: 'Yintang',  code: 'EX-HN3', tip: 'Calms the Shen' },
+  { idx: 50,  name: 'ST3',      code: 'ST3',     tip: 'Grounds earth chi' },
+  { idx: 248, name: 'LI20',     code: 'LI20',    tip: 'Opens the lungs' },
+  { idx: 55,  name: 'BL2',      code: 'BL2',     tip: 'Clears the head' },
+  { idx: 352, name: 'TW23',     code: 'TW23',    tip: 'Harmonizes triple warmer' },
+  { idx: 151, name: 'GV24',     code: 'GV24',    tip: 'Lifts the spirit' },
+];
+
 const ELEMENT_CONFIG = {
   water: { color: '#6B35FF', glowColor: 'rgba(107,53,255,', name: 'Water', organ: 'Kidney' },
   wood:  { color: '#35FF6B', glowColor: 'rgba(53,255,107,',  name: 'Wood',  organ: 'Liver'  },
@@ -163,6 +172,40 @@ function beatBurst() {
   }
 }
 
+function drawAcupoints(time) {
+  if (!landmarks) return;
+  const pulse = (Math.sin(time / 400) + 1) / 2;
+  const audioBoost = (elementLevels.fire + elementLevels.earth) * 2;
+
+  ACUPOINTS.forEach(ap => {
+    const pt = lmToCanvas(landmarks[ap.idx]);
+    const radius = 5 + pulse * 4 + audioBoost * 6;
+
+    ctx.save();
+    ctx.globalAlpha = 0.3 + pulse * 0.4;
+    ctx.strokeStyle = '#FF6B35';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = '#FF6B35';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.8 + pulse * 0.2;
+    ctx.fillStyle = '#FFD700';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.5 + pulse * 0.3;
+    ctx.fillStyle = '#FFB88A';
+    ctx.font = '7px IBM Plex Mono';
+    ctx.fillText(ap.code, pt.x + 8, pt.y + 3);
+    ctx.restore();
+  });
+}
+
 // Draw meridian lines (debug — will replace with particles later)
 function drawMeridians() {
   if (!landmarks) return;
@@ -228,6 +271,8 @@ function render() {
     particles[i].draw(ctx);
     if (particles[i].life <= 0) particles.splice(i, 1);
   }
+
+  drawAcupoints(Date.now());
 
   requestAnimationFrame(render);
 }
