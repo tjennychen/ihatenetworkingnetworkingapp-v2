@@ -341,23 +341,23 @@ function spawnAmbientParticles() {
 
 function spawnHandParticles() {
   const tips = [4, 8, 12, 16, 20];
-  ['left', 'right'].forEach(side => {
+  for (const side of ['left', 'right']) {
     const hand = handLandmarks[side];
-    if (!hand) return;
-    tips.forEach(idx => {
+    if (!hand) continue;
+    for (const idx of tips) {
       if (particles.length >= MAX_PARTICLES) return;
       const pt = lmToCanvas(hand[idx]);
       const angle = Math.random() * Math.PI * 2;
       particles.push(new Particle(pt.x, pt.y, dominantElement, angle));
-    });
-  });
+    }
+  }
 }
 
 function spawnPoseParticles() {
   if (!poseLandmarks) return;
   const segments = [[11, 13], [13, 15], [12, 14], [14, 16]];
-  segments.forEach(([a, b]) => {
-    if (particles.length >= MAX_PARTICLES) return;
+  for (const [a, b] of segments) {
+    if (particles.length >= MAX_PARTICLES) break;
     const p0 = lmToCanvas(poseLandmarks[a]);
     const p1 = lmToCanvas(poseLandmarks[b]);
     const t  = Math.random();
@@ -365,7 +365,7 @@ function spawnPoseParticles() {
     const sy = p0.y + (p1.y - p0.y) * t;
     const angle = Math.atan2(p1.y - p0.y, p1.x - p0.x);
     particles.push(new Particle(sx, sy, dominantElement, angle));
-  });
+  }
 }
 
 // ── Gesture Detection ────────────────────────────────────────────────────────
