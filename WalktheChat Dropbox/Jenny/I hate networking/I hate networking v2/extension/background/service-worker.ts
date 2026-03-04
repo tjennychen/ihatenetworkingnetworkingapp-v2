@@ -3,12 +3,14 @@ import { checkDailyLimit, getSentTodayCount } from '../lib/rate-limiter'
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
+  chrome.alarms.create('dailyReconcile', { delayInMinutes: 2, periodInMinutes: 24 * 60 })
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
   console.log('I Hate Networking extension installed')
 })
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
+  chrome.alarms.create('dailyReconcile', { delayInMinutes: 2, periodInMinutes: 24 * 60 })
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
 })
 
@@ -16,6 +18,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'checkQueue') {
     await processNextQueueItem()
     updateBadge()
+  }
+  if (alarm.name === 'dailyReconcile') {
+    await reconcileConnections()
   }
 })
 
@@ -127,7 +132,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const supabase = getAuthedSupabase(session.access_token)
       const { data: event } = await supabase
         .from('events')
-        .select('id')
+        .select('id, name')
         .eq('luma_url', msg.lumaUrl)
         .eq('user_id', session.user.id)
         .single()
@@ -138,7 +143,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .eq('event_id', event.id)
       const existingUrls = (contacts ?? []).map((c: any) => c.luma_profile_url)
       const linkedInCount = (contacts ?? []).filter((c: any) => c.linkedin_url).length
-      sendResponse({ eventId: event.id, existingUrls, linkedInCount, contacts: contacts ?? [] })
+      sendResponse({ eventId: event.id, eventName: event.name ?? '', existingUrls, linkedInCount, contacts: contacts ?? [] })
     })
     return true
   }
@@ -198,6 +203,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return { date: d, cumulative: cum }
       })
 
+      // 7-day daily data — reuses dayCounts, no extra DB query
+      const weekDays: { date: string; count: number }[] = []
+      let sentThisWeek = 0
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
+        const key = d.toISOString().slice(0, 10)
+        const count = dayCounts[key] ?? 0
+        weekDays.push({ date: key, count })
+        sentThisWeek += count
+      }
+
       // Events + contacts (no nested connection_queue — fetched separately to avoid PostgREST auth issues)
       const { data: events } = await supabase
         .from('events')
@@ -226,7 +242,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })),
       }))
 
-      sendResponse({ chartData, events: eventsWithQueue })
+      sendResponse({ chartData, events: eventsWithQueue, dailySends: weekDays, sentThisWeek })
     })
     return true
   }
@@ -280,6 +296,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.get('pausedEvents').then(({ pausedEvents }) => {
       sendResponse({ pausedEvents: pausedEvents ?? [] })
     })
+    return true
+  }
+
+  if (msg.type === 'TRIGGER_RECONCILE') {
+    reconcileConnections()
+      .then(() => chrome.storage.local.get('lastReconcileReport'))
+      .then(data => sendResponse(data.lastReconcileReport ?? null))
+      .catch(() => sendResponse(null))
     return true
   }
 
@@ -724,4 +748,180 @@ async function processNextQueueItem(): Promise<void> {
   }
 
   await chrome.tabs.remove(tabId).catch(() => {})
+}
+
+// ── Connection Reconciliation ──────────────────────────────────────────────────
+
+type ReconcileReport = {
+  checkedAt: string
+  dbSentCount: number
+  confirmedPending: number
+  confirmedAccepted: number
+  unverified: string[]      // names not found on either LinkedIn page
+  weeklyLimitLikely: boolean
+}
+
+async function reconcileConnections(): Promise<void> {
+  const { campaignPaused } = await chrome.storage.local.get('campaignPaused')
+  if (campaignPaused) return
+
+  const session = await getSession()
+  if (!session) return
+
+  const supabase = getAuthedSupabase(session.access_token)
+
+  // Only run if there are sent items to check
+  const { data: sentItems } = await supabase
+    .from('connection_queue')
+    .select('id, contacts(name, linkedin_url)')
+    .eq('user_id', session.user.id)
+    .eq('status', 'sent')
+
+  if (!sentItems || sentItems.length === 0) return
+
+  const dbSentCount = sentItems.length
+
+  function urlToSlug(url: string): string {
+    const m = url.match(/\/in\/([^/?#]+)/)
+    return m ? m[1].toLowerCase() : ''
+  }
+
+  const dbItems = (sentItems as any[])
+    .map(item => ({
+      name: (item.contacts as any)?.name ?? '',
+      slug: urlToSlug((item.contacts as any)?.linkedin_url ?? ''),
+      url: (item.contacts as any)?.linkedin_url ?? '',
+    }))
+    .filter(i => i.slug)
+
+  // Check for weekly limit errors (informs weeklyLimitLikely)
+  const { count: weeklyLimitCount } = await supabase
+    .from('connection_queue')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', session.user.id)
+    .eq('error', 'weekly_limit_reached')
+
+  // Require an existing Chrome window — never open a new window (see FIXES.md)
+  const existingWindows = await chrome.windows.getAll({ windowTypes: ['normal'] })
+  if (existingWindows.length === 0) {
+    console.log('[IHN] reconcile: no Chrome window open, skipping')
+    return
+  }
+  const windowId = existingWindows.find(w => w.focused)?.id ?? existingWindows[0].id
+
+  // Helper: open a background tab, wait for load + 3s buffer, scrape profile slugs
+  const scrapeProfileSlugs = async (url: string): Promise<string[]> => {
+    const tab = await chrome.tabs.create({ url, active: false, windowId })
+    const tabId = tab.id!
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, 15000)
+      chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+        if (tid === tabId && info.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener)
+          clearTimeout(timeout)
+          setTimeout(resolve, 3000) // wait for dynamic content
+        }
+      })
+    })
+
+    let slugs: string[] = []
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/in/"]'))
+          const found = links
+            .map(a => { const m = a.href.match(/\/in\/([^/?#]+)/); return m ? m[1].toLowerCase() : null })
+            .filter(Boolean) as string[]
+          return [...new Set(found)].slice(0, 100)
+        },
+      })
+      slugs = results[0]?.result ?? []
+    } catch (e) {
+      console.error('[IHN] reconcile scrape error:', e)
+    }
+
+    await chrome.tabs.remove(tabId).catch(() => {})
+    return slugs
+  }
+
+  console.log('[IHN] reconcile: scraping LinkedIn pages...')
+  const sentSlugs = await scrapeProfileSlugs('https://www.linkedin.com/mynetwork/invitation-manager/sent/')
+  const acceptedSlugs = await scrapeProfileSlugs('https://www.linkedin.com/mynetwork/invite-connect/connections/')
+
+  const allFoundSlugs = new Set([...sentSlugs, ...acceptedSlugs])
+  const confirmedPending = dbItems.filter(i => sentSlugs.includes(i.slug)).length
+  const confirmedAccepted = dbItems.filter(i => acceptedSlugs.includes(i.slug)).length
+  const unverifiedItems = dbItems.filter(i => !allFoundSlugs.has(i.slug))
+  const unverified = unverifiedItems.map(i => i.name)
+  const weeklyLimitLikely = unverified.length > 3 && (weeklyLimitCount ?? 0) > 0
+
+  const report: ReconcileReport = {
+    checkedAt: new Date().toISOString(),
+    dbSentCount,
+    confirmedPending,
+    confirmedAccepted,
+    unverified,
+    weeklyLimitLikely,
+  }
+
+  console.log('[IHN] reconcile report:', report)
+  await chrome.storage.local.set({ lastReconcileReport: report })
+
+  if (unverifiedItems.length > 0) {
+    await maybeSendAlert(unverifiedItems, report)
+  }
+}
+
+async function maybeSendAlert(
+  unverifiedItems: { name: string; url: string }[],
+  report: ReconcileReport
+): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10)
+  const storage = await chrome.storage.local.get(['lastAlertSentDate', 'RESEND_API_KEY', 'RESEND_FROM_EMAIL'])
+
+  if (storage.lastAlertSentDate === today) return // already sent today
+
+  const apiKey = storage.RESEND_API_KEY
+  if (!apiKey) return // not configured
+
+  const fromEmail = storage.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
+
+  const bodyLines = [
+    `IHN Reconciliation Alert`,
+    `Checked at: ${report.checkedAt}`,
+    `DB sent count: ${report.dbSentCount}`,
+    `Confirmed pending on LinkedIn: ${report.confirmedPending}`,
+    `Confirmed accepted: ${report.confirmedAccepted}`,
+    ``,
+    `Unverified (${unverifiedItems.length}) — not found on LinkedIn pages:`,
+    ...unverifiedItems.map(i => `- ${i.name}: ${i.url}`),
+  ]
+  if (report.weeklyLimitLikely) {
+    bodyLines.push('', 'Weekly limit errors detected — some sends may have been blocked by LinkedIn.')
+  }
+
+  try {
+    const resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: ['jenny@7kmiles.com'],
+        subject: `IHN Alert: ${unverifiedItems.length} connections may not have sent`,
+        text: bodyLines.join('\n'),
+      }),
+    })
+    if (resp.ok) {
+      await chrome.storage.local.set({ lastAlertSentDate: today })
+      console.log('[IHN] reconcile alert email sent')
+    } else {
+      console.error('[IHN] reconcile alert email failed:', resp.status, await resp.text())
+    }
+  } catch (e) {
+    console.error('[IHN] reconcile alert email error:', e)
+  }
 }

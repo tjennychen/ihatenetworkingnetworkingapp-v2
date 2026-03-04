@@ -15,6 +15,11 @@
     }
     return getMain();
   }
+  function nativeClick(el) {
+    for (const evt of ["mouseover", "mousedown", "mouseup", "click"]) {
+      el.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+    }
+  }
   function findButtonByText(text, root = document.body) {
     const lower = text.toLowerCase();
     const buttons = Array.from(root.querySelectorAll("button"));
@@ -51,8 +56,8 @@
   async function openMoreActionsIfNeeded() {
     const topCard = getProfileTopCard();
     const moreBtn = topCard.querySelector(
-      "button[aria-label*='More actions'], button[aria-label*='More member actions']"
-    ) ?? findButtonByText("More", topCard);
+      "button[aria-label*='More actions'], button[aria-label*='More member actions'], button[aria-label*='Resources']"
+    ) ?? findButtonByText("More", topCard) ?? findButtonByText("Resources", topCard);
     if (moreBtn) {
       moreBtn.click();
       await new Promise((r) => setTimeout(r, 800));
@@ -119,7 +124,7 @@
       if (isThirdDegree) return { success: false, error: "third_degree" };
       return { success: false, error: "connect_not_available" };
     }
-    connectBtn.click();
+    nativeClick(connectBtn);
     await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
     const errorToast = document.querySelector('div[data-test-artdeco-toast-item-type="error"]');
     if (errorToast) {
@@ -164,18 +169,22 @@
               retryBtn = findConnectButton();
             }
             if (!retryBtn) return { success: false, error: "note_quota_reached" };
-            retryBtn.click();
+            nativeClick(retryBtn);
             await new Promise((r) => setTimeout(r, 800 + Math.random() * 500));
           }
         }
       }
     }
-    const sendBtn = findButtonByText("Send") ?? findButtonByText("Send without a note") ?? document.querySelector('[aria-label="Send now"]') ?? // Reference fallback: data-control-name="send_invite" for older LinkedIn modal variants
+    const shadowHost = document.querySelector("#interop-outlet");
+    const shadowSendBtn = shadowHost?.shadowRoot?.querySelector(
+      'button[aria-label="Send without a note"], button[aria-label="Send now"], button.artdeco-button--primary'
+    ) ?? null;
+    const sendBtn = shadowSendBtn ?? findButtonByText("Send") ?? findButtonByText("Send without a note") ?? document.querySelector('[aria-label="Send now"]') ?? document.querySelector("div.send-invite button.artdeco-button--primary") ?? // Reference fallback: data-control-name="send_invite" for older LinkedIn modal variants
     document.querySelector('[data-control-name="send_invite"]');
     if (!sendBtn) {
       return { success: false, error: "send_btn_not_found" };
     }
-    sendBtn.click();
+    nativeClick(sendBtn);
     await new Promise((r) => setTimeout(r, 500));
     const bodyText = document.body.innerText;
     if (bodyText.includes("weekly invitation limit") || bodyText.includes("reached the weekly")) {

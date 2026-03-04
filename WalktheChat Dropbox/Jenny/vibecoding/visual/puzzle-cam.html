@@ -9,51 +9,27 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --o:   #FF6B35; --omid:#FF8C5A; --olt:#FFB88A; --opale:#FFEEDE;
-  --yin: #B400FF; --yang:#FF6B35;
-  --pink:#FF1BD3; --teal:#00F5D4; --yell:#FFE600; --elec:#00BFFF;
-  --cream:#FFFBF7; --parch:#F2E3D0;
-  --bark:#1A0800; --bk2:#5C2D0A; --bk3:#8B5230;
-  --warn:#FF1B8D;
+  --o:#FF6B35;--omid:#FF8C5A;--olt:#FFB88A;--opale:#FFEEDE;
+  --cream:#FFFBF7;--parch:#F2E3D0;
+  --bark:#1A0800;--bk2:#5C2D0A;--bk3:#8B5230;
 }
 body{
-  background:var(--cream); min-height:100vh;
+  background:var(--cream);min-height:100vh;
   display:flex;align-items:center;justify-content:center;
-  padding:20px; font-family:'IBM Plex Mono',monospace;
+  padding:24px;font-family:'IBM Plex Mono',monospace;
   background-image:
-    radial-gradient(ellipse 70% 60% at 10% 5%,  rgba(255,107,53,.1) 0%,transparent 60%),
-    radial-gradient(ellipse 50% 50% at 90% 95%,  rgba(180,0,255,.08) 0%,transparent 60%),
-    radial-gradient(ellipse 40% 40% at 50% 50%,  rgba(0,245,212,.05) 0%,transparent 70%);
-  animation: bg-shift 12s ease-in-out infinite alternate;
+    radial-gradient(ellipse 70% 60% at 10% 10%,rgba(255,107,53,.09) 0%,transparent 65%),
+    radial-gradient(ellipse 55% 55% at 90% 90%,rgba(255,160,90,.10) 0%,transparent 65%);
 }
-@keyframes bg-shift{
-  0%{background-position:0% 0%,100% 100%,50% 50%}
-  100%{background-position:5% 5%,95% 95%,52% 48%}
-}
+.app{width:100%;max-width:1080px;background:#fff;border:2.5px solid var(--bark);border-radius:3px;box-shadow:7px 7px 0 var(--o),12px 12px 0 var(--bark);overflow:hidden}
 
-/* ── SHELL ─────────────────────────────────────────── */
-.app{
-  width:100%; max-width:1160px;
-  background:#fff;
-  border:2.5px solid var(--bark); border-radius:3px;
-  box-shadow:7px 7px 0 var(--o),12px 12px 0 var(--bark);
-  overflow:hidden;
-}
-
-/* ── HEADER ────────────────────────────────────────── */
-.hdr{
-  background:var(--bark); border-bottom:2.5px solid var(--o);
-  padding:11px 20px; display:flex;align-items:center;justify-content:space-between;
-  background-image:linear-gradient(135deg,#1A0800 0%,#2D0A1A 50%,#001A14 100%);
-}
+/* HEADER */
+.hdr{background:var(--bark);border-bottom:2.5px solid var(--o);padding:11px 20px;display:flex;align-items:center;justify-content:space-between}
 .logo{display:flex;align-items:center;gap:12px}
 .logo-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:2.5px;width:30px;height:30px}
 .lg{border-radius:1.5px}
 .lg:nth-child(odd){background:var(--o)}
-.lg:nth-child(2){background:var(--teal)}
-.lg:nth-child(4){background:var(--pink)}
-.lg:nth-child(6){background:var(--yell)}
-.lg:nth-child(8){background:var(--yin)}
+.lg:nth-child(even){background:transparent;border:1.5px solid var(--omid)}
 .logo-words h1{font-family:'Press Start 2P',monospace;font-size:9.5px;color:var(--o);line-height:1;letter-spacing:.04em}
 .logo-words p{font-size:7.5px;color:var(--olt);margin-top:5px;letter-spacing:.09em}
 .status-pill{display:flex;align-items:center;gap:7px;padding:5px 13px;border:1.5px solid rgba(255,107,53,.5);border-radius:2px;background:rgba(255,107,53,.1)}
@@ -61,24 +37,10 @@ body{
 @keyframes led{0%,100%{opacity:1}50%{opacity:.25}}
 .status-pill span{font-size:8.5px;font-weight:700;color:var(--o);letter-spacing:.1em}
 
-/* ── WARNING BANNER ────────────────────────────────── */
-.warn-banner{
-  display:none; align-items:center; gap:12px;
-  background:var(--warn); padding:8px 20px;
-  border-bottom:2px solid #fff;
-  animation:warn-flash .6s ease-in-out infinite alternate;
-}
-@keyframes warn-flash{0%{background:var(--warn)}100%{background:#ff5500}}
-.warn-banner.visible{display:flex}
-.warn-banner .wb-icon{font-size:18px}
-.warn-banner .wb-msg{font-family:'Press Start 2P',monospace;font-size:7.5px;color:#fff;letter-spacing:.05em;line-height:1.6}
-.warn-banner .wb-close{margin-left:auto;font-size:9px;color:#fff;cursor:pointer;border:1px solid #fff;padding:2px 7px;border-radius:2px;font-family:'IBM Plex Mono',monospace}
-.warn-banner .wb-close:hover{background:#fff;color:var(--warn)}
+/* MAIN */
+.main{display:grid;grid-template-columns:1fr 270px}
 
-/* ── MAIN ──────────────────────────────────────────── */
-.main{display:grid;grid-template-columns:1fr 330px}
-
-/* ── CAMERA ────────────────────────────────────────── */
+/* CAMERA */
 .cam-section{background:var(--bark);display:flex;flex-direction:column;border-right:2.5px solid var(--bark)}
 .cam-wrap{position:relative;aspect-ratio:4/3;overflow:hidden;flex:1}
 #video{display:none;position:absolute}
@@ -91,44 +53,24 @@ body{
 .hc.bl{bottom:10px;left:10px;border-width:0 0 2px 2px}
 .hc.br{bottom:10px;right:10px;border-width:0 2px 2px 0}
 .hud-lbl{position:absolute;font-size:7px;color:rgba(255,107,53,.65);letter-spacing:.1em}
-.hud-lbl.tl{top:13px;left:34px}
-.hud-lbl.br{bottom:13px;right:34px}
+.hud-lbl.tl{top:13px;left:34px}.hud-lbl.br{bottom:13px;right:34px}
 
-/* ── YANG ENERGY BAR ON CAM ────────────────────────── */
-.cam-yang-bar{
-  position:absolute;bottom:0;left:0;right:0;height:3px;z-index:3;
-  background:rgba(255,107,53,.2);
-}
-.cam-yang-fill{height:100%;background:linear-gradient(90deg,var(--yin),var(--o),var(--yell));transition:width 1.5s ease-out}
-
-/* ── ACU POINTS ────────────────────────────────────── */
+/* ACU POINTS */
 .acu-layer{position:absolute;inset:0;z-index:4}
-.acp{position:absolute;width:18px;height:18px;transform:translate(-50%,-50%);cursor:pointer;transition:left .25s ease-out,top .25s ease-out}
+.acp{position:absolute;width:18px;height:18px;transform:translate(-50%,-50%);cursor:pointer;transition:left .18s ease-out,top .18s ease-out}
 .acp-core{position:absolute;inset:5px;background:var(--o);border-radius:50%;transition:transform .2s;z-index:2;box-shadow:0 0 7px rgba(255,107,53,.85)}
 .acp-ring{position:absolute;inset:0;border:1.5px solid var(--o);border-radius:50%;animation:ring 2.6s ease-out infinite}
 @keyframes ring{0%{transform:scale(1);opacity:.85}100%{transform:scale(3.2);opacity:0}}
-.acp:nth-child(2) .acp-ring{animation-delay:.3s}
-.acp:nth-child(3) .acp-ring{animation-delay:.65s}
-.acp:nth-child(4) .acp-ring{animation-delay:1s}
-.acp:nth-child(5) .acp-ring{animation-delay:1.3s}
-.acp:nth-child(6) .acp-ring{animation-delay:1.6s}
-.acp:nth-child(7) .acp-ring{animation-delay:1.9s}
-.acp:nth-child(8) .acp-ring{animation-delay:2.2s}
-.acp:nth-child(9) .acp-ring{animation-delay:2.5s}
-.acp.active-pt .acp-core{background:var(--teal);box-shadow:0 0 10px var(--teal)}
+.acp:nth-child(2) .acp-ring{animation-delay:.3s}.acp:nth-child(3) .acp-ring{animation-delay:.65s}
+.acp:nth-child(4) .acp-ring{animation-delay:1s}.acp:nth-child(5) .acp-ring{animation-delay:1.3s}
+.acp:nth-child(6) .acp-ring{animation-delay:1.6s}.acp:nth-child(7) .acp-ring{animation-delay:1.9s}
+.acp:nth-child(8) .acp-ring{animation-delay:2.2s}.acp:nth-child(9) .acp-ring{animation-delay:2.5s}
+.acp.active .acp-core{background:#fff;box-shadow:0 0 12px #fff}
 .acp:hover .acp-core{transform:scale(1.6)}
 .acp-tag{position:absolute;left:50%;top:-20px;transform:translateX(-50%);font-size:7px;color:var(--olt);background:rgba(26,8,0,.85);padding:2px 5px;border-radius:1px;white-space:nowrap;opacity:0;transition:opacity .15s;pointer-events:none}
 .acp:hover .acp-tag{opacity:1}
 
-/* ── TONGUE ZONE ───────────────────────────────────── */
-.tz-wrap{position:absolute;z-index:5;transform:translate(-50%,-50%);pointer-events:none;transition:left .3s ease-out,top .3s ease-out}
-.tz-outer{width:52px;height:52px;position:relative}
-.tz-ring{position:absolute;inset:0;border:2px dashed var(--teal);border-radius:50%;animation:tz-spin 4s linear infinite;opacity:.8}
-@keyframes tz-spin{to{transform:rotate(360deg)}}
-.tz-inner{position:absolute;inset:9px;border-radius:50%;border:1.5px solid rgba(0,245,212,.4);transition:background .5s}
-.tz-lbl{position:absolute;bottom:-17px;left:50%;transform:translateX(-50%);font-size:6.5px;color:var(--teal);white-space:nowrap;letter-spacing:.08em;font-family:'IBM Plex Mono',monospace;text-shadow:0 0 8px rgba(26,8,0,.9)}
-
-/* ── LOADING ───────────────────────────────────────── */
+/* LOADING */
 .load-overlay{position:absolute;inset:0;z-index:10;background:var(--bark);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
 .px-loader{display:grid;grid-template-columns:repeat(8,11px);gap:3px}
 .pxc{width:11px;height:11px;border-radius:1.5px;background:var(--bk2);animation:pxf 1.4s ease-in-out infinite}
@@ -136,7 +78,7 @@ body{
 .load-msg{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--olt);letter-spacing:.1em;animation:blink 1s step-end infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
 
-/* ── CAM CONTROLS ──────────────────────────────────── */
+/* CAM CONTROLS */
 .cam-ctrl{background:rgba(26,8,0,.97);border-top:1.5px solid rgba(255,107,53,.22);padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0}
 .ctrl-g{display:flex;align-items:center;gap:6px}
 .ctrl-lbl{font-size:7.5px;color:var(--bk3);letter-spacing:.12em;text-transform:uppercase}
@@ -145,85 +87,45 @@ body{
 .btn:hover{border-color:var(--o);color:var(--o)}
 .btn.on{background:var(--o);border-color:var(--o);color:var(--bark);font-weight:700}
 
-/* ── RIGHT PANEL ───────────────────────────────────── */
-.r-panel{
-  display:flex;flex-direction:column;
-  background:#FFFAF6;border-left:2.5px solid var(--parch);
-  overflow-y:auto;
-}
-.sblock{border-bottom:2px solid var(--parch);padding:10px 11px;background:var(--cream);flex-shrink:0}
-.stitle{font-size:7px;font-weight:700;color:var(--bk3);letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:5px}
-.stitle-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+/* STATS */
+.stats{padding:13px 11px;display:flex;flex-direction:column;gap:11px;background:#FFFAF6;border-left:2.5px solid var(--parch);overflow-y:auto}
+.sblock{border:1.5px solid var(--parch);border-radius:2px;padding:9px 10px;background:var(--cream)}
+.stitle{font-size:7px;font-weight:700;color:var(--bk3);letter-spacing:.14em;text-transform:uppercase;border-bottom:1px solid var(--parch);padding-bottom:5px;margin-bottom:8px}
 
-/* ── YIN/YANG METER ────────────────────────────────── */
-.yy-row{display:flex;align-items:center;gap:6px;margin-bottom:6px}
-.yy-row:last-of-type{margin-bottom:0}
-.yy-lbl{font-size:8px;font-weight:700;width:32px;flex-shrink:0}
-.yy-lbl.yang{color:var(--o)}
-.yy-lbl.yin{color:var(--yin)}
-.yy-bg{flex:1;height:10px;border-radius:2px;background:var(--parch);overflow:hidden}
-.yy-fill{height:100%;border-radius:2px;transition:width 1.2s cubic-bezier(.4,0,.2,1)}
-.yy-fill.yang{background:linear-gradient(90deg,#FF8C5A,#FF6B35,#FFE600)}
-.yy-fill.yin{background:linear-gradient(90deg,#9B30FF,#FF1BD3)}
-.yy-val{font-size:8px;width:28px;text-align:right}
-.yy-val.yang{color:var(--o)}
-.yy-val.yin{color:var(--yin)}
-.yy-footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px;gap:8px}
-.sitting-timer{font-size:8px;color:var(--bk3);letter-spacing:.06em}
-.sitting-timer.warn{color:var(--warn);font-weight:700;animation:txt-flash .8s step-end infinite}
-@keyframes txt-flash{0%,100%{opacity:1}50%{opacity:.3}}
-.yy-status{font-size:9px;font-weight:700;color:var(--teal);text-align:right;min-width:110px}
-.yy-status.warning{color:var(--warn)}
+/* Meridian bars */
+.m-row{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.m-row:last-child{margin-bottom:0}
+.m-nm{font-size:7.5px;font-weight:700;color:var(--bk2);width:46px;flex-shrink:0}
+.m-bg{flex:1;height:7px;background:var(--parch);border-radius:1px;overflow:hidden}
+.m-fill{height:100%;background:linear-gradient(90deg,var(--olt),var(--o));border-radius:1px;transition:width .9s cubic-bezier(.4,0,.2,1)}
+.m-val{font-size:7.5px;color:var(--bk3);width:24px;text-align:right}
 
-/* ── BODY DIAGRAM ──────────────────────────────────── */
-.body-block{padding:10px 11px;border-bottom:2px solid var(--parch);background:var(--cream);flex-shrink:0}
-.body-wrap{position:relative;display:flex;justify-content:center}
-.body-svg{width:130px;height:auto;display:block}
-/* Body SVG element styles */
-.body-fill{fill:rgba(255,107,53,.05);stroke:var(--o);stroke-width:1.8}
-.body-line{fill:none;stroke:var(--o);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.mer-ren{stroke:var(--teal);stroke-width:1;stroke-dasharray:4,3;opacity:.7;fill:none}
-.mer-st{stroke:var(--yell);stroke-width:.8;stroke-dasharray:3,4;opacity:.6;fill:none}
-.mer-pc{stroke:var(--yin);stroke-width:.8;stroke-dasharray:3,4;opacity:.6;fill:none}
-/* Body acupoints */
-.bpt{cursor:pointer}
-.bpt circle.dot{fill:var(--o);stroke:none;transition:r .15s}
-.bpt circle.glow{fill:none;stroke:var(--o);opacity:.5;animation:bpt-ring 2.4s ease-out infinite}
-@keyframes bpt-ring{0%{r:5;opacity:.7}100%{r:11;opacity:0}}
-.bpt:nth-child(odd) circle.glow{animation-delay:.5s}
-.bpt:nth-child(3n) circle.glow{animation-delay:1.1s}
-.bpt:hover circle.dot{r:5.5}
-.bpt.selected circle.dot{fill:var(--teal);filter:drop-shadow(0 0 4px var(--teal))}
-.bpt.selected circle.glow{stroke:var(--teal)}
-.bpt-label{font-size:5.5px;fill:rgba(255,107,53,.85);font-family:'IBM Plex Mono',monospace;pointer-events:none;font-weight:700}
+/* Chi status */
+.chi-msg{font-size:10.5px;font-weight:700;color:var(--o);line-height:1.4;min-height:1.6em;transition:opacity .3s}
+.chi-rec{font-size:8px;color:var(--bk2);font-style:italic;line-height:1.65;margin-top:7px;min-height:3.5em;white-space:pre-line;transition:opacity .3s}
 
-/* ── POINT TIP ─────────────────────────────────────── */
-.tip-block{padding:10px 11px;border-bottom:2px solid var(--parch);background:var(--cream);flex-shrink:0;min-height:120px}
-.tip-badge{display:flex;align-items:center;gap:8px;margin-bottom:7px}
-.tip-emoji{font-size:18px}
-.tip-id{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--o)}
-.tip-nm{font-size:9px;font-weight:700;color:var(--bk2);margin-bottom:3px}
-.tip-loc{font-size:7.5px;color:var(--bk3);font-style:italic;margin-bottom:6px;line-height:1.5}
-.tip-how{
-  font-size:8px;color:var(--bk2);line-height:1.65;white-space:pre-line;
-  border-left:2px solid var(--o);padding-left:7px;
-}
-.tip-effect{font-size:7.5px;color:var(--teal);margin-top:5px;font-style:italic}
-.tip-empty{font-size:8px;color:var(--bk3);font-style:italic}
-
-/* ── TONGUE + GESTURE ──────────────────────────────── */
-.mini-block{padding:8px 11px;border-bottom:2px solid var(--parch);background:var(--cream);flex-shrink:0}
-.mini-row{display:flex;align-items:center;gap:7px;margin-bottom:4px}
-.tongue-dot{width:20px;height:20px;border-radius:50%;background:#c0a090;border:2px solid var(--parch);flex-shrink:0;transition:background .55s}
-.dx-title{font-size:9.5px;font-weight:700;color:var(--o);line-height:1.3;transition:opacity .35s;min-height:1.3em}
-.dx-title.yin-color{color:var(--yin)}
-.dx-msg{font-size:7.5px;color:var(--bk2);font-style:italic;line-height:1.65;white-space:pre-line;transition:opacity .35s;min-height:2.4em}
+/* Active point / live scan */
+.live-title{font-size:10px;font-weight:700;color:var(--o);line-height:1.3;min-height:1.4em;transition:opacity .3s}
+.live-loc{font-size:8px;color:var(--bk3);font-style:italic;margin:4px 0 6px;line-height:1.4;transition:opacity .3s}
+.live-rec{font-size:8px;color:var(--bk2);line-height:1.7;white-space:pre-line;border-left:2px solid var(--o);padding-left:7px;transition:opacity .3s;min-height:3em}
+.pt-id{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--o);margin-bottom:4px}
+.pt-ch{font-size:9px;font-weight:700;color:var(--bk2);margin-bottom:4px}
+.pt-loc{font-size:7.5px;color:var(--bk3);font-style:italic;margin-bottom:7px;line-height:1.5}
+.pt-how-lbl{font-size:6.5px;font-weight:700;color:var(--bk3);letter-spacing:.12em;text-transform:uppercase;margin-bottom:3px}
+.pt-how{font-size:8px;color:var(--bk2);line-height:1.7;white-space:pre-line;border-left:2px solid var(--o);padding-left:7px;margin-bottom:6px}
+.pt-effect{font-size:7.5px;color:var(--omid);font-style:italic;line-height:1.5}
+/* Palette + mic */
+.pal-g{display:flex;gap:4px;align-items:center}
+.pal-sw{width:16px;height:16px;border-radius:2px;cursor:pointer;border:2px solid transparent;transition:all .12s;flex-shrink:0}
+.pal-sw.on{border-color:#fff;box-shadow:0 0 7px rgba(255,255,255,.45)}
+.pal-sw:hover{transform:scale(1.2)}
+.snd-bar{width:44px;height:6px;background:rgba(255,255,255,.1);border-radius:1px;overflow:hidden;flex-shrink:0}
+.snd-fill{height:100%;background:var(--o);border-radius:1px;width:0%;transition:width .06s}
 </style>
 </head>
 <body>
 <div class="app">
 
-<!-- HEADER -->
 <header class="hdr">
   <div class="logo">
     <div class="logo-grid">
@@ -233,28 +135,15 @@ body{
     </div>
     <div class="logo-words">
       <h1>PUZZLE ACUPUNCTURE</h1>
-      <p>BODY SCANNER v4.0 · SAN FRANCISCO, CA</p>
+      <p>CHI SCANNER v2.7 · SAN FRANCISCO, CA</p>
     </div>
   </div>
-  <div class="status-pill">
-    <div class="led"></div>
-    <span id="scanStatus">SCANNING</span>
-  </div>
+  <div class="status-pill"><div class="led"></div><span id="scanStatus">SCANNING</span></div>
 </header>
 
-<!-- WARNING BANNER -->
-<div class="warn-banner" id="warnBanner">
-  <div class="wb-icon">⚠️</div>
-  <div class="wb-msg" id="warnMsg">YIN OVERDOSE DETECTED · GET OFF YOUR GLUTEUS MAXIMUS NOW</div>
-  <div class="wb-close" onclick="dismissWarning()">MOVE IT</div>
-</div>
-
-<!-- MAIN GRID -->
 <div class="main">
-
-  <!-- ── CAMERA SECTION ──────────────────────────────── -->
   <div class="cam-section">
-    <div class="cam-wrap" id="camWrap">
+    <div class="cam-wrap">
       <video id="video" autoplay playsinline muted></video>
       <canvas id="canvas"></canvas>
       <div class="scanlines"></div>
@@ -262,28 +151,14 @@ body{
         <div class="hc tl"></div><div class="hc tr"></div>
         <div class="hc bl"></div><div class="hc br"></div>
         <div class="hud-lbl tl">PUZZLE-CAM_001</div>
-        <div class="hud-lbl br" id="hudCoords">640×480 · 16PX</div>
+        <div class="hud-lbl br" id="hudCoords">—</div>
       </div>
       <div class="acu-layer" id="acuLayer"></div>
-      <!-- Tongue scan zone -->
-      <div class="tz-wrap" id="tzWrap" style="left:50%;top:42%">
-        <div class="tz-outer">
-          <div class="tz-ring"></div>
-          <div class="tz-inner" id="tzFill"></div>
-        </div>
-        <div class="tz-lbl">👅 TONGUE SCAN</div>
-      </div>
-      <!-- Yang energy bar at bottom of cam -->
-      <div class="cam-yang-bar">
-        <div class="cam-yang-fill" id="camYangFill" style="width:50%"></div>
-      </div>
-      <!-- Loading -->
       <div class="load-overlay" id="loadOverlay">
         <div class="px-loader" id="pxLoader"></div>
         <div class="load-msg" id="loadMsg">INITIALIZING CHI SCANNER...</div>
       </div>
     </div>
-    <!-- Controls -->
     <div class="cam-ctrl">
       <div class="ctrl-g">
         <span class="ctrl-lbl">PX</span>
@@ -302,300 +177,189 @@ body{
           <button class="btn" data-filter="scan">CHI SCAN</button>
         </div>
       </div>
+      <div class="ctrl-g">
+        <span class="ctrl-lbl">PALETTE</span>
+        <div class="pal-g" id="palG"></div>
+      </div>
+      <div class="ctrl-g">
+        <span class="ctrl-lbl">MIC</span>
+        <div class="snd-bar"><div class="snd-fill" id="sndFill"></div></div>
+      </div>
     </div>
   </div>
 
-  <!-- ── RIGHT PANEL ────────────────────────────────── -->
-  <div class="r-panel">
+  <div class="stats">
 
-    <!-- YIN / YANG ENERGY -->
-    <div class="sblock" id="yyBlock">
-      <div class="stitle"><div class="stitle-dot" style="background:var(--o)"></div>☯ YIN · YANG BALANCE</div>
-      <div class="yy-row">
-        <span class="yy-lbl yang">YANG</span>
-        <div class="yy-bg"><div class="yy-fill yang" id="yangFill" style="width:50%"></div></div>
-        <span class="yy-val yang" id="yangVal">50%</span>
+    <div class="sblock">
+      <div class="stitle">MERIDIAN READINGS</div>
+      <div id="mRows"></div>
+    </div>
+
+    <div class="sblock">
+      <div class="stitle">CHI STATUS</div>
+      <div class="chi-msg" id="chiMsg">CALIBRATING...</div>
+      <div class="chi-rec" id="chiRec">Stand in front of the scanner.\nMeridian baseline initializing.</div>
+    </div>
+
+    <div class="sblock">
+      <div class="stitle" id="tipTitle">LIVE MERIDIAN SCAN</div>
+      <!-- Live scan feed (default) -->
+      <div id="liveTip">
+        <div class="live-title" id="liveTitle">AWAITING PATIENT</div>
+        <div class="live-loc"  id="liveLoc">No motion detected</div>
+        <div class="live-rec"  id="liveRec">Approach the scanner.\nHover any orange dot for\nmassage instructions.</div>
       </div>
-      <div class="yy-row">
-        <span class="yy-lbl yin">YIN</span>
-        <div class="yy-bg"><div class="yy-fill yin" id="yinFill" style="width:50%"></div></div>
-        <span class="yy-val yin" id="yinVal">50%</span>
-      </div>
-      <div class="yy-footer">
-        <div class="sitting-timer" id="sittingTimer">SEATED: 0:00</div>
-        <div class="yy-status" id="yyStatus">CHI BALANCED</div>
+      <!-- Massage tip (on hover) -->
+      <div id="ptContent" style="display:none">
+        <div class="pt-id"     id="ptId">—</div>
+        <div class="pt-ch"     id="ptCh">—</div>
+        <div class="pt-loc"    id="ptLoc">—</div>
+        <div class="pt-how-lbl">HOW TO MASSAGE</div>
+        <div class="pt-how"    id="ptHow">—</div>
+        <div class="pt-effect" id="ptEffect">—</div>
       </div>
     </div>
 
-    <!-- BODY DIAGRAM -->
-    <div class="body-block">
-      <div class="stitle"><div class="stitle-dot" style="background:var(--pink)"></div>ACUPOINT MAP — CLICK TO LEARN</div>
-      <div class="body-wrap">
-        <!-- SVG body: viewBox 0 0 100 240 -->
-        <svg class="body-svg" viewBox="0 0 100 240" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <!-- Head -->
-          <ellipse class="body-fill" cx="50" cy="17" rx="13.5" ry="15"/>
-          <!-- Neck -->
-          <path class="body-fill" d="M44 31 L44 40 L56 40 L56 31 Z"/>
-          <!-- Torso (shoulders + body) -->
-          <path class="body-fill" d="M44 40 L20 52 L16 80 L18 128 L34 130 L34 152 L66 152 L66 130 L82 128 L84 80 L80 52 L56 40 Z"/>
-          <!-- Left arm -->
-          <path class="body-line" d="M20 54 L8 105 L8 118"/>
-          <!-- Left hand -->
-          <ellipse class="body-fill" cx="8" cy="124" rx="5" ry="7"/>
-          <!-- Right arm -->
-          <path class="body-line" d="M80 54 L92 105 L92 118"/>
-          <!-- Right hand -->
-          <ellipse class="body-fill" cx="92" cy="124" rx="5" ry="7"/>
-          <!-- Left leg -->
-          <path class="body-line" d="M40 152 L35 205 L32 225"/>
-          <!-- Left foot -->
-          <path class="body-line" d="M32 225 L22 228 L20 222"/>
-          <!-- Right leg -->
-          <path class="body-line" d="M60 152 L65 205 L68 225"/>
-          <!-- Right foot -->
-          <path class="body-line" d="M68 225 L78 228 L80 222"/>
-
-          <!-- Ren Mai (central vessel) — teal dashed -->
-          <line class="mer-ren" x1="50" y1="31" x2="50" y2="152"/>
-          <!-- ST meridian — yellow dashed -->
-          <line class="mer-st" x1="42" y1="52" x2="36" y2="152"/>
-          <line class="mer-st" x1="58" y1="52" x2="64" y2="152"/>
-          <!-- Pericardium meridian — purple dashed -->
-          <line class="mer-pc" x1="21" y1="62" x2="10" y2="112"/>
-          <line class="mer-pc" x1="79" y1="62" x2="90" y2="112"/>
-
-          <!-- Acupoints (as SVG <g> elements) -->
-          <!-- GV-20: top of head -->
-          <g class="bpt" data-pt="GV-20" onclick="selectBodyPt('GV-20')">
-            <circle class="glow" cx="50" cy="5" r="5" stroke="var(--o)"/>
-            <circle class="dot" cx="50" cy="5" r="3.5"/>
-            <text class="bpt-label" x="55" y="8">GV-20</text>
-          </g>
-          <!-- ST-2: cheeks -->
-          <g class="bpt" data-pt="ST-2-L" onclick="selectBodyPt('ST-2')">
-            <circle class="glow" cx="38" cy="20" r="5" stroke="var(--yell)"/>
-            <circle class="dot" cx="38" cy="20" r="3" style="fill:var(--yell)"/>
-          </g>
-          <g class="bpt" data-pt="ST-2-R" onclick="selectBodyPt('ST-2')">
-            <circle class="glow" cx="62" cy="20" r="5" stroke="var(--yell)"/>
-            <circle class="dot" cx="62" cy="20" r="3" style="fill:var(--yell)"/>
-          </g>
-          <!-- REN-12: upper abdomen -->
-          <g class="bpt" data-pt="REN-12" onclick="selectBodyPt('REN-12')">
-            <circle class="glow" cx="50" cy="88" r="5" stroke="var(--teal)"/>
-            <circle class="dot" cx="50" cy="88" r="3.5" style="fill:var(--teal)"/>
-            <text class="bpt-label" x="54" y="91" style="fill:var(--teal)">REN-12</text>
-          </g>
-          <!-- LI-4: hand webbing -->
-          <g class="bpt" data-pt="LI-4-L" onclick="selectBodyPt('LI-4')">
-            <circle class="glow" cx="8" cy="116" r="5" stroke="var(--pink)"/>
-            <circle class="dot" cx="8" cy="116" r="3" style="fill:var(--pink)"/>
-          </g>
-          <g class="bpt" data-pt="LI-4-R" onclick="selectBodyPt('LI-4')">
-            <circle class="glow" cx="92" cy="116" r="5" stroke="var(--pink)"/>
-            <circle class="dot" cx="92" cy="116" r="3" style="fill:var(--pink)"/>
-          </g>
-          <!-- PC-6: inner forearm -->
-          <g class="bpt" data-pt="PC-6-L" onclick="selectBodyPt('PC-6')">
-            <circle class="glow" cx="9" cy="103" r="5" stroke="var(--yin)"/>
-            <circle class="dot" cx="9" cy="103" r="3" style="fill:var(--yin)"/>
-          </g>
-          <g class="bpt" data-pt="PC-6-R" onclick="selectBodyPt('PC-6')">
-            <circle class="glow" cx="91" cy="103" r="5" stroke="var(--yin)"/>
-            <circle class="dot" cx="91" cy="103" r="3" style="fill:var(--yin)"/>
-          </g>
-          <!-- REN-4: lower abdomen -->
-          <g class="bpt" data-pt="REN-4" onclick="selectBodyPt('REN-4')">
-            <circle class="glow" cx="50" cy="118" r="5" stroke="var(--teal)"/>
-            <circle class="dot" cx="50" cy="118" r="3.5" style="fill:var(--teal)"/>
-            <text class="bpt-label" x="54" y="121" style="fill:var(--teal)">REN-4</text>
-          </g>
-          <!-- ST-36: shin -->
-          <g class="bpt" data-pt="ST-36-L" onclick="selectBodyPt('ST-36')">
-            <circle class="glow" cx="37" cy="190" r="5" stroke="var(--yell)"/>
-            <circle class="dot" cx="37" cy="190" r="3.5" style="fill:var(--yell)"/>
-          </g>
-          <g class="bpt" data-pt="ST-36-R" onclick="selectBodyPt('ST-36')">
-            <circle class="glow" cx="63" cy="190" r="5" stroke="var(--yell)"/>
-            <circle class="dot" cx="63" cy="190" r="3.5" style="fill:var(--yell)"/>
-            <text class="bpt-label" x="67" y="193" style="fill:var(--yell)">ST-36</text>
-          </g>
-          <!-- Legend: meridian lines -->
-          <text x="5" y="235" style="font-size:4px;fill:var(--teal);font-family:'IBM Plex Mono',monospace">— REN MAI</text>
-          <text x="38" y="235" style="font-size:4px;fill:var(--yell);font-family:'IBM Plex Mono',monospace">— STOMACH</text>
-          <text x="70" y="235" style="font-size:4px;fill:var(--yin);font-family:'IBM Plex Mono',monospace">— PC</text>
-        </svg>
-      </div>
-    </div>
-
-    <!-- ACTIVE POINT TIP -->
-    <div class="tip-block" id="tipBlock">
-      <div class="stitle"><div class="stitle-dot" style="background:var(--teal)"></div>MASSAGE INSTRUCTIONS</div>
-      <div class="tip-empty" id="tipEmpty">← Click any glowing dot on the body diagram</div>
-      <div id="tipContent" style="display:none">
-        <div class="tip-badge">
-          <div class="tip-emoji" id="tipEmoji">✨</div>
-          <div>
-            <div class="tip-id" id="tipId">—</div>
-            <div class="tip-nm" id="tipNm">—</div>
-          </div>
-        </div>
-        <div class="tip-loc" id="tipLoc">—</div>
-        <div class="tip-how" id="tipHow">—</div>
-        <div class="tip-effect" id="tipEffect">—</div>
-      </div>
-    </div>
-
-    <!-- TONGUE SCAN -->
-    <div class="mini-block">
-      <div class="stitle"><div class="stitle-dot" style="background:var(--teal)"></div>👅 TONGUE DIAGNOSIS</div>
-      <div class="mini-row">
-        <div class="tongue-dot" id="tongueDot"></div>
-        <div class="dx-title" id="tongueDxTitle">AIM TONGUE AT ZONE</div>
-      </div>
-      <div class="dx-msg" id="tongueDxMsg">Stick tongue at the teal circle on screen.\nWe don't judge. (We do.)</div>
-    </div>
-
-    <!-- GESTURE READING -->
-    <div class="mini-block">
-      <div class="stitle"><div class="stitle-dot" style="background:var(--pink)"></div>🤌 GESTURE READING</div>
-      <div class="dx-title yin-color" id="gestureDxTitle">DETECTING MOTION...</div>
-      <div class="dx-msg" id="gestureDxMsg">Move around to activate gesture scanner.</div>
-    </div>
-
-  </div><!-- end r-panel -->
-</div><!-- end main -->
-</div><!-- end app -->
+  </div>
+</div>
+</div>
 
 <script>
-// ─────────────────────────────────────────────────────────────────────
-// DATA
-// ─────────────────────────────────────────────────────────────────────
+// ── DATA ──────────────────────────────────────────────────────────────
 
-// Camera acupoints (relative to face center in % of frame)
+// Acupoint offsets from face center (dx/dy as % of frame)
 const ACU_PTS = [
-  {dx:0,  dy:-22, id:'GV-20'},{dx:-18,dy:-6,  id:'ST-2' },{dx:18, dy:-6,  id:'ST-2' },
-  {dx:0,  dy:14,  id:'REN-12'},{dx:-27,dy:22,  id:'PC-6' },{dx:27, dy:22,  id:'PC-6' },
-  {dx:0,  dy:30,  id:'REN-4' },{dx:-21,dy:50,  id:'ST-36'},{dx:21, dy:50,  id:'ST-36'},
+  {dx:0,  dy:-22, id:'GV-20'}, {dx:-18,dy:-6, id:'ST-2' }, {dx:18, dy:-6, id:'ST-2' },
+  {dx:0,  dy:14,  id:'REN-12'},{dx:-27,dy:22, id:'PC-6' }, {dx:27, dy:22, id:'PC-6' },
+  {dx:0,  dy:30,  id:'REN-4' },{dx:-21,dy:50, id:'ST-36'}, {dx:21, dy:50, id:'ST-36'},
 ];
 
-// Body diagram point data
-const BODY_PTS = {
+const PT_INFO = {
   'GV-20': {
-    emoji:'🧠', nm:'Hundred Meetings', ch:'百会',
-    loc:'Crown of head — where your spiritual antenna lives.',
+    ch:'百会 · Hundred Meetings', loc:'Crown of the head — your spiritual antenna.',
     how:'Press firmly with middle finger.\nCircular motion, 30 seconds.\nVisualize a sunbeam entering your skull.\n(Optional but encouraged.)',
-    effect:'Calms mind, raises yang, prevents nodding off in Zoom calls.',
+    effect:'→ Calms mind, raises yang, stops nodding off in meetings.',
   },
   'ST-2': {
-    emoji:'👁️', nm:'Four Whites', ch:'四白',
-    loc:'Just below each eye socket, on the cheekbone.',
-    how:'Gentle circles with index fingertip.\nLight pressure only.\n(You have EYES nearby. Be gentle.)',
-    effect:'Brightens eyes, clears sinus, makes you look "alive."',
+    ch:'四白 · Four Whites', loc:'Just below each eye socket, on the cheekbone.',
+    how:'Gentle circles with index fingertip.\nLight pressure only.\n(Eyes are nearby. Be careful.)',
+    effect:'→ Brightens eyes, clears sinuses, makes you look "alive."',
   },
   'REN-12': {
-    emoji:'🌀', nm:'Middle Cavity', ch:'中脘',
-    loc:'Midway between belly button and bottom of ribcage.',
-    how:'Warm both hands first.\nPress gently inward. Circular motion.\nClockwise for slow digestion,\ncounterclockwise for "too fast."',
-    effect:'Regulates stomach qi, reduces bloating, soothes poor life choices.',
-  },
-  'LI-4': {
-    emoji:'🤌', nm:'Union Valley', ch:'合谷',
-    loc:'Web between thumb and index finger.',
-    how:'Pinch with opposite thumb + index.\nFind the achy spot (you\'ll know).\nFirm pressure 30–60 seconds each hand.',
-    effect:'Relieves headaches, boosts immunity,\nreduces face tension + jaw clenching.',
+    ch:'中脘 · Middle Cavity', loc:'Midway between belly button and bottom of ribcage.',
+    how:'Warm your hands first.\nGentle circular pressure, clockwise.\nClockwise for sluggish digestion,\ncounterclockwise for "too fast."',
+    effect:'→ Regulates stomach qi, soothes poor food life choices.',
   },
   'PC-6': {
-    emoji:'💆', nm:'Inner Pass', ch:'内关',
-    loc:'Inner wrist, 3 fingers up from crease, between the two tendons.',
-    how:'Press straight down with thumb.\nFirm, sustained pressure.\nBreathe slowly for 2–3 minutes.\nFeel slightly judgmental about your stress levels.',
-    effect:'Calms anxiety, relieves nausea,\nslows racing heart.',
+    ch:'内关 · Inner Pass', loc:'Inner wrist, 3 fingers up from crease, between the two tendons.',
+    how:'Press straight down with thumb.\nFirm, sustained pressure.\nBreathe slowly for 2–3 minutes.',
+    effect:'→ Calms anxiety, relieves nausea, slows racing heart.',
   },
   'REN-4': {
-    emoji:'🌸', nm:'Origin Pass', ch:'关元',
-    loc:'3 fingers below belly button, center line.',
-    how:'Warm hands. Gentle palm pressure.\nBreath deeply into your belly.\n2 minutes minimum. No rushing.\nThis is where your original qi lives.',
-    effect:'Tonifies original qi, strengthens kidneys,\ncalms existential dread (results vary).',
+    ch:'关元 · Origin Pass', loc:'3 fingers below belly button, center line.',
+    how:'Warm hands. Gentle palm pressure.\nBreath deeply into the belly.\n2 minutes minimum. No rushing.\nOriginal qi lives here.',
+    effect:'→ Tonifies original qi, calms existential dread (results vary).',
   },
   'ST-36': {
-    emoji:'⚡', nm:'Leg Three Miles', ch:'足三里',
-    loc:'4 fingers below kneecap, slightly outside of shin bone.',
-    how:'Press firmly with thumb. It can be sore.\nThat\'s it working. (Allegedly.)\n1–2 minutes each side.\nAncient soldiers used this to walk extra miles.',
-    effect:'Boosts immune system, increases energy,\ncures basically everything (per ancient texts).',
+    ch:'足三里 · Leg Three Miles', loc:'4 fingers below kneecap, outside of shin bone.',
+    how:'Press firmly with thumb. May be sore.\nThat\'s it working. (Allegedly.)\n1–2 minutes each side.',
+    effect:'→ Boosts immune system, increases energy, ancient survival point.',
   },
 };
 
-const TONGUE_DX = {
-  red:    ['DRAGON FIRE SYNDROME 🔥','Repressed rage + too much hotpot.\nPrescription: Jade roller + cry session.','#e54040'],
-  pink:   ['SUSPICIOUSLY NORMAL 👀','Disturbingly balanced. Are you okay?\nPrescription: Get checked for smugness.','#e07878'],
-  purple: ['BLOOD STASIS (DRAMATIC)','Circulation giving full emo energy.\nPrescription: Fire cupping + journaling.','#9060c0'],
-  yellow: ['DAMP HEAT OVERLOAD 🌶️','What DID you eat. Was it worth it.\nPrescription: 3-day juice cleanse. Sorry.','#d4a020'],
-  pale:   ['GHOST QI DEFICIENCY 👻','Practically a Victorian specter.\nPrescription: Bone broth. Touch sunlight.','#e0b8a8'],
-  dark:   ['EXTREME HEAT TOXIN ☠️','Your liver is writing its will.\nPrescription: Water. An ocean of it.','#804040'],
-  none:   ['PRESENT TONGUE TO SCAN','Point your tongue at the teal circle.\nYes, in public. Own the energy.','#a08070'],
-};
+const MERIDIANS = [
+  {nm:'LIVER',v:72},{nm:'HEART',v:68},{nm:'LUNG',v:75},
+  {nm:'SPLEEN',v:80},{nm:'KIDNEY',v:65},{nm:'BLADDER',v:71},
+];
+const MERIDIAN_BASE = [72, 68, 75, 80, 65, 71];
 
-const GESTURE_DX = {
-  still:   ['QI STAGNATION 🧊','Are you breathing? Confirm pulse.\nPrescription: Interpretive dance (5 min).'],
-  slow:    ['GRADUAL CHI DRIFT 🐌','Suspicious slow movement detected.\nPrescription: Espresso + dramatic gesture.'],
-  upper:   ['ASCENDANT YANG HANDS ✋','Arms going places. Bold life choice.\nPrescription: Lower arms, raise self-esteem.'],
-  lower:   ['DESCENDING QI STOMP 🦶','Foot energy is A LOT today.\nPrescription: Walk + apologize to downstairs.'],
-  wave:    ['CEREMONIAL CHI WAVING 👋','Ancestral activation protocols engaged.\nPrescription: Keep waving. It\'s working.'],
-  active:  ['UNCONTROLLED YANG SURGE ⚡','Chi has fully left the chat.\nPrescription: Sit down. Breathe. Please.'],
-  frantic: ['🚨 CHI EMERGENCY 🚨','MAXIMUM CHAOS ENERGY CONFIRMED.\nPrescription: Lie on floor. Immediately.'],
-};
-
-const WARN_MSGS = [
-  'YIN OVERDOSE DETECTED · GET OFF YOUR GLUTEUS MAXIMUS NOW',
-  'QI STAGNATION CRITICAL · YOUR CHAIR IS STEALING YOUR LIFE FORCE',
-  'BLOOD STASIS IMMINENT · STAND UP OR FACE THE MERIDIAN CONSEQUENCES',
-  'LIVER QI SCREAMING · 20 MINUTES OF STILLNESS IS A VIOLATION',
-  'ANCIENT QI WARNING: YOUR ANCESTORS NEVER SAT THIS LONG',
+const PALETTES = [
+  { nm:'FIRE',   hex:'#FF6B35', o:'#FF6B35', omid:'#FF8C5A', olt:'#FFB88A', opale:'#FFEEDE', cream:'#FFFBF7', parch:'#F2E3D0', bark:'#1A0800', bk2:'#5C2D0A', bk3:'#8B5230', grout:'#F8E8D8', scanBg:'#061208' },
+  { nm:'ACID',   hex:'#39FF14', o:'#39FF14', omid:'#5FFF3A', olt:'#8FFF70', opale:'#E0FFD5', cream:'#F4FFF2', parch:'#CCFFC0', bark:'#001800', bk2:'#0A3A0A', bk3:'#2A6A2A', grout:'#D0F8C8', scanBg:'#000806' },
+  { nm:'PLASMA', hex:'#FF00FF', o:'#FF00FF', omid:'#FF50FF', olt:'#FF90FF', opale:'#FFE0FF', cream:'#FFF5FF', parch:'#F0D0F0', bark:'#1A001A', bk2:'#4A0A4A', bk3:'#7A3A7A', grout:'#F0D8F0', scanBg:'#0A0010' },
+  { nm:'CRYO',   hex:'#00E5FF', o:'#00E5FF', omid:'#40EEFF', olt:'#80F4FF', opale:'#D0FAFF', cream:'#F0FDFF', parch:'#C0EEF5', bark:'#00101A', bk2:'#0A3050', bk3:'#1A6080', grout:'#C0EEF8', scanBg:'#000810' },
 ];
 
-// ─────────────────────────────────────────────────────────────────────
-// STATE
-// ─────────────────────────────────────────────────────────────────────
+// Chi status messages keyed to [stillness, low, mid, high, surge, emergency]
+// Each has [title, rec] arrays and per-band variants for mid
+const CHI_STILL_MSGS = [
+  ['QI STAGNATION: CRITICAL 🧊', 'Zero movement. Meridians filing\na formal HR complaint.'],
+  ['MAXIMUM YIN ACHIEVED', 'You are becoming furniture.\nAt least blink dramatically.'],
+  ['FROZEN QI DETECTED', 'Still as a frozen pond.\nPrescription: one (1) jump.'],
+];
+const CHI_BAND_MSGS = [
+  [['CEREBRAL CHI STIRRING',  'Head energy present.\nThoughts are chi too. (Barely.)'],
+   ['WIND-COLD AT GV-20',     'Head chi: excessive.\nStop overthinking. Use ST-36.']],
+  [['HEART FIRE GENTLE 🕯️',  'Upper body qi activating.\nEmotional meridian: cautiously open.'],
+   ['HEART QI CIRCULATING 🔥','Upper yang flowing.\nYou might survive this visit.']],
+  [['LUNG METAL CONDUCTING',  'Chest chi present.\nBreath is medicine. Breathe more.'],
+   ['LUNG–SPLEEN AXIS OPEN',  'Respiratory chi balanced.\nDisturbingly functional today.']],
+  [['EARTH ELEMENT GROUNDING','Core energy detected.\nSpleen is... okay with this.'],
+   ['FIVE ELEMENTS HARMONIZED','Core meridians singing.\nTransformation energy: present.']],
+  [['WATER CONSTITUTION ACTIVE','Lower body warming.\nKidney jing slowly returning.'],
+   ['KIDNEY YANG IGNITED ⚡',  'Kidney fire restored.\nOriginal qi: partially located.']],
+  [['BLADDER MERIDIAN FLOWING','Lower extremities engaged.\nDrink water. This is a prescription.'],
+   ['BLADDER CHANNEL FLUSHED', 'Lower meridians flowing.\nThe ancestors are impressed.']],
+];
+const CHI_SURGE_MSGS = [
+  ['UNCONTROLLED YANG SURGE ⚡','Chi fully left the chat.\nPrescription: sit down, breathe.'],
+  ['RECKLESS QI EXPENDITURE', 'Spending yang like rent money.\n3 sessions minimum.'],
+  ['YANG OVERFLOW IMMINENT',   'Energy going everywhere at once.\nFascinating. Chaotic. Valid.'],
+];
+const LIVE_QUIPS = [
+  ['Head chi flowing. You\'re thinking.\nMaybe too hard. Needle GV-20.', 'Cerebral activity: concerning.\nOverthinker confirmed. ST-36 stat.'],
+  ['Heart meridian open. You feel.\nPericardium: unguarded. Brave.', 'Upper body yang. Heart fire.\nDangerous for feelings. Worth it.'],
+  ['Lung metal conducting.\nBreath = medicine. Breathe again.', 'Chest chi active.\nImmune system says hello.'],
+  ['Spleen earth element grounded.\nSomething is digesting (hopefully food).', 'Abdominal chi present.\nWhat did you eat. Was it worth it.'],
+  ['Kidney yang igniting.\nOriginal qi stirring from storage.', 'Lower body warming up.\nDrink water. We\'re serious.'],
+  ['Bladder meridian engaged.\nLower extremities: confirmed existing.', 'Leg chi flowing. ST-36 awakening.\nAncient survival point activated.'],
+];
+
+// ── STATE ─────────────────────────────────────────────────────────────
 let pixelSize = 16, filterMode = 'natural';
 let isRunning = false, isDemo = false;
-let offCvs, offCtx;
-let video, canvas, ctx;
-let acuEls = [];
+let offCvs, offCtx, video, canvas, ctx;
+let acuEls = [], isHoveringPt = false;
 
-// Face tracking
+// Motion tracking
+let prevFrameData = null;
 let faceSmX = 0.5, faceSmY = 0.35;
+let lastMotionX = 0.5, lastMotionY = 0.35;
+let motionStaleness = 0;
+let smoothMag = 0;
+let regionMotion = new Array(6).fill(0);
+let meridianValues = [...MERIDIAN_BASE];
 
-// Motion
-let prevFrame = null;
-let currentMag = 0;
-let gestureCand = {}, currentGesture = 'still';
+// Chi line animation
+let chiPhase = 0;
 let frameCount = 0;
 
-// Yang/Yin energy
-let yangEnergy = 50;
-let lastMotionTime = Date.now();
-let warningShown = false;
-let warningDismissed = false;
+// Per-point independent jitter
+let acuJitter = ACU_PTS.map(() => ({
+  jx:0, jy:0,
+  vx:(Math.random()-.5)*.4, vy:(Math.random()-.5)*.4,
+  freq: 0.6 + Math.random()*.8,
+}));
 
-// ─────────────────────────────────────────────────────────────────────
-// BOOT
-// ─────────────────────────────────────────────────────────────────────
+// Audio
+let audioCtx = null, analyser = null;
+let soundLevel = 0, soundBass = 0;
+
+// Palette-driven canvas colors
+let groutColor = '#F8E8D8', chiColor = '#FF6B35', scanBgColor = '#061208';
+let activePal = 0;
+
+// ── BOOT ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   video  = document.getElementById('video');
   canvas = document.getElementById('canvas');
   ctx    = canvas.getContext('2d');
-  buildLoader();
-  buildAcuPts();
-  bindControls();
-  startCamera();
-  setInterval(energyTick, 1000);
-  setInterval(updateMeridians_unused, 2800);
+  buildLoader(); buildMeridians(); buildAcuPts(); bindControls(); bindPalette();
+  startCamera(); initAudio();
+  setInterval(updateChiStatus, 1800);
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// LOADER
-// ─────────────────────────────────────────────────────────────────────
+// ── LOADER ────────────────────────────────────────────────────────────
 function buildLoader() {
   const g = document.getElementById('pxLoader');
   for (let i = 0; i < 64; i++) {
@@ -605,62 +369,121 @@ function buildLoader() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// CAMERA ACUPOINTS
-// ─────────────────────────────────────────────────────────────────────
+// ── MERIDIAN BARS ─────────────────────────────────────────────────────
+function buildMeridians() {
+  const cont = document.getElementById('mRows');
+  MERIDIANS.forEach((m, i) => {
+    const row = document.createElement('div'); row.className = 'm-row';
+    row.innerHTML = `<div class="m-nm">${m.nm}</div>
+      <div class="m-bg"><div class="m-fill" id="mf${i}" style="width:${m.v}%"></div></div>
+      <div class="m-val" id="mv${i}">${m.v}%</div>`;
+    cont.appendChild(row);
+  });
+}
+
+function updateMeridianBars() {
+  for (let i = 0; i < 6; i++) {
+    // Each bar responds to motion in its corresponding body region
+    const activity = regionMotion[i] * 1200;
+    const target   = MERIDIAN_BASE[i] + Math.min(25, activity) + (Math.random()-.5)*2.5;
+    meridianValues[i] = meridianValues[i]*.88 + Math.max(18, Math.min(99, target))*.12;
+    const f = document.getElementById('mf'+i), v = document.getElementById('mv'+i);
+    if (f) f.style.width = Math.round(meridianValues[i]) + '%';
+    if (v) v.textContent = Math.round(meridianValues[i]) + '%';
+  }
+}
+
+// ── ACU POINTS ────────────────────────────────────────────────────────
 function buildAcuPts() {
   const layer = document.getElementById('acuLayer');
   ACU_PTS.forEach((p, i) => {
-    const el = document.createElement('div');
-    el.className = 'acp';
+    const el = document.createElement('div'); el.className = 'acp';
     el.innerHTML = `<div class="acp-core"></div><div class="acp-ring"></div><div class="acp-tag">${p.id}</div>`;
-    el.addEventListener('click', () => selectBodyPt(p.id));
-    layer.appendChild(el);
-    acuEls.push(el);
+    el.addEventListener('mouseenter', () => showTip(p.id, el));
+    el.addEventListener('mouseleave', clearTip);
+    layer.appendChild(el); acuEls.push(el);
   });
   updateAcuPositions();
 }
 
+function showTip(id, el) {
+  const pt = PT_INFO[id]; if (!pt) return;
+  isHoveringPt = true;
+  acuEls.forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('liveTip').style.display    = 'none';
+  document.getElementById('ptContent').style.display  = 'block';
+  document.getElementById('tipTitle').textContent     = 'MASSAGE INSTRUCTIONS';
+  document.getElementById('ptId').textContent   = id;
+  document.getElementById('ptCh').textContent   = pt.ch;
+  document.getElementById('ptLoc').textContent  = pt.loc;
+  document.getElementById('ptHow').textContent  = pt.how;
+  document.getElementById('ptEffect').textContent = pt.effect;
+}
+
+function clearTip() {
+  isHoveringPt = false;
+  acuEls.forEach(e => e.classList.remove('active'));
+  document.getElementById('liveTip').style.display   = 'block';
+  document.getElementById('ptContent').style.display = 'none';
+  document.getElementById('tipTitle').textContent    = 'LIVE MERIDIAN SCAN';
+}
+
 function updateAcuPositions() {
   ACU_PTS.forEach((p, i) => {
-    const x = faceSmX*100 + p.dx, y = faceSmY*100 + p.dy;
+    const j = acuJitter[i];
+    const x = faceSmX*100 + p.dx + j.jx;
+    const y = faceSmY*100 + p.dy + j.jy;
     acuEls[i].style.left = Math.max(2, Math.min(97, x)) + '%';
     acuEls[i].style.top  = Math.max(2, Math.min(97, y)) + '%';
   });
-  const tz = document.getElementById('tzWrap');
-  tz.style.left = Math.max(5, Math.min(95, faceSmX*100)) + '%';
-  tz.style.top  = Math.max(5, Math.min(95, faceSmY*100+7)) + '%';
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// BODY POINT SELECTION
-// ─────────────────────────────────────────────────────────────────────
-function selectBodyPt(id) {
-  // Normalize id (strip -L/-R suffix)
-  const key = id.replace(/-[LR]$/, '');
-  const pt = BODY_PTS[key]; if (!pt) return;
-
-  // Highlight all matching body diagram points
-  document.querySelectorAll('.bpt').forEach(g => g.classList.remove('selected'));
-  document.querySelectorAll(`.bpt[data-pt^="${key}"]`).forEach(g => g.classList.add('selected'));
-  // Highlight camera acupoints
-  acuEls.forEach((el, i) => {
-    el.classList.toggle('active-pt', ACU_PTS[i].id === key);
+function updateAcuJitter() {
+  const soundKick = soundBass * 3;
+  acuJitter.forEach(j => {
+    j.vx += (Math.random()-.5) * (0.18 + soundKick);
+    j.vy += (Math.random()-.5) * (0.18 + soundKick);
+    j.vx *= 0.86; j.vy *= 0.86;
+    j.jx += j.vx * j.freq;
+    j.jy += j.vy * j.freq;
+    // Spring back toward 0
+    j.jx += -j.jx * 0.025;
+    j.jy += -j.jy * 0.025;
+    j.jx = Math.max(-9, Math.min(9, j.jx));
+    j.jy = Math.max(-9, Math.min(9, j.jy));
   });
-  // Update tip panel
-  document.getElementById('tipEmpty').style.display = 'none';
-  document.getElementById('tipContent').style.display = 'block';
-  document.getElementById('tipEmoji').textContent = pt.emoji;
-  document.getElementById('tipId').textContent    = key + ' · ' + pt.ch;
-  document.getElementById('tipNm').textContent    = pt.nm;
-  document.getElementById('tipLoc').textContent   = pt.loc;
-  document.getElementById('tipHow').textContent   = pt.how;
-  document.getElementById('tipEffect').textContent = '→ ' + pt.effect;
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// CONTROLS
-// ─────────────────────────────────────────────────────────────────────
+// ── AUDIO ─────────────────────────────────────────────────────────────
+async function initAudio() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio:true, video:false });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.75;
+    src.connect(analyser);
+  } catch(e) { /* mic not available */ }
+}
+
+function tickAudio() {
+  if (!analyser) return;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(buf);
+  // Overall level
+  let sum = 0; for (let i=0; i<buf.length; i++) sum += buf[i];
+  const raw = (sum / buf.length / 255) * 3;
+  soundLevel = soundLevel*.72 + Math.min(1, raw)*.28;
+  // Bass (bins 0-3, roughly 0-500Hz)
+  let bass = 0; for (let i=0; i<4; i++) bass += buf[i];
+  soundBass = soundBass*.6 + (bass/(4*255))*.4;
+  const sf = document.getElementById('sndFill');
+  if (sf) sf.style.width = Math.min(100, Math.round(soundLevel*100)) + '%';
+}
+
+// ── CONTROLS ──────────────────────────────────────────────────────────
 function bindControls() {
   document.getElementById('sizeG').addEventListener('click', e => {
     const b = e.target.closest('.btn'); if (!b) return;
@@ -675,16 +498,44 @@ function bindControls() {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// CAMERA
-// ─────────────────────────────────────────────────────────────────────
+function bindPalette() {
+  const g = document.getElementById('palG');
+  PALETTES.forEach((p, i) => {
+    const sw = document.createElement('div');
+    sw.className = 'pal-sw' + (i===0 ? ' on' : '');
+    sw.dataset.pal = i; sw.style.background = p.hex; sw.title = p.nm;
+    sw.addEventListener('click', () => {
+      document.querySelectorAll('.pal-sw').forEach(x => x.classList.remove('on'));
+      sw.classList.add('on'); applyPalette(i);
+    });
+    g.appendChild(sw);
+  });
+}
+
+function applyPalette(idx) {
+  activePal = idx;
+  const p = PALETTES[idx], r = document.documentElement.style;
+  r.setProperty('--o',     p.o);    r.setProperty('--omid',  p.omid);
+  r.setProperty('--olt',   p.olt);  r.setProperty('--opale', p.opale);
+  r.setProperty('--cream', p.cream);r.setProperty('--parch', p.parch);
+  r.setProperty('--bark',  p.bark); r.setProperty('--bk2',   p.bk2);
+  r.setProperty('--bk3',   p.bk3);
+  groutColor  = p.grout;
+  chiColor    = p.o;
+  scanBgColor = p.scanBg;
+}
+
+// ── CAMERA ────────────────────────────────────────────────────────────
 async function startCamera() {
   const msg = document.getElementById('loadMsg');
   msg.textContent = 'REQUESTING CAMERA ACCESS...';
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'}});
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width:{ideal:640}, height:{ideal:480}, facingMode:'user' }
+    });
     video.srcObject = stream; await video.play();
-    canvas.width = video.videoWidth||640; canvas.height = video.videoHeight||480;
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
     resetOff();
     document.getElementById('hudCoords').textContent = `${canvas.width}×${canvas.height} · ${pixelSize}PX`;
     document.getElementById('loadOverlay').style.display = 'none';
@@ -693,16 +544,19 @@ async function startCamera() {
   } catch(_) {
     msg.textContent = 'CAMERA OFFLINE · DEMO MODE';
     canvas.width=640; canvas.height=480; resetOff(); isDemo=true;
-    setTimeout(() => {
+    setTimeout(()=>{
       document.getElementById('loadOverlay').style.display='none';
       document.getElementById('scanStatus').textContent='DEMO';
-      isRunning=true; let t=0;
-      (function dl(){
-        if(!isRunning)return; drawDemo(t); t+=.018;
-        faceSmX=0.5+Math.sin(t*.35)*.1; faceSmY=0.35+Math.sin(t*.5)*.07;
-        updateAcuPositions(); requestAnimationFrame(dl);
+      isRunning=true;
+      document.getElementById('hudCoords').textContent = `640×480 · ${pixelSize}PX`;
+      let t=0; (function dl(){
+        if(!isRunning)return; drawDemo(t); chiPhase+=.6; drawChiLines(); t+=.018;
+        // Simulate a moving person in demo
+        faceSmX=0.5+Math.sin(t*.35)*.12; faceSmY=0.35+Math.sin(t*.5)*.08;
+        smoothMag=2+Math.sin(t*1.2)*1.5; motionStaleness=0;
+        regionMotion=regionMotion.map((_,i)=>0.005+Math.abs(Math.sin(t*.3+i*.8))*.02);
+        updateAcuJitter(); tickAudio(); updateAcuPositions(); frameCount++; requestAnimationFrame(dl);
       })();
-      demoCycle();
     },1800);
   }
 }
@@ -711,216 +565,199 @@ function resetOff() {
   const cols=Math.max(1,Math.floor((canvas.width||640)/pixelSize));
   const rows=Math.max(1,Math.floor((canvas.height||480)/pixelSize));
   offCvs=document.createElement('canvas'); offCvs.width=cols; offCvs.height=rows;
-  offCtx=offCvs.getContext('2d'); offCtx.imageSmoothingEnabled=true;
-  prevFrame=null;
+  offCtx=offCvs.getContext('2d'); offCtx.imageSmoothingEnabled=true; prevFrameData=null;
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// LIVE LOOP
-// ─────────────────────────────────────────────────────────────────────
+// ── LIVE LOOP ─────────────────────────────────────────────────────────
 function liveLoop() {
   if(!isRunning)return;
   if(video.readyState>=2){
-    const cols=offCvs.width,rows=offCvs.height;
+    const cols=offCvs.width, rows=offCvs.height;
     offCtx.save(); offCtx.scale(-1,1); offCtx.drawImage(video,-cols,0,cols,rows); offCtx.restore();
     const imgData=offCtx.getImageData(0,0,cols,rows);
-    renderTiles(imgData.data,cols,rows); frameCount++;
-    if(frameCount%5===0) analyzeFrame(imgData.data,cols,rows);
+    renderTiles(imgData.data,cols,rows);
+    chiPhase+=0.6;
+    drawChiLines();
+    frameCount++;
+    updateAcuJitter(); tickAudio();
+    // Analyze every 3rd frame (~10fps at 30fps)
+    if(frameCount%3===0) analyzeFrame(imgData.data,cols,rows);
   }
   requestAnimationFrame(liveLoop);
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// FRAME ANALYSIS
-// ─────────────────────────────────────────────────────────────────────
+// ── FRAME ANALYSIS (one pass: motion centroid + region) ───────────────
 function analyzeFrame(data, cols, rows) {
-  const face = findFaceCentroid(data, cols, rows);
-  if(face){ faceSmX+=(face.nx-faceSmX)*.14; faceSmY+=(face.ny-faceSmY)*.14; }
+  if(!prevFrameData || prevFrameData.length!==data.length){
+    prevFrameData=new Uint8ClampedArray(data); return;
+  }
+
+  let sx=0, sy=0, tot=0;
+  const regAcc = new Array(6).fill(0);
+  const bandH  = rows / 6;
+
+  for(let i=0; i<cols*rows; i++){
+    const pi=i*4;
+    const diff=Math.abs(data[pi]-prevFrameData[pi])
+              +Math.abs(data[pi+1]-prevFrameData[pi+1])
+              +Math.abs(data[pi+2]-prevFrameData[pi+2]);
+    if(diff>22){
+      const x=i%cols, y=Math.floor(i/cols);
+      sx+=x*diff; sy+=y*diff; tot+=diff;
+      regAcc[Math.min(5,Math.floor(y/bandH))]+=diff;
+    }
+  }
+  prevFrameData.set(data);
+
+  // Motion magnitude (per pixel, 0–255ish scale)
+  const mag = tot/(cols*rows);
+  smoothMag  = smoothMag*0.82 + mag*0.18;
+
+  // Face position from motion centroid
+  if(mag>0.4 && tot>0){
+    lastMotionX = sx/(tot*cols);
+    lastMotionY = sy/(tot*rows);
+    motionStaleness=0;
+  } else {
+    motionStaleness++;
+  }
+  const tx = motionStaleness>120 ? 0.5  : lastMotionX;
+  const ty = motionStaleness>120 ? 0.35 : lastMotionY;
+  const sp = motionStaleness>120 ? 0.004: 0.12;
+  faceSmX += (tx-faceSmX)*sp;
+  faceSmY += (ty-faceSmY)*sp;
   updateAcuPositions();
 
-  const motion = computeMotion(data, cols, rows);
-  if(motion){ currentMag=motion.magnitude; classifyGesture(motion); }
-
-  if(frameCount%15===0){ const tc=sampleZone(data,cols,rows); if(tc) updateTongueDx(tc); }
-}
-
-function findFaceCentroid(data,cols,rows){
-  let sx=0,sy=0,n=0;
-  for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
-    const i=(y*cols+x)*4,r=data[i],g=data[i+1],b=data[i+2];
-    if(r>100&&g>50&&b>25&&r>g&&r>b&&r-Math.min(g,b)>20&&r<240){sx+=x;sy+=y;n++;}
+  // Region motion (smoothed, normalized)
+  const bandPx = cols * bandH;
+  for(let i=0;i<6;i++){
+    regionMotion[i] = regionMotion[i]*0.88 + (regAcc[i]/(bandPx*255*3))*0.12;
   }
-  if(n<20)return null;
-  return{nx:sx/(n*cols),ny:sy/(n*rows)};
+
+  // Update bars every 4 analysis frames
+  if(frameCount%4===0) updateMeridianBars();
+  if(frameCount%5===0 && !isHoveringPt) updateLiveCommentary();
 }
 
-function computeMotion(data,cols,rows){
-  if(!prevFrame||prevFrame.length!==data.length){prevFrame=new Uint8ClampedArray(data);return null;}
-  let sx=0,sy=0,tot=0,up=0,dn=0;
-  for(let i=0;i<cols*rows;i++){
-    const pi=i*4;
-    const diff=Math.abs(data[pi]-prevFrame[pi])+Math.abs(data[pi+1]-prevFrame[pi+1])+Math.abs(data[pi+2]-prevFrame[pi+2]);
-    if(diff>28){const x=i%cols,y=Math.floor(i/cols);sx+=x*diff;sy+=y*diff;tot+=diff;if(y<rows/2)up+=diff;else dn+=diff;}
-  }
-  prevFrame.set(data);
-  if(tot<200)return{magnitude:0,cx:.5,cy:.5};
-  return{magnitude:tot/(cols*rows),cx:sx/(tot*cols),cy:sy/(tot*rows),up,dn};
-}
+// ── CHI STATUS (timer-driven, uses smoothMag) ──────────────────────────
+function updateChiStatus() {
+  const mag  = smoothMag;
+  const band = regionMotion.indexOf(Math.max(...regionMotion));
+  let msg, rec;
 
-function classifyGesture(m){
-  const mag=m.magnitude;
-  let c = mag<0.6?'still' : mag<2.5?(m.cy<.38?'upper':m.cy>.62?'lower':'slow') : mag<9?(m.cy<.4?'upper':'wave') : mag<22?'active':'frantic';
-  gestureCand[c]=(gestureCand[c]||0)+1;
-  if(gestureCand[c]>=3&&c!==currentGesture){
-    currentGesture=c; Object.keys(gestureCand).forEach(k=>{gestureCand[k]=0;});
-    const[t,msg]=GESTURE_DX[c]||GESTURE_DX.still;
-    fadeUpdate('gestureDxTitle',t); fadeUpdate('gestureDxMsg',msg);
-    // High motion: boost yang
-    if(c==='active'||c==='frantic') lastMotionTime=Date.now();
-  }
-  if(mag>1.5) lastMotionTime=Date.now();
-}
-
-function sampleZone(data,cols,rows){
-  const cx=Math.round(faceSmX*cols),cy=Math.round((faceSmY+.08)*rows);
-  const r=Math.max(2,Math.floor(Math.min(cols,rows)*.12));
-  let sr=0,sg=0,sb=0,n=0;
-  for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){
-    if(dx*dx+dy*dy>r*r)continue;
-    const x=cx+dx,y=cy+dy;
-    if(x<0||x>=cols||y<0||y>=rows)continue;
-    const i=(y*cols+x)*4; sr+=data[i];sg+=data[i+1];sb+=data[i+2];n++;
-  }
-  if(!n)return null;
-  return{r:sr/n|0,g:sg/n|0,b:sb/n|0};
-}
-
-function updateTongueDx({r,g,b}){
-  document.getElementById('tzFill').style.background=`rgb(${r},${g},${b})`;
-  document.getElementById('tongueDot').style.background=`rgb(${r},${g},${b})`;
-  const key=classifyTongue(r,g,b);
-  const[title,msg]=TONGUE_DX[key];
-  fadeUpdate('tongueDxTitle',title); fadeUpdate('tongueDxMsg',msg);
-}
-
-function classifyTongue(r,g,b){
-  const lum=r*.299+g*.587+b*.114,sat=(Math.max(r,g,b)-Math.min(r,g,b))/(Math.max(r,g,b)||1);
-  if(lum>215)return'none';
-  if(r-b>90&&r-g>60)return'red';
-  if(b>r&&b>g)return'purple';
-  if(g>r*.8&&r-g<25&&lum>100)return'yellow';
-  if(lum<70)return'dark';
-  if(sat<.18)return'pale';
-  return'pink';
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// YANG / YIN ENERGY SYSTEM
-// ─────────────────────────────────────────────────────────────────────
-function energyTick() {
-  const secsStill = (Date.now() - lastMotionTime) / 1000;
-  const isMoving  = currentMag > 1.5;
-
-  if (isMoving) {
-    yangEnergy = Math.min(100, yangEnergy + currentMag * 0.4);
+  if(motionStaleness>200){
+    msg='AWAITING NEXT PATIENT'; rec='Scanner in standby mode.\nApproach to activate chi scan.';
+  } else if(mag<0.25){
+    const pick=CHI_STILL_MSGS[Math.floor(Date.now()/4000)%CHI_STILL_MSGS.length];
+    [msg,rec]=pick;
+  } else if(mag<7){
+    const tier = mag<2 ? 0 : 1;
+    [msg,rec] = CHI_BAND_MSGS[band][tier];
+  } else if(mag<20){
+    const pick=CHI_SURGE_MSGS[Math.floor(Date.now()/2500)%CHI_SURGE_MSGS.length];
+    [msg,rec]=pick;
   } else {
-    yangEnergy = Math.max(3, yangEnergy - 0.5);
+    msg='🚨 MERIDIAN EMERGENCY 🚨'; rec='MAXIMUM CHAOS ENERGY.\nStop. Breathe. Lie on floor.\nThis is not a drill.';
   }
 
-  const yinEnergy = 100 - yangEnergy;
-  const yang = Math.round(yangEnergy), yin = Math.round(yinEnergy);
-
-  document.getElementById('yangFill').style.width = yang + '%';
-  document.getElementById('yinFill').style.width  = yin  + '%';
-  document.getElementById('yangVal').textContent  = yang + '%';
-  document.getElementById('yinVal').textContent   = yin  + '%';
-  document.getElementById('camYangFill').style.width = yang + '%';
-
-  // Sitting timer
-  const mins  = Math.floor(secsStill / 60);
-  const secs  = Math.floor(secsStill % 60);
-  const timerEl = document.getElementById('sittingTimer');
-  timerEl.textContent = `SEATED: ${mins}:${String(secs).padStart(2,'0')}`;
-
-  // Status message
-  const statusEl = document.getElementById('yyStatus');
-  if (yang > 80) { statusEl.textContent = 'YANG EXCESS ⚡'; statusEl.className='yy-status warning'; }
-  else if (yang < 20) { statusEl.textContent = 'YANG DEPLETED ❄️'; statusEl.className='yy-status warning'; }
-  else { statusEl.textContent = 'CHI BALANCED ✓'; statusEl.className='yy-status'; }
-
-  // 20-minute sitting warning
-  const WARN_SECS = 20 * 60; // 20 minutes
-  timerEl.classList.toggle('warn', secsStill > WARN_SECS);
-  if (secsStill > WARN_SECS && !warningShown && !warningDismissed) {
-    warningShown = true;
-    const msgEl = document.getElementById('warnMsg');
-    msgEl.textContent = WARN_MSGS[Math.floor(Math.random() * WARN_MSGS.length)];
-    document.getElementById('warnBanner').classList.add('visible');
-    // Also flash acupoints
-    acuEls.forEach(el => el.style.animation = 'none');
-    setTimeout(() => acuEls.forEach(el => el.style.animation = ''), 100);
-  }
-  // Reset warning flag if they started moving
-  if (secsStill < 5 && warningShown) {
-    warningShown = false;
-    warningDismissed = false;
-    document.getElementById('warnBanner').classList.remove('visible');
-  }
+  const cm=document.getElementById('chiMsg'), cr=document.getElementById('chiRec');
+  if(cm.textContent!==msg){ cm.style.opacity='0'; setTimeout(()=>{cm.textContent=msg;cm.style.opacity='1';},300); }
+  if(cr.textContent!==rec){ cr.style.opacity='0'; setTimeout(()=>{cr.textContent=rec;cr.style.opacity='1';},300); }
 }
 
-function dismissWarning() {
-  warningDismissed = true;
-  document.getElementById('warnBanner').classList.remove('visible');
-  lastMotionTime = Date.now(); // give them credit for clicking
+// ── LIVE COMMENTARY (active-point section) ────────────────────────────
+function updateLiveCommentary() {
+  let title, loc, rec;
+  const band    = regionMotion.indexOf(Math.max(...regionMotion));
+  const bandNames=['HEAD / MIND','UPPER BODY','CHEST','ABDOMEN','LOWER BODY','LEGS'];
+  const mNames  =['LIVER','HEART','LUNG','SPLEEN','KIDNEY','BLADDER'];
+
+  if(motionStaleness>150){
+    title='AWAITING PATIENT'; loc='No motion detected';
+    rec='Approach the scanner.\nHover any orange dot for\nmassage instructions.';
+  } else if(smoothMag<0.25){
+    title='— PATIENT STILL —'; loc='Hold position';
+    rec='Hover a glowing dot for\nmassage instructions,\nor move to activate scan.';
+  } else {
+    title=`${mNames[band]} MERIDIAN ACTIVE`;
+    loc=`Motion zone: ${bandNames[band]}`;
+    const q=LIVE_QUIPS[band];
+    rec=q[Math.floor(Date.now()/4500)%q.length];
+  }
+
+  setLive(title, loc, rec);
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// DEMO MODE
-// ─────────────────────────────────────────────────────────────────────
+function setLive(title, loc, rec) {
+  const t=document.getElementById('liveTitle');
+  const l=document.getElementById('liveLoc');
+  const r=document.getElementById('liveRec');
+  if(t.textContent!==title){ t.style.opacity='0'; setTimeout(()=>{t.textContent=title;t.style.opacity='1';},260); }
+  if(l.textContent!==loc)  { l.textContent=loc; }
+  if(r.textContent!==rec)  { r.style.opacity='0'; setTimeout(()=>{r.textContent=rec;r.style.opacity='1';},260); }
+}
+
+// ── CHI FLOW LINES (drawn on canvas after tile render) ────────────────
+function drawChiLines() {
+  const soundBoost = 1 + soundLevel * 2.5;
+  const alpha = Math.min(0.9, smoothMag/7 + soundLevel * 0.45);
+  if(alpha<0.04) return;
+
+  const W=canvas.width, H=canvas.height;
+  // Acupoint canvas positions (use per-point jitter too)
+  const pts=ACU_PTS.map((p,i)=>({
+    x:(faceSmX + p.dx/100 + acuJitter[i].jx/100)*W,
+    y:(faceSmY + p.dy/100 + acuJitter[i].jy/100)*H,
+  }));
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = chiColor;
+  ctx.lineWidth   = 1.5 * soundBoost;
+  ctx.setLineDash([6,10]);
+  ctx.lineDashOffset = -chiPhase;
+  ctx.shadowBlur  = 10 + soundLevel * 20;
+  ctx.shadowColor = chiColor;
+
+  // Central vessel: GV-20(0) → REN-12(3) → REN-4(6)
+  ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y); ctx.lineTo(pts[3].x,pts[3].y); ctx.lineTo(pts[6].x,pts[6].y); ctx.stroke();
+  // Left line: ST-2L(1) → PC-6L(4) → ST-36L(7)
+  ctx.beginPath(); ctx.moveTo(pts[1].x,pts[1].y); ctx.lineTo(pts[4].x,pts[4].y); ctx.lineTo(pts[7].x,pts[7].y); ctx.stroke();
+  // Right line: ST-2R(2) → PC-6R(5) → ST-36R(8)
+  ctx.beginPath(); ctx.moveTo(pts[2].x,pts[2].y); ctx.lineTo(pts[5].x,pts[5].y); ctx.lineTo(pts[8].x,pts[8].y); ctx.stroke();
+
+  // Cross connectors (subtle, slower animation)
+  ctx.setLineDash([3,14]); ctx.lineDashOffset = -chiPhase*.5; ctx.globalAlpha=alpha*.4;
+  ctx.beginPath(); ctx.moveTo(pts[1].x,pts[1].y); ctx.lineTo(pts[0].x,pts[0].y); ctx.lineTo(pts[2].x,pts[2].y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pts[4].x,pts[4].y); ctx.lineTo(pts[3].x,pts[3].y); ctx.lineTo(pts[5].x,pts[5].y); ctx.stroke();
+
+  ctx.restore();
+}
+
+// ── DEMO MODE ─────────────────────────────────────────────────────────
 function drawDemo(t) {
-  const cols=offCvs.width,rows=offCvs.height;
+  const cols=offCvs.width, rows=offCvs.height;
   const img=offCtx.createImageData(cols,rows); const d=img.data;
   for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
-    const nx=x/cols,ny=y/rows;
+    const nx=x/cols, ny=y/rows;
     const v=(Math.sin(nx*7+t)+Math.sin(ny*5.5-t*.75)+Math.sin((nx+ny)*4.5+t*1.2)+Math.sin(Math.sqrt((nx-.5)**2+(ny-.5)**2)*12-t*.9))/4*.5+.5;
-    const i=(y*cols+x)*4;
-    d[i]=180+v*75|0; d[i+1]=60+v*90|0; d[i+2]=10+v*35|0; d[i+3]=255;
+    const i=(y*cols+x)*4; d[i]=180+v*75|0; d[i+1]=60+v*90|0; d[i+2]=10+v*35|0; d[i+3]=255;
   }
   offCtx.putImageData(img,0,0); renderTiles(d,cols,rows);
-  // Simulate motion for demo
-  currentMag = 1 + Math.sin(Date.now()/3000) * 1.5;
 }
 
-const DEMO_GS = ['still','slow','wave','upper','active','frantic','lower'];
-let demoGIdx = 0;
-function demoCycle() {
-  if(!isDemo)return;
-  const g=DEMO_GS[demoGIdx++%DEMO_GS.length];
-  const[t,m]=GESTURE_DX[g]||GESTURE_DX.still;
-  fadeUpdate('gestureDxTitle',t); fadeUpdate('gestureDxMsg',m);
-  const tkeys=Object.keys(TONGUE_DX);
-  const tk=tkeys[Math.floor(Math.random()*(tkeys.length-1))];
-  const[tt,tm,tc]=TONGUE_DX[tk];
-  fadeUpdate('tongueDxTitle',tt); fadeUpdate('tongueDxMsg',tm);
-  document.getElementById('tongueDot').style.background=tc||'#e07878';
-  document.getElementById('tzFill').style.background=tc||'#e07878';
-  setTimeout(demoCycle,4000+Math.random()*2000);
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// TILE RENDERER
-// ─────────────────────────────────────────────────────────────────────
+// ── TILE RENDERER ─────────────────────────────────────────────────────
 function renderTiles(data,cols,rows){
   const W=canvas.width,H=canvas.height,ps=pixelSize;
   const gap=Math.max(1,Math.ceil(ps*.14)),tw=ps-gap,rad=Math.min(3,Math.floor(tw*.18));
   const hasRR=typeof ctx.roundRect==='function';
-  ctx.fillStyle=filterMode==='scan'?'#061208':'#F8E8D8';
+  ctx.fillStyle=filterMode==='scan'?scanBgColor:groutColor;
   ctx.fillRect(0,0,W,H);
   for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
     const idx=(y*cols+x)*4;
     const[r,g,b]=applyFilter(data[idx],data[idx+1],data[idx+2]);
     ctx.fillStyle=`rgb(${r|0},${g|0},${b|0})`;
-    const px=x*ps+gap,py=y*ps+gap;
+    const px=x*ps+gap, py=y*ps+gap;
     if(hasRR&&rad>0){ctx.beginPath();ctx.roundRect(px,py,tw,tw,rad);ctx.fill();}
     else ctx.fillRect(px,py,tw,tw);
   }
@@ -935,16 +772,6 @@ function applyFilter(r,g,b){
     default:return[r,g,b];
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────
-// UTIL
-// ─────────────────────────────────────────────────────────────────────
-function fadeUpdate(id,text){
-  const el=document.getElementById(id); if(!el)return;
-  el.style.opacity='0';
-  setTimeout(()=>{el.textContent=text;el.style.opacity='1';},360);
-}
-function updateMeridians_unused(){} // placeholder — meridian bars replaced by body diagram
 </script>
 </body>
 </html>

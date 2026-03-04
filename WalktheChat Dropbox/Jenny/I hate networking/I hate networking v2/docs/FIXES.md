@@ -82,6 +82,18 @@ Track bugs that were fixed so they don't get reintroduced during rewrites.
 
 ---
 
+## [2026-02-27] reconcileConnections opened LinkedIn tabs even when campaign was paused
+
+**Symptom:** LinkedIn background tabs opened while the campaign was paused.
+
+**Root cause:** `reconcileConnections()` had no `campaignPaused` check. The `dailyReconcile` alarm fires 2 minutes after every Chrome startup (alarm is recreated in `onStartup`), so any Chrome restart while paused would open 2 LinkedIn tabs (sent invites page + connections page) 2 minutes later.
+
+**Fix:** Added `campaignPaused` check at the top of `reconcileConnections()` — returns early if paused, matching the guard already present in `processNextQueueItem()`.
+
+**Do not revert:** Both `processNextQueueItem()` and `reconcileConnections()` must check `campaignPaused` before opening any LinkedIn tabs.
+
+---
+
 ## Template for new entries
 
 ```

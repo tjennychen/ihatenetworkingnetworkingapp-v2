@@ -3,7 +3,7 @@
   "name": "I Hate Networking",
   "version": "1.0.0",
   "description": "Connect with Luma event attendees on LinkedIn",
-  "permissions": ["storage", "tabs", "alarms", "activeTab", "cookies", "sidePanel"],
+  "permissions": ["storage", "tabs", "alarms", "activeTab", "cookies", "sidePanel", "scripting"],
   "host_permissions": [
     "https://lu.ma/*",
     "https://*.lu.ma/*",

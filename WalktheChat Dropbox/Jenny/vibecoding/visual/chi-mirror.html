@@ -32,8 +32,10 @@ window.addEventListener('resize', resize);
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false });
   vid.srcObject = stream;
-  await new Promise(r => vid.onloadedmetadata = r);
-  vid.play();
+  await new Promise(r => {
+    if (vid.readyState >= 1) return r();
+    vid.onloadedmetadata = r;
+  });
 }
 
 startCamera().catch(console.error);

@@ -16,6 +16,13 @@ function getProfileTopCard(): Element {
   return getMain()
 }
 
+// Dispatch full native mouse event sequence — LinkedIn ignores synthetic .click() on some buttons
+function nativeClick(el: HTMLElement): void {
+  for (const evt of ['mouseover', 'mousedown', 'mouseup', 'click'] as const) {
+    el.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }))
+  }
+}
+
 function findButtonByText(text: string, root: Element = document.body): HTMLButtonElement | null {
   const lower = text.toLowerCase()
   // Prefer exact match, fall back to trimmed-includes to handle LinkedIn's nested spans/icons
@@ -68,9 +75,10 @@ function findConnectButton(): HTMLButtonElement | null {
 async function openMoreActionsIfNeeded(): Promise<void> {
   const topCard = getProfileTopCard()
   // Use wildcard for "More actions" to match "More actions for [Name]" variants (reference: button[aria-label*="More actions"])
+  // Also include "Resources" — LinkedIn renamed "More" to "Resources" in October 2024 on some profiles
   const moreBtn = topCard.querySelector<HTMLButtonElement>(
-    "button[aria-label*='More actions'], button[aria-label*='More member actions']"
-  ) ?? findButtonByText('More', topCard)
+    "button[aria-label*='More actions'], button[aria-label*='More member actions'], button[aria-label*='Resources']"
+  ) ?? findButtonByText('More', topCard) ?? findButtonByText('Resources', topCard)
   if (moreBtn) {
     moreBtn.click()
     await new Promise(r => setTimeout(r, 800))
@@ -162,7 +170,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     return { success: false, error: 'connect_not_available' }
   }
 
-  connectBtn.click()
+  nativeClick(connectBtn)
   await new Promise(r => setTimeout(r, 800 + Math.random() * 700))
 
   // Check for LinkedIn error toast (e.g. "You've reached the weekly invitation limit")
@@ -221,7 +229,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
           let retryBtn = findConnectButton()
           if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
           if (!retryBtn) return { success: false, error: 'note_quota_reached' }
-          retryBtn.click()
+          nativeClick(retryBtn)
           await new Promise(r => setTimeout(r, 800 + Math.random() * 500))
         }
         // Fall through — sendBtn search below will find "Send without a note"
@@ -229,10 +237,18 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     }
   }
 
+  // LinkedIn hosts modal content inside #interop-outlet shadow root — check there first
+  const shadowHost = document.querySelector<HTMLElement>('#interop-outlet')
+  const shadowSendBtn = shadowHost?.shadowRoot?.querySelector<HTMLButtonElement>(
+    'button[aria-label="Send without a note"], button[aria-label="Send now"], button.artdeco-button--primary'
+  ) ?? null
+
   const sendBtn =
+    shadowSendBtn ??
     findButtonByText('Send') ??
     findButtonByText('Send without a note') ??
     document.querySelector<HTMLButtonElement>('[aria-label="Send now"]') ??
+    document.querySelector<HTMLButtonElement>('div.send-invite button.artdeco-button--primary') ??
     // Reference fallback: data-control-name="send_invite" for older LinkedIn modal variants
     document.querySelector<HTMLButtonElement>('[data-control-name="send_invite"]')
 
@@ -240,7 +256,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     return { success: false, error: 'send_btn_not_found' }
   }
 
-  sendBtn.click()
+  nativeClick(sendBtn)
   await new Promise(r => setTimeout(r, 500))
 
   // Text-based weekly limit check — won't break when LinkedIn changes class names

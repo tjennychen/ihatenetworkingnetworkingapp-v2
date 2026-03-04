@@ -91,16 +91,16 @@
       }
     })();
     const isLumaEventPage = isLuma && !nonEventPaths.includes(lumaPath) && lumaPath.split("/").length === 2;
-    const [progressResp, pausedResp, statusResp] = await Promise.all([
+    const [progressResp, pausedResp, statusResp, previewResp] = await Promise.all([
       new Promise((r) => chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, r)),
       new Promise((r) => chrome.runtime.sendMessage({ type: "GET_CAMPAIGN_PAUSED" }, r)),
-      new Promise((r) => chrome.runtime.sendMessage({ type: "GET_QUEUE_STATUS" }, r))
+      new Promise((r) => chrome.runtime.sendMessage({ type: "GET_QUEUE_STATUS" }, r)),
+      isLuma && !isLumaEventPage && tab.id ? new Promise((r) => chrome.tabs.sendMessage(tab.id, { type: "GET_PREVIEW_EVENT_URL" }, r)).catch(() => null) : Promise.resolve(null)
     ]);
+    const previewEventUrl = previewResp?.url ?? null;
+    const previewEventName = previewResp?.name ?? null;
     const events = progressResp?.events ?? [];
     const paused = pausedResp?.paused ?? false;
-    const lastSentAt = statusResp?.lastSentAt;
-    const lastSentName = statusResp?.lastSentName;
-    const nextScheduledAt = statusResp?.nextScheduledAt;
     let sent = 0, pending = 0, failed = 0;
     const recentSent = [];
     for (const event of events) {
@@ -118,6 +118,8 @@
     }
     const hasQueue = sent + pending + failed > 0;
     if (!hasQueue) {
+      const idleSub = isLumaEventPage ? "Find attendees and connect on LinkedIn." : previewEventUrl ? `Open the event page to scan attendees.` : isLuma ? "Open an event page on Luma to scan attendees." : "Navigate to a specific event page on Luma first.";
+      const idleBtn = isLumaEventPage ? `<button class="btn-primary" id="btnScan">Collect this event's guest list</button>` : previewEventUrl ? `<button class="btn-primary" id="btnOpenEvent">Open${previewEventName ? ` "${previewEventName}"` : " event"} \u2192</button>` : `<button class="btn-secondary" id="btnLuma">Open Luma.com \u2192</button>`;
       root.innerHTML = `
       <div class="header">
         ${brandHtml}
@@ -126,14 +128,19 @@
       <div class="idle-wrap">
         <div class="idle-emoji">\u{1F91D}</div>
         <div class="idle-title">No active campaign</div>
-        <div class="idle-sub">${isLumaEventPage ? "Find attendees and connect on LinkedIn." : "Navigate to a specific event page on Luma first."}</div>
-        ${isLumaEventPage ? `<button class="btn-primary" id="btnScan">Scan this event \u2192</button>` : isLuma ? `` : `<button class="btn-secondary" id="btnLuma">Open Luma.com \u2192</button>`}
+        <div class="idle-sub">${idleSub}</div>
+        ${idleBtn}
         <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
       </div>
     `;
       if (isLumaEventPage) {
         root.querySelector("#btnScan").addEventListener("click", () => {
           chrome.tabs.sendMessage(tab.id, { type: "OPEN_PANEL" });
+          window.close();
+        });
+      } else if (previewEventUrl) {
+        root.querySelector("#btnOpenEvent")?.addEventListener("click", () => {
+          chrome.tabs.update(tab.id, { url: previewEventUrl });
           window.close();
         });
       } else {
@@ -146,8 +153,14 @@
     }
     const isRunning = pending > 0 && !paused;
     const isDone = pending === 0;
-    const statusHtml = isDone ? `<span class="status-pill status-idle"><span class="dot"></span>Done</span>` : paused ? `<span class="status-pill status-paused"><span class="dot"></span>Paused</span>` : `<span class="status-pill status-running"><span class="dot"></span>Running</span>`;
-    const instructionHtml = isDone ? `All connections have been sent or processed.` : paused ? `Campaign is paused. <strong>Resume</strong> to continue sending.` : `Sending requests automatically. <strong>Keep Chrome open</strong> while it runs.`;
+    const toggleHtml = !isDone ? `
+    <label class="toggle-wrap" id="togglePause">
+      <span class="toggle-track${isRunning ? " on" : ""}">
+        <span class="toggle-thumb"></span>
+      </span>
+      <span class="toggle-label">${isRunning ? "Running" : "Paused"}</span>
+    </label>
+  ` : `<span class="status-pill status-idle"><span class="dot"></span>Done</span>`;
     const recentHtml = recentSent.length > 0 ? `
     <div class="section">
       <div class="recent-title">Recently sent</div>
@@ -159,16 +172,13 @@
       `).join("")}
     </div>
   ` : "";
-    const scanBtnHtml = isLumaEventPage ? `<div class="section"><button class="btn-secondary" id="btnScan">Scan another event \u2192</button></div>` : "";
+    const scanBtnHtml = isLumaEventPage ? `<div class="section"><button class="btn-primary" id="btnScan">Collect this event's guest list</button></div>` : "";
     root.innerHTML = `
     <div class="header">
       ${brandHtml}
-      ${statusHtml}
+      ${toggleHtml}
     </div>
-    <div class="section">
-      <div class="instruction">${instructionHtml}</div>
-    </div>
-    <div class="stats">
+    <div class="stats" id="statsArea" title="View details">
       <div class="stat">
         <div class="stat-num green">${sent}</div>
         <div class="stat-label">Sent</div>
@@ -185,7 +195,6 @@
     </div>
     ${recentHtml}
     ${scanBtnHtml}
-    ${isRunning ? `<div class="rate-note">${timingLine(lastSentName, lastSentAt, nextScheduledAt)}</div>` : ""}
     <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
   `;
     if (isLumaEventPage) {
@@ -194,23 +203,28 @@
         window.close();
       });
     }
+    root.querySelector("#togglePause")?.addEventListener("click", () => {
+      const type = isRunning ? "PAUSE_CAMPAIGN" : "RESUME_CAMPAIGN";
+      chrome.runtime.sendMessage({ type }, () => {
+        init();
+      });
+    });
+    root.querySelector("#statsArea")?.addEventListener("click", openProgressPanel);
+  }
+  async function openProgressPanel() {
+    const lumaTabs = await chrome.tabs.query({ url: ["https://lu.ma/*", "https://*.lu.ma/*", "https://luma.com/*"] });
+    if (lumaTabs.length > 0) {
+      const lumaTab = lumaTabs[0];
+      await chrome.tabs.update(lumaTab.id, { active: true });
+      await chrome.windows.update(lumaTab.windowId, { focused: true });
+      chrome.tabs.sendMessage(lumaTab.id, { type: "OPEN_PROGRESS" });
+    } else {
+      chrome.tabs.create({ url: "https://lu.ma" });
+    }
+    window.close();
   }
   function escHtml(s2) {
     return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
-  function timingLine(lastSentName, lastSentAt, nextScheduledAt) {
-    const parts = [];
-    if (lastSentName && lastSentAt) {
-      const mins = Math.round((Date.now() - new Date(lastSentAt).getTime()) / 6e4);
-      parts.push(`Last: ${escHtml(lastSentName)} \xB7 ${mins}m ago`);
-    }
-    if (nextScheduledAt) {
-      const mins = Math.max(0, Math.round((new Date(nextScheduledAt).getTime() - Date.now()) / 6e4));
-      parts.push(mins === 0 ? "Next: soon" : `Next in ~${mins}m`);
-    } else if (parts.length === 0) {
-      return "First send starting soon \u2014 keep Chrome open";
-    }
-    return parts.join(" \xB7 ");
   }
   init();
 })();
