@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Puzzle Acupuncture — Chi Mirror</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=IBM+Plex+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:#0D0500;overflow:hidden;width:100vw;height:100vh}
@@ -21,6 +23,7 @@ video{display:none;position:absolute}
 const vid = document.getElementById('vid');
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
+let landmarks = null; // 468 points [{x,y,z}] normalized 0-1
 
 function resize() {
   canvas.width = window.innerWidth;
@@ -29,16 +32,36 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
-async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false });
-  vid.srcObject = stream;
-  await new Promise(r => {
-    if (vid.readyState >= 1) return r();
-    vid.onloadedmetadata = r;
-  });
-}
+// MediaPipe Face Mesh
+const faceMesh = new FaceMesh({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}` });
+faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+faceMesh.onResults(results => {
+  landmarks = results.multiFaceLandmarks?.[0] || null;
+});
 
-startCamera().catch(console.error);
+const camera = new Camera(vid, {
+  onFrame: async () => { await faceMesh.send({ image: vid }); },
+  width: 640, height: 480
+});
+camera.start();
+
+// Debug: draw dots at each landmark
+function drawDebug() {
+  ctx.fillStyle = '#0D0500';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (landmarks) {
+    ctx.fillStyle = '#FF6B35';
+    landmarks.forEach(p => {
+      const x = p.x * canvas.width;
+      const y = p.y * canvas.height;
+      ctx.beginPath();
+      ctx.arc(x, y, 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+  requestAnimationFrame(drawDebug);
+}
+drawDebug();
 </script>
 </body>
 </html>
