@@ -263,16 +263,6 @@ function updateElements() {
   dominantElement = Object.entries(elementLevels).sort((a, b) => b[1] - a[1])[0][0];
 }
 
-// Meridian paths: arrays of landmark indices tracing each meridian across the face
-const MERIDIANS = {
-  stomach:       { pts: [234, 93, 132, 58, 172, 136, 150, 149, 176, 148], color: '#FFB835', name: 'ST' },
-  largeIntestine:{ pts: [2, 326, 327, 2, 97, 98, 60], color: '#FF6B35', name: 'LI' },
-  tripleWarmer:  { pts: [234, 227, 137, 177, 215, 58], color: '#FF4D9D', name: 'TW' },
-  bladder:       { pts: [10, 151, 9, 8, 168, 6, 197, 195, 5, 4, 1], color: '#35AAFF', name: 'BL' },
-  governing:     { pts: [10, 151, 9, 8, 168, 6, 197, 195, 5, 4, 1, 2], color: '#C0C0FF', name: 'GV' },
-  conception:    { pts: [152, 175, 14, 13, 12, 11, 0, 267, 269], color: '#FFD700', name: 'CV' },
-};
-
 // Helper: convert normalized landmark to canvas coords
 function lmToCanvas(lm) {
   return { x: lm.x * canvas.width, y: lm.y * canvas.height };
@@ -494,40 +484,6 @@ function triggerGestureEffect(gesture) {
       gestureShaderBoost = 0.4;
       yangScore = yangScore * 0.7 + 50 * 0.3;
       break;
-  }
-}
-
-function spawnMeridianParticles() {
-  if (!landmarks) return;
-  const element = dominantElement;
-  const level = elementLevels[element];
-  if (level < 0.03) return;
-  const meridianKeys = Object.keys(MERIDIANS);
-  const m = MERIDIANS[meridianKeys[Math.floor(Math.random() * meridianKeys.length)]];
-  const pts = m.pts;
-  const segIdx = Math.floor(Math.random() * (pts.length - 1));
-  const p0 = lmToCanvas(landmarks[pts[segIdx]]);
-  const p1 = lmToCanvas(landmarks[pts[segIdx + 1]]);
-  const dx = p1.x - p0.x;
-  const dy = p1.y - p0.y;
-  const angle = Math.atan2(dy, dx);
-  const t = Math.random();
-  const sx = p0.x + dx * t;
-  const sy = p0.y + dy * t;
-  const count = Math.floor(level * 3) + 1;
-  for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
-    particles.push(new Particle(sx, sy, element, angle));
-  }
-}
-
-function beatBurst() {
-  if (!landmarks) return;
-  const nose = lmToCanvas(landmarks[4]);
-  const element = dominantElement;
-  const count = 20;
-  for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    particles.push(new Particle(nose.x, nose.y, element, angle));
   }
 }
 
@@ -800,8 +756,6 @@ let chiScanActive = false;
 let chiScanFrame = 0;
 const CHI_SCAN_FRAMES = 90;
 const STILL_THRESHOLD = 180;
-let lastBeatTime = 0;
-let prevFireLevel = 0;
 
 function render() {
   drawGL();
@@ -811,18 +765,8 @@ function render() {
   ctx.fillStyle = 'rgba(13, 5, 0, 0.12)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Beat detection: fire level spike
-  const fireLevel = elementLevels.fire;
-  if (fireLevel > prevFireLevel + 0.15 && Date.now() - lastBeatTime > 200) {
-    beatBurst();
-    lastBeatTime = Date.now();
-  }
-  prevFireLevel = fireLevel * 0.85 + prevFireLevel * 0.15;
-
-  // Spawn particles along meridians
-  if (landmarks) {
-    if (Math.random() < 0.4) spawnMeridianParticles();
-  } else {
+  // Spawn particles
+  if (!landmarks) {
     if (Math.random() < 0.2) spawnAmbientParticles();
   }
   if (Math.random() < 0.3) spawnHandParticles();
