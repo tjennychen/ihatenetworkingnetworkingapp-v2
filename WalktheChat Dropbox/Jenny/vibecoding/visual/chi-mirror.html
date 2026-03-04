@@ -191,6 +191,19 @@ function initGL() {
 
 initGL();
 
+function drawGL() {
+  if (!gl || !glProg) return;
+  gl.uniform1f(glUniforms.time,       performance.now() / 1000);
+  gl.uniform1f(glUniforms.speed,      parseFloat(document.getElementById('ctrl-speed')?.value  ?? 1.0));
+  gl.uniform1f(glUniforms.cellScale,  parseFloat(document.getElementById('ctrl-scale')?.value  ?? 1.0));
+  gl.uniform1f(glUniforms.pulse,      parseFloat(document.getElementById('ctrl-pulse')?.value  ?? 0.5));
+  gl.uniform1f(glUniforms.hueShift,   parseFloat(document.getElementById('ctrl-hue')?.value    ?? 0.0));
+  gl.uniform2f(glUniforms.resolution, glCanvas.width, glCanvas.height);
+  gl.uniform2f(glUniforms.motionXY,   window.motionData?.x ?? 0.5, window.motionData?.y ?? 0.5);
+  gl.uniform1f(glUniforms.intensity,  window.motionData?.intensity ?? 0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
 let landmarks = null; // 468 points [{x,y,z}] normalized 0-1
 
 // Audio / Five Elements state
@@ -576,6 +589,7 @@ let lastBeatTime = 0;
 let prevFireLevel = 0;
 
 function render() {
+  drawGL();
   updateElements();
 
   // Fade trail
