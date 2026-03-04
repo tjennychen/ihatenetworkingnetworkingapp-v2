@@ -387,7 +387,7 @@ function checkChiScan() {
     stillFrames = 0;
     ACUPOINTS.forEach(ap => {
       const pt = lmToCanvas(landmarks[ap.idx]);
-      for (let i = 0; i < 15; i++) {
+      for (let i = 0; i < 15 && particles.length < MAX_PARTICLES; i++) {
         const angle = Math.random() * Math.PI * 2;
         particles.push(new Particle(pt.x, pt.y, dominantElement, angle));
       }
