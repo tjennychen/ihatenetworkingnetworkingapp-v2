@@ -206,6 +206,73 @@ function drawAcupoints(time) {
   });
 }
 
+function updateYinYang() {
+  if (!landmarks) return;
+  const nose = lmToCanvas(landmarks[4]);
+
+  if (prevNoseX !== null) {
+    const dx = nose.x - prevNoseX;
+    const dy = nose.y - prevNoseY;
+    const velocity = Math.sqrt(dx * dx + dy * dy);
+
+    const targetYang = Math.min(100, velocity * 10);
+    yangScore = yangScore * 0.92 + targetYang * 0.08;
+
+    stillFrames = velocity < 0.5 ? stillFrames + 1 : 0;
+  }
+
+  prevNoseX = nose.x;
+  prevNoseY = nose.y;
+}
+
+function drawYinYangMeter() {
+  const cx = canvas.width / 2;
+  const cy = canvas.height - 60;
+  const r = 50;
+  const startAngle = Math.PI + 0.3;
+  const total = Math.PI * 2 - 0.6;
+
+  ctx.save();
+
+  // Background arc
+  ctx.globalAlpha = 0.3;
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startAngle, startAngle + total);
+  ctx.stroke();
+
+  // Yang fill
+  const fillEnd = startAngle + (yangScore / 100) * total;
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = yangScore > 70 ? '#FF4D1C' : yangScore < 30 ? '#6B35FF' : '#FFB835';
+  ctx.shadowColor = ctx.strokeStyle;
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startAngle, fillEnd);
+  ctx.stroke();
+
+  // Labels
+  ctx.globalAlpha = 0.5;
+  ctx.shadowBlur = 0;
+  ctx.font = '7px IBM Plex Mono';
+  ctx.fillStyle = '#6B35FF';
+  ctx.fillText('YIN', cx - r - 20, cy + 5);
+  ctx.fillStyle = '#FF4D1C';
+  ctx.fillText('YANG', cx + r + 4, cy + 5);
+
+  // Status text
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = '#FFB88A';
+  ctx.font = '8px IBM Plex Mono';
+  ctx.textAlign = 'center';
+  const status = yangScore > 70 ? 'excess yang — breathe' : yangScore < 30 ? 'stagnant qi — move' : 'balanced chi';
+  ctx.fillText(status, cx, cy + 20);
+  ctx.textAlign = 'left';
+
+  ctx.restore();
+}
+
 // Draw meridian lines (debug — will replace with particles later)
 function drawMeridians() {
   if (!landmarks) return;
@@ -244,6 +311,9 @@ const camera = new Camera(vid, {
 camera.start();
 startAudio().catch(console.error);
 
+let prevNoseX = null, prevNoseY = null;
+let yangScore = 50;
+let stillFrames = 0;
 let lastBeatTime = 0;
 let prevFireLevel = 0;
 
@@ -273,6 +343,8 @@ function render() {
   }
 
   drawAcupoints(Date.now());
+  updateYinYang();
+  drawYinYangMeter();
 
   requestAnimationFrame(render);
 }
