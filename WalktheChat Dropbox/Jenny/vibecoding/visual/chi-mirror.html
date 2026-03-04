@@ -374,6 +374,52 @@ function spawnPoseParticles() {
   });
 }
 
+// ── Gesture Detection ────────────────────────────────────────────────────────
+function isExtended(hand, tipIdx, baseIdx) {
+  return hand[tipIdx].y < hand[baseIdx].y - 0.04;
+}
+
+function detectGesture(hand) {
+  if (!hand) return null;
+  const index  = isExtended(hand, 8,  6);
+  const middle = isExtended(hand, 12, 10);
+  const ring   = isExtended(hand, 16, 14);
+  const pinky  = isExtended(hand, 20, 18);
+
+  if (index && middle && ring && pinky) return 'open_palm';
+  if (index && middle && !ring && !pinky) return 'peace';
+  if (index && !middle && !ring && !pinky) return 'point';
+  if (!index && !middle && !ring && !pinky) return 'fist';
+  return null;
+}
+
+function detectBothHandsRaised() {
+  if (!poseLandmarks) return false;
+  return poseLandmarks[15].y < poseLandmarks[11].y &&
+         poseLandmarks[16].y < poseLandmarks[12].y;
+}
+
+function detectNamaste() {
+  if (!handLandmarks.left || !handLandmarks.right) return false;
+  const dx = handLandmarks.left[0].x - handLandmarks.right[0].x;
+  const dy = handLandmarks.left[0].y - handLandmarks.right[0].y;
+  return Math.sqrt(dx * dx + dy * dy) < 0.1;
+}
+
+function processGestures() {
+  const leftGesture  = detectGesture(handLandmarks.left);
+  const rightGesture = detectGesture(handLandmarks.right);
+  let gesture = rightGesture || leftGesture;
+
+  if (detectBothHandsRaised()) gesture = 'both_raised';
+  if (detectNamaste()) gesture = 'namaste';
+
+  if (gesture !== activeGesture) {
+    activeGesture = gesture;
+    if (gesture) triggerGestureEffect(gesture);
+  }
+}
+
 function spawnMeridianParticles() {
   if (!landmarks) return;
   const element = dominantElement;
@@ -662,6 +708,8 @@ function drawChiScan() {
   if (chiScanFrame >= CHI_SCAN_FRAMES) chiScanActive = false;
 }
 
+let activeGesture = null;
+let gestureReadingTimer = 0;
 let chiScanActive = false;
 let chiScanFrame = 0;
 const CHI_SCAN_FRAMES = 90;
@@ -703,6 +751,7 @@ function render() {
 
   drawAcupoints(Date.now());
   updateYinYang();
+  processGestures();
   drawYinYangMeter();
   updateUI();
   checkChiScan();
