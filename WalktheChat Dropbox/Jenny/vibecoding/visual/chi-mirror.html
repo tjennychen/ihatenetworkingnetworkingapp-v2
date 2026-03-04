@@ -6,7 +6,7 @@
 <title>Puzzle Acupuncture — Chi Mirror</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=IBM+Plex+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:#0D0500;overflow:hidden;width:100vw;height:100vh}
@@ -216,6 +216,10 @@ function drawGL() {
 }
 
 let landmarks = null; // 468 points [{x,y,z}] normalized 0-1
+let handLandmarks = { left: null, right: null };
+let poseLandmarks = null;
+window.motionData = { x: 0.5, y: 0.5, intensity: 0 };
+let prevHandCentroid = null;
 
 // Audio / Five Elements state
 let audioCtx, analyser, freqData;
@@ -485,15 +489,52 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
-// MediaPipe Face Mesh
-const faceMesh = new FaceMesh({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}` });
-faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-faceMesh.onResults(results => {
-  landmarks = results.multiFaceLandmarks?.[0] || null;
+function updateMotionData() {
+  const pts = [];
+  if (handLandmarks.left)  pts.push(...handLandmarks.left);
+  if (handLandmarks.right) pts.push(...handLandmarks.right);
+  if (pts.length === 0 && landmarks) pts.push(landmarks[4]); // fallback: nose
+
+  if (pts.length === 0) return;
+
+  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+
+  let intensity = 0;
+  if (prevHandCentroid) {
+    const dx = cx - prevHandCentroid.x;
+    const dy = cy - prevHandCentroid.y;
+    intensity = Math.min(1, Math.sqrt(dx * dx + dy * dy) * 20);
+  }
+  prevHandCentroid = { x: cx, y: cy };
+
+  window.motionData = {
+    x: cx,
+    y: 1 - cy,
+    intensity: (window.motionData.intensity || 0) * 0.85 + intensity * 0.15,
+  };
+}
+
+// MediaPipe Holistic (face + hands + pose)
+const holistic = new Holistic({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${f}` });
+holistic.setOptions({
+  modelComplexity: 1,
+  smoothLandmarks: true,
+  refineFaceLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5,
+});
+holistic.onResults(results => {
+  document.getElementById('loading')?.remove();
+  landmarks           = results.faceLandmarks             || null;
+  poseLandmarks       = results.poseLandmarks             || null;
+  handLandmarks.left  = results.leftHandLandmarks         || null;
+  handLandmarks.right = results.rightHandLandmarks        || null;
+  updateMotionData();
 });
 
 const camera = new Camera(vid, {
-  onFrame: async () => { await faceMesh.send({ image: vid }); },
+  onFrame: async () => { await holistic.send({ image: vid }); },
   width: 640, height: 480
 });
 camera.start();
