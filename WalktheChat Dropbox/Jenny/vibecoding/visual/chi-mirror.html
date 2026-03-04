@@ -17,6 +17,7 @@ video{display:none;position:absolute}
 </head>
 <body>
 <video id="vid" autoplay playsinline muted></video>
+<canvas id="glc"></canvas>
 <canvas id="c"></canvas>
 <div id="ui">
   <!-- Logo top-left -->
@@ -50,6 +51,18 @@ video{display:none;position:absolute}
 const vid = document.getElementById('vid');
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
+
+// WebGL setup
+const glCanvas = document.getElementById('glc');
+const gl = glCanvas.getContext('webgl') || glCanvas.getContext('experimental-webgl');
+
+function resizeGL() {
+  glCanvas.width  = window.innerWidth;
+  glCanvas.height = window.innerHeight;
+  if (gl) gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+}
+resizeGL();
+
 let landmarks = null; // 468 points [{x,y,z}] normalized 0-1
 
 // Audio / Five Elements state
@@ -315,6 +328,7 @@ function drawYinYangMeter() {
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
+  resizeGL();
 }
 resize();
 window.addEventListener('resize', resize);
