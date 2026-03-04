@@ -25,6 +25,47 @@ const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 let landmarks = null; // 468 points [{x,y,z}] normalized 0-1
 
+// Audio / Five Elements state
+let audioCtx, analyser, freqData;
+let elementLevels = { water: 0, wood: 0, fire: 0, earth: 0, metal: 0 };
+let dominantElement = 'fire';
+
+async function startAudio() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  audioCtx = new AudioContext();
+  const source = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  source.connect(analyser);
+  freqData = new Uint8Array(analyser.frequencyBinCount);
+}
+
+// Five Elements: map FFT bins to elements
+// At 44100Hz sample rate, fftSize 2048 → binCount 1024, each bin = ~43Hz
+function updateElements() {
+  if (!analyser) return;
+  analyser.getByteFrequencyData(freqData);
+  const sampleRate = audioCtx.sampleRate;
+  const binHz = sampleRate / analyser.fftSize;
+
+  function bandAvg(loHz, hiHz) {
+    const lo = Math.floor(loHz / binHz);
+    const hi = Math.min(Math.floor(hiHz / binHz), freqData.length - 1);
+    if (lo >= hi) return 0;
+    let sum = 0;
+    for (let i = lo; i <= hi; i++) sum += freqData[i];
+    return sum / (hi - lo + 1) / 255; // normalize 0-1
+  }
+
+  elementLevels.water = bandAvg(20, 80);
+  elementLevels.wood  = bandAvg(80, 250);
+  elementLevels.fire  = bandAvg(250, 2000);
+  elementLevels.earth = bandAvg(2000, 6000);
+  elementLevels.metal = bandAvg(6000, 20000);
+
+  dominantElement = Object.entries(elementLevels).sort((a, b) => b[1] - a[1])[0][0];
+}
+
 // Meridian paths: arrays of landmark indices tracing each meridian across the face
 const MERIDIANS = {
   stomach:       { pts: [234, 93, 132, 58, 172, 136, 150, 149, 176, 148], color: '#FFB835', name: 'ST' },
@@ -76,9 +117,11 @@ const camera = new Camera(vid, {
   width: 640, height: 480
 });
 camera.start();
+startAudio().catch(console.error);
 
 // Debug: draw dots at each landmark
 function drawDebug() {
+  updateElements();
   ctx.fillStyle = '#0D0500';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (landmarks) {
