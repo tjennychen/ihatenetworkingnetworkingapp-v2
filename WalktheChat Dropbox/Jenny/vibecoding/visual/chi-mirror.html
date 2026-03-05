@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=IBM+Plex+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:#0D0500;overflow:hidden;width:100vw;height:100vh}
@@ -650,6 +651,18 @@ const camera = new Camera(vid, {
 });
 camera.start();
 startAudio().catch(console.error);
+
+// ── face-api.js: load models for emotion detection ────────────────────────────
+const FACEAPI_MODELS_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights/';
+let faceApiReady = false;
+
+Promise.all([
+  faceapi.nets.tinyFaceDetector.loadFromUri(FACEAPI_MODELS_URL),
+  faceapi.nets.faceExpressionNet.loadFromUri(FACEAPI_MODELS_URL),
+]).then(() => {
+  faceApiReady = true;
+  console.log('face-api models loaded');
+}).catch(err => console.warn('face-api load error:', err));
 
 let prevNoseX = null, prevNoseY = null;
 let yangScore = 50;
