@@ -50,7 +50,9 @@ function findConnectButton(): HTMLButtonElement | null {
     const ariaBtn = openMenu.querySelector<HTMLButtonElement>('[aria-label*="Connect" i]')
     if (ariaBtn) return ariaBtn
     const inMenu = findButtonByText('Connect', openMenu)
-    if (inMenu) return inMenu
+    // Guard: includes() fallback is too broad — "Remove connection" contains "connect".
+    // Only return if the button text actually starts with "Connect".
+    if (inMenu && /^connect/i.test(inMenu.textContent?.trim() ?? '')) return inMenu
     // LinkedIn sometimes renders the Connect option as div[role="button"], not <button>
     const divBtn = openMenu.querySelector<HTMLElement>(
       'div[role="button"][aria-label*="Invite"][aria-label*="connect"], div[role="button"][aria-label*="connect" i]'

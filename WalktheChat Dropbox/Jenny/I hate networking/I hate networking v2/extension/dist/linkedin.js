@@ -38,7 +38,7 @@
       const ariaBtn = openMenu.querySelector('[aria-label*="Connect" i]');
       if (ariaBtn) return ariaBtn;
       const inMenu = findButtonByText("Connect", openMenu);
-      if (inMenu) return inMenu;
+      if (inMenu && /^connect/i.test(inMenu.textContent?.trim() ?? "")) return inMenu;
       const divBtn = openMenu.querySelector(
         'div[role="button"][aria-label*="Invite"][aria-label*="connect"], div[role="button"][aria-label*="connect" i]'
       );
