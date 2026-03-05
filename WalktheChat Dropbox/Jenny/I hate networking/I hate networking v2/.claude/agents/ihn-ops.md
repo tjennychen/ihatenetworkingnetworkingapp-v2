@@ -187,6 +187,40 @@ Then in Chrome: `chrome://extensions` → reload I Hate Networking → close and
 
 ---
 
+## UX Flows (expected behavior — use this to diagnose UI bugs)
+
+When the user reports "clicking X does Y but expected Z", match the symptom to this table first, then read the relevant handler in `sidepanel.ts`.
+
+| Action | Expected behavior | Common wrong behavior |
+|---|---|---|
+| **+ Scan another event** | Navigates CURRENT tab to `lu.ma` (side panel stays open) | Opens new tab (feels like redirect) |
+| **Scan attendees** | Luma content script scrapes current event page, saves contacts to Supabase | Nothing happens — wrong page, or content script not injected |
+| **Draft a LinkedIn post** | Fetches hosts + up to 15 sampled guests, scrapes LinkedIn names, shows @host mentions with real names | @LinkedIn or @Sign in shown — bad name from 404 or private profile |
+| **Shuffle** | Only appears when `totalGuests > 15`. Shows a new random 15-guest sample | Appears when all guests already shown (≤ 15 total) — pointless |
+| **Launch campaign** | Queues all contacts with `linkedin_url`, badge turns green `●`, processing starts | Nothing queued — event has no contacts with LinkedIn URLs |
+| **Pause** | Sets `campaignPaused=true`, badge turns grey `⏸`, stops processing | Queue keeps running — `campaignPaused` not persisted or checked |
+| **Resume** | Sets `campaignPaused=false`, badge turns green `●`, processing resumes | — |
+| **Extension icon click** | Opens side panel | Opens new Luma tab — old `chrome.action.onClicked` listener present (see FIXES.md) |
+| **Back (from draft view)** | Returns to campaign view | Blank screen — `draftViewOpen` or `draftState` not reset |
+
+**LinkedIn name scraping rules (affects draft post quality):**
+- `extractNameFromHtml` in `linkedin.ts` uses `og:title` first, then `<title>` stripped of "| LinkedIn"
+- Returns `''` (not stored) if: HTTP response is non-2xx (404, redirect to login), or name matches `BAD_NAMES` set: `linkedin`, `sign in`, `log in`, `login`, `join linkedin`
+- Double-filtered in `sidepanel.ts` `fetchedMap` for names already stored with bad values in DB
+- If host @mentions show "LinkedIn": check DB for `linkedin_name = 'LinkedIn'` → reset to NULL and re-fetch
+
+```sql
+-- Find contacts with bad linkedin_name stored in DB
+SELECT id, name, linkedin_url, linkedin_name FROM contacts
+WHERE LOWER(linkedin_name) IN ('linkedin', 'sign in', 'log in');
+
+-- Reset bad names so they get re-fetched next draft
+UPDATE contacts SET linkedin_name = NULL
+WHERE LOWER(linkedin_name) IN ('linkedin', 'sign in', 'log in');
+```
+
+---
+
 ## Hard Rules
 
 1. NEVER use `[class*="upsell"]` in `dismissPremiumPaywall()` — closes the Connect modal
