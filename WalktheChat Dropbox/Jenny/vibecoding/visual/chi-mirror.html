@@ -827,6 +827,7 @@ function drawChiScan() {
 // ── Emotion Radar Chart ───────────────────────────────────────────────────────
 const radarCanvas = document.getElementById('emotion-radar');
 const radarCtx = radarCanvas ? radarCanvas.getContext('2d') : null;
+if (radarCanvas) { radarCanvas.width = 180; radarCanvas.height = 180; }
 
 const RADAR_EMOTIONS = [
   { key: 'anger', zh: '怒', en: 'Anger'  },
@@ -840,8 +841,6 @@ function drawEmotionRadar() {
   if (!radarCtx) return;
 
   const W = 180, H = 180;
-  radarCanvas.width  = W;
-  radarCanvas.height = H;
 
   const cx = W / 2, cy = H / 2;
   const R  = 68;
@@ -901,14 +900,17 @@ function drawEmotionRadar() {
     radarCtx.restore();
   });
 
+  // Cache vertex positions to avoid duplicate calculation
+  const vertexPositions = RADAR_EMOTIONS.map((em, i) => {
+    const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+    const r = Math.max(0.05, emotionScores[em.key]) * R;
+    return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r, score: emotionScores[em.key] };
+  });
+
   // Draw filled polygon
   radarCtx.save();
   radarCtx.beginPath();
-  RADAR_EMOTIONS.forEach((em, i) => {
-    const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
-    const r     = Math.max(0.05, emotionScores[em.key]) * R;
-    const x = cx + Math.cos(angle) * r;
-    const y = cy + Math.sin(angle) * r;
+  vertexPositions.forEach(({ x, y }, i) => {
     i === 0 ? radarCtx.moveTo(x, y) : radarCtx.lineTo(x, y);
   });
   radarCtx.closePath();
@@ -922,13 +924,7 @@ function drawEmotionRadar() {
   radarCtx.restore();
 
   // Draw dots at each vertex
-  RADAR_EMOTIONS.forEach((em, i) => {
-    const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
-    const r     = Math.max(0.05, emotionScores[em.key]) * R;
-    const x = cx + Math.cos(angle) * r;
-    const y = cy + Math.sin(angle) * r;
-    const score = emotionScores[em.key];
-
+  vertexPositions.forEach(({ x, y, score }, i) => {
     radarCtx.save();
     radarCtx.globalAlpha = 0.6 + score * 0.4;
     radarCtx.fillStyle = '#FF6B35';
