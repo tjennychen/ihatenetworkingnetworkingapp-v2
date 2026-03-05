@@ -594,6 +594,22 @@ async function launchCampaign(data: {
   return { queued: contacts.length, eventId }
 }
 
+async function waitForContentScript(tabId: number, timeoutMs = 12000): Promise<boolean> {
+  const interval = 500
+  let elapsed = 0
+  while (elapsed < timeoutMs) {
+    const ready = await new Promise<boolean>(resolve => {
+      chrome.tabs.sendMessage(tabId, { type: 'GET_LINKEDIN_NAME' }, () => {
+        resolve(!chrome.runtime.lastError)
+      })
+    })
+    if (ready) return true
+    await new Promise(r => setTimeout(r, interval))
+    elapsed += interval
+  }
+  return false
+}
+
 async function processNextQueueItem(): Promise<void> {
   // Only send during daytime hours (8am–9pm local) to look natural
   const hour = new Date().getHours()
@@ -658,10 +674,20 @@ async function processNextQueueItem(): Promise<void> {
       if (tid === tabId && info.status === 'complete') {
         chrome.tabs.onUpdated.removeListener(listener)
         clearTimeout(timeout)
-        setTimeout(resolve, 2500) // buffer for LinkedIn JS to render
+        setTimeout(resolve, 500) // minimal buffer before pinging content script
       }
     })
   })
+
+  const contentReady = await waitForContentScript(tabId)
+  if (!contentReady) {
+    console.log('[IHN] Content script did not respond in time, requeuing')
+    await chrome.tabs.remove(tabId).catch(() => {})
+    await supabase.from('connection_queue').update({
+      scheduled_at: new Date(Date.now() + 5 * 60000).toISOString(),
+    }).eq('id', item.id)
+    return
+  }
 
   const result: { success: boolean; error?: string } = await new Promise(resolve => {
     const timeout = setTimeout(() => resolve({ success: false, error: 'no_response' }), 20000)
