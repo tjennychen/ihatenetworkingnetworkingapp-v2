@@ -246,7 +246,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   trace.set('modal', modalPresent ? 'yes' : 'no')
 
   const shadowSendBtn: HTMLButtonElement | null = null
-  trace.set('shadowBtn', shadowSendBtn ? 'found' : 'null')
+  trace.set('shadowBtn', 'skipped')
 
   const sendBtn =
     findButtonByText('Send') ??
