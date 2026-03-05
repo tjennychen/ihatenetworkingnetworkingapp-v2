@@ -231,6 +231,8 @@ const emotionScores = { anger: 0, joy: 0, worry: 0, grief: 0, fear: 0 };
 // Raw target scores (updated every 500ms from face-api)
 const emotionTargets = { anger: 0, joy: 0, worry: 0, grief: 0, fear: 0 };
 let lastEmotionDetect = 0;
+let emotionDetectionInFlight = false;
+const EMOTION_LERP = 0.12;
 
 let prevHandCentroid = null;
 
@@ -677,10 +679,11 @@ Promise.all([
 });
 
 async function runEmotionDetection() {
-  if (!faceApiReady) return;
+  if (!faceApiReady || emotionDetectionInFlight) return;
   const now = Date.now();
   if (now - lastEmotionDetect < 500) return;
   lastEmotionDetect = now;
+  emotionDetectionInFlight = true;
 
   try {
     const result = await faceapi
@@ -699,9 +702,11 @@ async function runEmotionDetection() {
     emotionTargets.joy   = e.happy;
     emotionTargets.grief = (e.sad + e.disgusted) / 2;
     emotionTargets.fear  = e.fearful;
-    emotionTargets.worry = (e.surprised + e.neutral) / 2;
+    emotionTargets.worry = e.surprised;
   } catch (err) {
     // Silently ignore — detection errors are transient
+  } finally {
+    emotionDetectionInFlight = false;
   }
 }
 
@@ -817,7 +822,6 @@ const STILL_THRESHOLD = 180;
 function render() {
   drawGL();
   // Smooth emotion scores toward targets
-  const EMOTION_LERP = 0.12;
   for (const k in emotionScores) {
     emotionScores[k] = emotionScores[k] * (1 - EMOTION_LERP) + emotionTargets[k] * EMOTION_LERP;
   }
