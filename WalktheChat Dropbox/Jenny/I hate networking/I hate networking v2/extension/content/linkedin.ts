@@ -65,6 +65,14 @@ function findConnectButton(): HTMLButtonElement | null {
   return findButtonByText('Connect', getProfileTopCard())
 }
 
+export function buildTrace() {
+  const fields: string[] = []
+  return {
+    set(key: string, val: string) { fields.push(`${key}=${val}`) },
+    toString() { return fields.join('|') }
+  }
+}
+
 async function openMoreActionsIfNeeded(): Promise<void> {
   const topCard = getProfileTopCard()
   // Use wildcard for "More actions" to match "More actions for [Name]" variants (reference: button[aria-label*="More actions"])
@@ -120,12 +128,14 @@ function setNoteQuotaReached(): Promise<void> {
   return new Promise(resolve => chrome.storage.local.set({ noteQuotaReached: true }, resolve))
 }
 
-async function sendConnection(note?: string, expectedName?: string): Promise<{ success: boolean; error?: string }> {
+async function sendConnection(note?: string, expectedName?: string): Promise<{ success: boolean; error?: string; trace?: string }> {
   await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000))
 
   if (!window.location.pathname.startsWith('/in/')) {
     return { success: false, error: 'Not a profile page' }
   }
+
+  const trace = buildTrace()
 
   const pageName = getProfileName()
   if (!namesMatch(pageName, expectedName ?? '')) {
@@ -147,9 +157,11 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   // Try Connect directly first, then open "More" if needed
   // (2nd-degree connections often hide Connect under "More" button)
   let connectBtn = findConnectButton()
+  trace.set('connectBtn', connectBtn ? 'direct' : 'null')
   if (!connectBtn) {
     await openMoreActionsIfNeeded()
     connectBtn = findConnectButton()
+    trace.set('moreOpened', connectBtn ? 'yes' : 'no')
   }
 
   // Only now check already-connected — after we've tried More
@@ -220,7 +232,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
           // Modal closed after paywall — need to re-find and re-click Connect
           let retryBtn = findConnectButton()
           if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
-          if (!retryBtn) return { success: false, error: 'note_quota_reached' }
+          if (!retryBtn) return { success: false, error: 'note_quota_reached', trace: trace.toString() }
           retryBtn.click()
           await new Promise(r => setTimeout(r, 800 + Math.random() * 500))
         }
@@ -229,6 +241,13 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     }
   }
 
+  const modalPresent = !!document.querySelector('[role="dialog"]') ||
+    !!((document.querySelector('#interop-outlet') as HTMLElement | null)?.shadowRoot?.childElementCount)
+  trace.set('modal', modalPresent ? 'yes' : 'no')
+
+  const shadowSendBtn: HTMLButtonElement | null = null
+  trace.set('shadowBtn', shadowSendBtn ? 'found' : 'null')
+
   const sendBtn =
     findButtonByText('Send') ??
     findButtonByText('Send without a note') ??
@@ -236,8 +255,10 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     // Reference fallback: data-control-name="send_invite" for older LinkedIn modal variants
     document.querySelector<HTMLButtonElement>('[data-control-name="send_invite"]')
 
+  trace.set('regularBtn', (sendBtn && !shadowSendBtn) ? 'found' : 'null')
+
   if (!sendBtn) {
-    return { success: false, error: 'send_btn_not_found' }
+    return { success: false, error: 'send_btn_not_found', trace: trace.toString() }
   }
 
   sendBtn.click()
@@ -246,10 +267,10 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   // Text-based weekly limit check — won't break when LinkedIn changes class names
   const bodyText = document.body.innerText
   if (bodyText.includes('weekly invitation limit') || bodyText.includes('reached the weekly')) {
-    return { success: false, error: 'weekly_limit_reached' }
+    return { success: false, error: 'weekly_limit_reached', trace: trace.toString() }
   }
 
-  return { success: true }
+  return { success: true, trace: trace.toString() }
 }
 
 function extractNameFromHtml(html: string): string {
