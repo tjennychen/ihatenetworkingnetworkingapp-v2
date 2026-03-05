@@ -74,6 +74,7 @@ const vid = document.getElementById('vid');
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
+
 // WebGL setup
 const glCanvas = document.getElementById('glc');
 const gl = glCanvas.getContext('webgl') || glCanvas.getContext('experimental-webgl');
@@ -512,34 +513,47 @@ function drawAcupoints(time) {
   if (!landmarks) return;
   const pulse = (Math.sin(time / 400) + 1) / 2;
   const audioBoost = (elementLevels.fire + elementLevels.earth) * 2;
+  const coreR = 4 + pulse * 2;
+  const glowR = 14 + pulse * 6 + audioBoost * 8;
 
-  ACUPOINTS.forEach(ap => {
+  // Pick dominant emotion color, fallback to orange
+  let dotColor = '#F79A19';
+  let mbMaxScore = 0;
+  for (const em of RADAR_EMOTIONS) {
+    if (emotionScores[em.key] > mbMaxScore) { mbMaxScore = emotionScores[em.key]; dotColor = em.color; }
+  }
+
+  for (const ap of ACUPOINTS) {
     const pt = lmToCanvas(landmarks[ap.idx]);
-    const radius = 5 + pulse * 4 + audioBoost * 6;
 
-    ctx.save();
-    ctx.globalAlpha = 0.3 + pulse * 0.4;
-    ctx.strokeStyle = '#F79A19';
-    ctx.lineWidth = 1.5;
-    ctx.shadowColor = '#F79A19';
-    ctx.shadowBlur = 12;
+    // Outer glow
+    const grad = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, glowR);
+    grad.addColorStop(0,   dotColor + 'cc');
+    grad.addColorStop(0.4, dotColor + '55');
+    grad.addColorStop(1,   dotColor + '00');
     ctx.beginPath();
-    ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.globalAlpha = 0.8 + pulse * 0.2;
-    ctx.fillStyle = '#FFE52A';
-    ctx.shadowBlur = 6;
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+    ctx.arc(pt.x, pt.y, glowR, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
     ctx.fill();
 
-    ctx.globalAlpha = 0.5 + pulse * 0.3;
+    // Bright core
+    ctx.save();
+    ctx.shadowColor = dotColor;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, coreR, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.restore();
+
+    // Label
+    ctx.save();
+    ctx.globalAlpha = 0.55 + pulse * 0.35;
     ctx.fillStyle = '#FFE52A';
     ctx.font = '7px IBM Plex Mono';
     ctx.fillText(ap.code, pt.x + 8, pt.y + 3);
     ctx.restore();
-  });
+  }
 }
 
 function updateYinYang() {
@@ -805,12 +819,15 @@ function updateUI() {
   if (el === lastElementForUI) return;
   lastElementForUI = el;
   const cfg = ELEMENT_UI[el];
-  document.getElementById('element-icon').textContent = cfg.icon;
-  document.getElementById('element-name').textContent = cfg.name.toUpperCase();
-  document.getElementById('element-name').style.color = cfg.color;
-  document.getElementById('element-badge').style.borderColor = cfg.color;
+  const iconEl = document.getElementById('element-icon');
+  const nameEl = document.getElementById('element-name');
+  const badgeEl = document.getElementById('element-badge');
+  const readingEl = document.getElementById('reading-text');
+  if (iconEl) iconEl.textContent = cfg.icon;
+  if (nameEl) { nameEl.textContent = cfg.name.toUpperCase(); nameEl.style.color = cfg.color; }
+  if (badgeEl) badgeEl.style.borderColor = cfg.color;
   lastReadingIdx = (lastReadingIdx + 1) % cfg.readings.length;
-  document.getElementById('reading-text').textContent = cfg.readings[lastReadingIdx];
+  if (readingEl) readingEl.textContent = cfg.readings[lastReadingIdx];
 }
 
 let lastDominantEmotion = null;
