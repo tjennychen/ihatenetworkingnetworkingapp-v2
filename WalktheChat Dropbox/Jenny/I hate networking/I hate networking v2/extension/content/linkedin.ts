@@ -1,3 +1,9 @@
+function nativeClick(el: HTMLElement): void {
+  el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+  el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }))
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+}
+
 function getMain(): Element {
   return document.querySelector('main') ?? document.body
 }
@@ -41,7 +47,7 @@ function findConnectButton(): HTMLButtonElement | null {
   )
   if (openMenu) {
     // Check aria-label first (reference pattern), then text content fallback
-    const ariaBtn = openMenu.querySelector<HTMLButtonElement>('[aria-label*="Connect"]')
+    const ariaBtn = openMenu.querySelector<HTMLButtonElement>('[aria-label*="Connect" i]')
     if (ariaBtn) return ariaBtn
     const inMenu = findButtonByText('Connect', openMenu)
     if (inMenu) return inMenu
@@ -97,7 +103,7 @@ async function openMoreActionsIfNeeded(): Promise<void> {
     "button[aria-label*='More actions'], button[aria-label*='More member actions']"
   ) ?? findButtonByText('More', topCard)
   if (moreBtn) {
-    moreBtn.click()
+    nativeClick(moreBtn)
     await new Promise(r => setTimeout(r, 800))
   }
 }
@@ -231,7 +237,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
       if (!paywalled) {
         // Fill textarea normally
         const textarea = document.querySelector<HTMLTextAreaElement>(
-          'textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
+          'textarea#custom-message, textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
         )
         if (textarea) {
           textarea.focus()
@@ -276,6 +282,12 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
 
   if (!sendBtn) {
     return { success: false, error: 'send_btn_not_found', trace: trace.toString() }
+  }
+
+  // Pre-click weekly limit check — catches alert that appears before send
+  const preSendLimit = document.querySelector('.ip-fuse-limit-alert, #ip-fuse-limit-alert__header')
+  if (preSendLimit) {
+    return { success: false, error: 'weekly_limit_reached', trace: trace.toString() }
   }
 
   sendBtn.click()
