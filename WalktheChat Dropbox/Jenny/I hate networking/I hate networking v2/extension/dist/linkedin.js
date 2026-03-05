@@ -13,7 +13,20 @@
       "content-type": "application/json; charset=UTF-8",
       "csrf-token": csrf,
       "x-restli-protocol-version": "2.0.0",
-      "x-li-lang": "en_US"
+      "x-li-lang": "en_US",
+      // These mimic LinkedIn's own frontend requests — helps avoid 403 rejections
+      "x-li-page-instance": "urn:li:page:d_flagship3_profile_view_base;" + Math.random().toString(36).slice(2),
+      "x-li-track": JSON.stringify({
+        clientVersion: "1.13.3655",
+        mpVersion: "1.13.3655",
+        osName: "web",
+        timezoneOffset: (/* @__PURE__ */ new Date()).getTimezoneOffset() / -60,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        mpName: "voyager-web",
+        displayDensity: window.devicePixelRatio,
+        displayWidth: window.screen.width,
+        displayHeight: window.screen.height
+      })
     };
   }
   function getProfileUrnFromPage(vanityName) {
@@ -49,7 +62,7 @@
     }
     const msg = String(body?.message ?? body?.code ?? "").toUpperCase();
     if (resp.status === 429) return "weekly_limit_reached";
-    if (resp.status === 403) return "not_logged_in";
+    if (resp.status === 403) return `not_logged_in:${msg.slice(0, 80) || "no_body"}`;
     if (msg.includes("CANT_RESEND_YET") || msg.includes("DUPLICATE") || msg.includes("ALREADY") && msg.includes("INVIT")) return "already_pending";
     if (msg.includes("FIRST_DEGREE") || msg.includes("ALREADY_CONNECTED")) return "already_connected";
     if (msg.includes("QUOTA") || msg.includes("LIMIT")) return "weekly_limit_reached";
