@@ -197,7 +197,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     return { success: false, error: 'connect_not_available' }
   }
 
-  connectBtn.click()
+  nativeClick(connectBtn)
   const modalAppeared = await waitForModal(3000)
   trace.set('modal', modalAppeared ? 'yes' : 'timeout')
 
@@ -286,7 +286,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
 
   // Pre-click weekly limit check — catches alert that appears before send
   const preSendLimit = document.querySelector('.ip-fuse-limit-alert, #ip-fuse-limit-alert__header')
-  if (preSendLimit) {
+  if (preSendLimit && getComputedStyle(preSendLimit).display !== 'none') {
     return { success: false, error: 'weekly_limit_reached', trace: trace.toString() }
   }
 
