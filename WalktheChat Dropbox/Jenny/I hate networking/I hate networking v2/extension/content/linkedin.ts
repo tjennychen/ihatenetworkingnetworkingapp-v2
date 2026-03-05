@@ -335,8 +335,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime) chrome.runtime.onMessage.ad
         let linkedinName = ''
         try {
           const resp = await fetch(url, { credentials: 'include' })
-          const html = await resp.text()
-          linkedinName = extractNameFromHtml(html)
+          if (resp.ok) {
+            const html = await resp.text()
+            linkedinName = extractNameFromHtml(html)
+          }
         } catch { /* ignore */ }
         results.push({ id: c.id, linkedin_name: linkedinName })
         chrome.runtime.sendMessage({ type: 'LINKEDIN_NAMES_PROGRESS', done: results.length, total: contacts.length }).catch(() => {})
