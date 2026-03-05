@@ -419,46 +419,70 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   const pauseBtnId = isRunning ? 'btnPause' : 'btnResume'
 
   // ── Expandable events list ─────────────────────────────────────────────────
+  // Group events by YYYY-MM of created_at (scan date)
+  const eventsByMonth = new Map<string, any[]>()
+  for (const ev of events) {
+    const key = (ev.created_at as string | undefined)?.slice(0, 7) ?? 'unknown'
+    if (!eventsByMonth.has(key)) eventsByMonth.set(key, [])
+    eventsByMonth.get(key)!.push(ev)
+  }
+  // Init: expand most recent month by default
+  const [mostRecentMonth] = [...eventsByMonth.keys()]
+  if (mostRecentMonth && expandedMonths.size === 0) expandedMonths.add(mostRecentMonth)
+
   const eventsListHtml = events.length === 0 ? '' : `
     <div class="section">
       <div class="feed-header">
         <span class="feed-title">Events</span>
       </div>
       <div class="events-list">
-        ${events.map(ev => {
-          const evId: string = ev.id ?? ''
-          const contacts: any[] = ev.contacts ?? []
-          const evSent = contacts.filter(c => ['sent', 'accepted'].includes(c.connection_queue?.[0]?.status ?? '')).length
-          const evPending = contacts.filter(c => c.connection_queue?.[0]?.status === 'pending').length
-          const isExpanded = expandedEvents.has(evId)
-          const badgeText = evPending > 0 ? `${evPending} queued` : evSent > 0 ? `${evSent} sent` : `${contacts.length} scanned`
-          const badgeClass = evPending > 0 ? 'queued' : ''
-          const contactsHtml = isExpanded ? `
-            <div class="event-contacts">
-              ${contacts.map(c => {
-                const status = c.connection_queue?.[0]?.status ?? ''
-                const statusBadge = status ? `<span class="status-badge ${status}">${status}</span>` : ''
-                const liUrl = c.linkedin_url ?? ''
-                return `
-                  <div class="contact-row">
-                    <span class="contact-name">${escHtml(c.name ?? '')}</span>
-                    <div style="display:flex;align-items:center;gap:4px;">
-                      ${liUrl ? `<a href="${escHtml(liUrl)}" target="_blank" class="badge badge-li">in</a>` : ''}
-                      ${statusBadge}
+        ${[...eventsByMonth.entries()].map(([monthKey, monthEvents]) => {
+          const isMonthExpanded = expandedMonths.has(monthKey)
+          const eventsHtml = isMonthExpanded ? monthEvents.map(ev => {
+            const evId: string = ev.id ?? ''
+            const contacts: any[] = ev.contacts ?? []
+            const evSent = contacts.filter(c => ['sent', 'accepted'].includes(c.connection_queue?.[0]?.status ?? '')).length
+            const evPending = contacts.filter(c => c.connection_queue?.[0]?.status === 'pending').length
+            const isExpanded = expandedEvents.has(evId)
+            const badgeText = evPending > 0 ? `${evPending} queued` : evSent > 0 ? `${evSent} sent` : `${contacts.length} scanned`
+            const badgeClass = evPending > 0 ? 'queued' : ''
+            const contactsHtml = isExpanded ? `
+              <div class="event-contacts">
+                ${contacts.map(c => {
+                  const status = c.connection_queue?.[0]?.status ?? ''
+                  const statusBadge = status ? `<span class="status-badge ${status}">${status}</span>` : ''
+                  const liUrl = c.linkedin_url ?? ''
+                  return `
+                    <div class="contact-row">
+                      <span class="contact-name">${escHtml(c.name ?? '')}</span>
+                      <div style="display:flex;align-items:center;gap:4px;">
+                        ${liUrl ? `<a href="${escHtml(liUrl)}" target="_blank" class="badge badge-li">in</a>` : ''}
+                        ${statusBadge}
+                      </div>
                     </div>
-                  </div>
-                `
-              }).join('')}
-            </div>
-          ` : ''
-          return `
-            <div class="event-row">
-              <div class="event-row-header" data-event-id="${escHtml(evId)}">
-                <span class="event-row-name">${escHtml(ev.name ?? 'Event')}</span>
-                <span class="event-row-badge ${badgeClass}">${escHtml(badgeText)}</span>
-                <span class="chevron" data-chevron>${isExpanded ? '▲' : '▼'}</span>
+                  `
+                }).join('')}
               </div>
-              ${contactsHtml}
+            ` : ''
+            return `
+              <div class="event-row">
+                <div class="event-row-header" data-event-id="${escHtml(evId)}">
+                  <span class="event-row-name">${escHtml(ev.name ?? 'Event')}</span>
+                  <span class="event-row-badge ${badgeClass}">${escHtml(badgeText)}</span>
+                  <span class="chevron" data-chevron>${isExpanded ? '▲' : '▼'}</span>
+                </div>
+                ${contactsHtml}
+              </div>
+            `
+          }).join('') : ''
+          return `
+            <div class="month-group">
+              <div class="month-header" data-month-key="${escHtml(monthKey)}">
+                <span class="month-label">${escHtml(monthLabel(monthKey))}</span>
+                <span class="month-count">${monthEvents.length}</span>
+                <span class="chevron">${isMonthExpanded ? '▲' : '▼'}</span>
+              </div>
+              ${eventsHtml}
             </div>
           `
         }).join('')}
