@@ -249,6 +249,19 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   const paywallDismissed = await dismissPremiumPaywall()
   trace.set('paywall', paywallDismissed ? 'yes' : 'no')
 
+  if (paywallDismissed) {
+    await new Promise(r => setTimeout(r, 600))
+    // Paywall may have closed the Connect modal entirely — re-click if needed
+    const modalStillOpen = !!document.querySelector('[role="dialog"]') ||
+      !!((document.querySelector('#interop-outlet') as HTMLElement | null)?.shadowRoot?.childElementCount)
+    trace.set('modalAfterPaywall', modalStillOpen ? 'open' : 'closed')
+    if (!modalStillOpen) {
+      let retryBtn = findConnectButton()
+      if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
+      if (retryBtn) { nativeClick(retryBtn); await waitForModal(2000) }
+    }
+  }
+
   const noteQuotaReached = await getNoteQuotaReached()
 
   if (note && !noteQuotaReached) {
@@ -290,11 +303,19 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     }
   }
 
+  // LinkedIn hosts the Connect modal inside #interop-outlet shadow DOM —
+  // document.querySelector misses it entirely. Check shadow DOM first.
+  const shadowHost = document.querySelector<HTMLElement>('#interop-outlet')
+  const shadowSendBtn = shadowHost?.shadowRoot?.querySelector<HTMLButtonElement>(
+    'button[aria-label="Send without a note"], button[aria-label="Send now"], button.artdeco-button--primary'
+  ) ?? null
+  trace.set('shadowBtn', shadowSendBtn ? 'found' : 'null')
+
   const sendBtn =
+    shadowSendBtn ??
     findButtonByText('Send') ??
     findButtonByText('Send without a note') ??
     document.querySelector<HTMLButtonElement>('[aria-label="Send now"]') ??
-    // Reference fallback: data-control-name="send_invite" for older LinkedIn modal variants
     document.querySelector<HTMLButtonElement>('[data-control-name="send_invite"]')
 
   trace.set('regularBtn', sendBtn ? 'found' : 'null')

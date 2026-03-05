@@ -203,6 +203,22 @@
     }
     const paywallDismissed = await dismissPremiumPaywall();
     trace.set("paywall", paywallDismissed ? "yes" : "no");
+    if (paywallDismissed) {
+      await new Promise((r) => setTimeout(r, 600));
+      const modalStillOpen = !!document.querySelector('[role="dialog"]') || !!document.querySelector("#interop-outlet")?.shadowRoot?.childElementCount;
+      trace.set("modalAfterPaywall", modalStillOpen ? "open" : "closed");
+      if (!modalStillOpen) {
+        let retryBtn = findConnectButton();
+        if (!retryBtn) {
+          await openMoreActionsIfNeeded();
+          retryBtn = findConnectButton();
+        }
+        if (retryBtn) {
+          nativeClick(retryBtn);
+          await waitForModal(2e3);
+        }
+      }
+    }
     const noteQuotaReached = await getNoteQuotaReached();
     if (note && !noteQuotaReached) {
       const addNoteBtn = findButtonByText("Add a note");
@@ -237,8 +253,12 @@
         }
       }
     }
-    const sendBtn = findButtonByText("Send") ?? findButtonByText("Send without a note") ?? document.querySelector('[aria-label="Send now"]') ?? // Reference fallback: data-control-name="send_invite" for older LinkedIn modal variants
-    document.querySelector('[data-control-name="send_invite"]');
+    const shadowHost = document.querySelector("#interop-outlet");
+    const shadowSendBtn = shadowHost?.shadowRoot?.querySelector(
+      'button[aria-label="Send without a note"], button[aria-label="Send now"], button.artdeco-button--primary'
+    ) ?? null;
+    trace.set("shadowBtn", shadowSendBtn ? "found" : "null");
+    const sendBtn = shadowSendBtn ?? findButtonByText("Send") ?? findButtonByText("Send without a note") ?? document.querySelector('[aria-label="Send now"]') ?? document.querySelector('[data-control-name="send_invite"]');
     trace.set("regularBtn", sendBtn ? "found" : "null");
     if (!sendBtn) {
       return { success: false, error: "send_btn_not_found", trace: trace.toString() };
