@@ -404,8 +404,19 @@
     document.getElementById("btnResume")?.addEventListener("click", () => {
       chrome.runtime.sendMessage({ type: "RESUME_CAMPAIGN" }, () => render());
     });
-    document.getElementById("btnScanAnother")?.addEventListener("click", () => {
-      chrome.tabs.create({ url: "https://lu.ma" });
+    document.getElementById("btnScanAnother")?.addEventListener("click", async () => {
+      const ctx = await resolveTabContext();
+      if (ctx.kind === "luma-event") {
+        scanState = { type: "idle" };
+        startScan(ctx);
+      } else {
+        const tabId = ctx.tabId;
+        if (tabId) {
+          chrome.tabs.update(tabId, { url: "https://lu.ma/events", active: true });
+        } else {
+          chrome.tabs.create({ url: "https://lu.ma/events" });
+        }
+      }
     });
     document.querySelectorAll(".event-row-header").forEach((header) => {
       header.addEventListener("click", () => {

@@ -487,8 +487,21 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   })
 
   // ── Wire scan CTA ──────────────────────────────────────────────────────────
-  document.getElementById('btnScanAnother')?.addEventListener('click', () => {
-    chrome.tabs.create({ url: 'https://lu.ma' })
+  document.getElementById('btnScanAnother')?.addEventListener('click', async () => {
+    const ctx = await resolveTabContext()
+    if (ctx.kind === 'luma-event') {
+      // Already on an event page — reset scan state and scan it
+      scanState = { type: 'idle' }
+      startScan(ctx)
+    } else {
+      // Not on an event page — navigate current tab to lu.ma/events
+      const tabId = (ctx as any).tabId
+      if (tabId) {
+        chrome.tabs.update(tabId, { url: 'https://lu.ma/events', active: true })
+      } else {
+        chrome.tabs.create({ url: 'https://lu.ma/events' })
+      }
+    }
   })
 
   // ── Wire event row expansion (direct DOM — instant, no re-fetch) ───────────
