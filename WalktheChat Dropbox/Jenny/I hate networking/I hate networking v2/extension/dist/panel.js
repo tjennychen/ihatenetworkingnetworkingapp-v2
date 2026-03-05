@@ -167,6 +167,14 @@
     const match = html.match(/href="(https:\/\/(?:www\.)?(?:twitter\.com|x\.com)\/[^"?#/][^"?#]*)[^"]*"/);
     return match ? match[1] : "";
   }
+  function extractWebsiteUrlFromHtml(html) {
+    const skip = /linkedin\.com|instagram\.com|twitter\.com|x\.com|lu\.ma|luma\.co/;
+    const matches = html.matchAll(/href="(https?:\/\/[^"]+)"[^>]*target="_blank"/g);
+    for (const m of matches) {
+      if (!skip.test(m[1])) return m[1];
+    }
+    return "";
+  }
   function extractDisplayNameFromHtml(html) {
     const titleMatch = html.match(/<title>\s*([^|<\n]+?)\s*(?:\||<)/);
     const raw = titleMatch ? titleMatch[1].trim() : (html.match(/property="og:title"\s+content="([^"]+)"/) ?? [])[1]?.trim() ?? "";
@@ -175,21 +183,27 @@
   var state = { type: "idle" };
   var enrichedContacts = [];
   var panelEl = null;
+  var miniEl = null;
+  var miniMode = false;
   var noteValue = "";
   var contactStatuses = /* @__PURE__ */ new Map();
   var authMode = "signup";
   var progressData = null;
+  var nextScheduledAt = null;
+  var campaignPaused = false;
   var pausedEvents = [];
   var progressRefreshTimer = null;
   var expandedEvents = /* @__PURE__ */ new Set();
   var exportPickerOpen = false;
+  var draftPickerOpen = false;
+  var draftState = { stage: "pick" };
   function shortEventLabel(name) {
-    let s2 = name.replace(/\(.*?\)/g, "").replace(/[:\-–—].*$/, "").replace(/[^\w\s]/gu, " ").replace(/\s+/g, " ").trim();
+    let s2 = name.replace(/^[^?]*\?\s*/, "").replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "").replace(/#\d+/g, "").replace(/[:\-–—].*$/, "").replace(/[^\w\s]/gu, " ").replace(/\s+/g, " ").trim();
     const withMatch = s2.match(/\bwith\s+(\S+(?:\s+\S+)?)/i);
     if (withMatch) return withMatch[1].trim();
-    const filler = /* @__PURE__ */ new Set(["making", "money", "night", "day", "the", "a", "an", "and", "or", "for", "of", "in", "at", "to", "from", "ship", "it", "tonight", "session", "event", "meetup", "workshop", "vibe", "coding", "open", "mat", "finder"]);
-    const words = s2.split(/\s+/).filter((w) => w.length > 1 && !filler.has(w.toLowerCase()));
-    return words.slice(0, 2).join(" ");
+    const filler = /* @__PURE__ */ new Set(["making", "money", "day", "the", "a", "an", "and", "or", "for", "of", "at", "to", "from", "ship", "it", "tonight", "session", "event", "meetup", "workshop", "open", "mat", "finder"]);
+    const words = s2.split(/\s+/).filter((w) => w.length > 1 && !filler.has(w.toLowerCase()) && !/^\d+$/.test(w));
+    return words.slice(0, 4).join(" ");
   }
   function defaultNote(eventName) {
     const label = shortEventLabel(eventName);
@@ -206,6 +220,53 @@
   function escHtml(s2) {
     return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
+  function shortenEventName(name) {
+    let s2 = name.replace(/^\{[^}]*\}\s*/i, "");
+    s2 = s2.replace(/\s*:\s*.+$/, "");
+    s2 = s2.replace(/\s*\([^)]*\)\s*$/, "");
+    s2 = s2.replace(/[-–—\s]+$/, "").trim();
+    return s2;
+  }
+  function startDraftFetch(eventId, eventName) {
+    chrome.runtime.sendMessage({ type: "GET_DRAFT_DATA", eventId }, (resp) => {
+      if (!resp) {
+        draftPickerOpen = false;
+        renderPanel();
+        return;
+      }
+      const { hosts, guests, totalGuests } = resp;
+      if (draftState.stage === "loading") {
+        draftState.total = guests.length;
+      }
+      renderPanel();
+      const needFetch = [
+        ...hosts.filter((h) => !h.linkedin_name && h.linkedin_url),
+        ...guests.filter((g) => !g.linkedin_name && g.linkedin_url)
+      ];
+      const alreadyCached = guests.filter((g) => !!g.linkedin_name);
+      const buildDraft = (fetchedNames) => {
+        const fetchedMap = new Map(fetchedNames.filter((f) => f.linkedin_name).map((f) => [f.id, f.linkedin_name]));
+        const nameMap = /* @__PURE__ */ new Map();
+        for (const g of guests) nameMap.set(g.id, g.linkedin_name || g.name || "");
+        for (const [id, name] of fetchedMap) nameMap.set(id, name);
+        for (const g of alreadyCached) nameMap.set(g.id, g.linkedin_name);
+        const hostMentions = hosts.map((h) => fetchedMap.get(h.id) || h.linkedin_name || h.name || "").filter(Boolean).map((n) => `@${n}`).join(" ");
+        const shortName = shortenEventName(eventName);
+        const postText = hostMentions ? `Thanks ${hostMentions} for organizing the ${shortName} event!` : `Thanks everyone for organizing the ${shortName} event!`;
+        const guestNames = guests.map((g) => nameMap.get(g.id) || g.name || "").filter(Boolean);
+        draftState = { stage: "ready", eventId, eventName, eventShortName: shortName, postText, guestNames, totalGuests };
+        renderPanel();
+      };
+      if (needFetch.length === 0) {
+        buildDraft([]);
+        return;
+      }
+      chrome.runtime.sendMessage(
+        { type: "GET_LINKEDIN_NAMES", contacts: needFetch.map((c) => ({ id: c.id, linkedin_url: c.linkedin_url })) },
+        (fetched) => buildDraft(fetched ?? [])
+      );
+    });
+  }
   function etaString(done, total, startTime) {
     if (done === 0) return "";
     const elapsed = (Date.now() - startTime) / 1e3;
@@ -214,8 +275,21 @@
     if (remaining < 60) return `~${remaining}s remaining`;
     return `~${Math.ceil(remaining / 60)} min remaining`;
   }
-  function renderChart(chartData) {
-    if (chartData.length < 2) return '<p class="ihn-chart-empty">No connections sent yet</p>';
+  function nextConnectionLabel(nextAt) {
+    if (!nextAt) return "";
+    const diff = new Date(nextAt).getTime() - Date.now();
+    if (diff <= 0) return "Next connection starting soon";
+    const mins = Math.ceil(diff / 6e4);
+    return `Next connection in ~${mins} min`;
+  }
+  function renderChart(chartData, hasPending = false, hasFailed = false) {
+    if (chartData.length === 0) {
+      const msg = hasPending ? "First connection coming soon" : hasFailed ? "Connections skipped \u2014 contacts may not have LinkedIn" : "No connections sent yet";
+      return `<p class="ihn-chart-empty">${msg}</p>`;
+    }
+    if (chartData.length === 1) {
+      return `<p class="ihn-chart-empty">${chartData[0].cumulative} connection${chartData[0].cumulative === 1 ? "" : "s"} sent today</p>`;
+    }
     const W = 312, H = 100;
     const pad = { t: 8, r: 8, b: 20, l: 32 };
     const maxVal = chartData[chartData.length - 1].cumulative;
@@ -267,6 +341,7 @@
         const hasLI = !!c.linkedInUrl;
         const hasIG = !!c.instagramUrl;
         const hasX = !!c.twitterUrl;
+        const hasWeb = !!c.websiteUrl;
         return `
         <div class="ihn-lead-row">
           <div class="ihn-lead-initials">${escHtml(initials)}</div>
@@ -275,7 +350,8 @@
             ${hasLI ? `<a href="${escHtml(c.linkedInUrl)}" target="_blank" class="ihn-badge ihn-badge-li">in</a>` : ""}
             ${hasIG ? `<a href="${escHtml(c.instagramUrl)}" target="_blank" class="ihn-badge ihn-badge-ig">ig</a>` : ""}
             ${hasX ? `<a href="${escHtml(c.twitterUrl)}" target="_blank" class="ihn-badge ihn-badge-x">x</a>` : ""}
-            ${!hasLI && !hasIG && !hasX ? '<span class="ihn-lead-none">\u2013</span>' : ""}
+            ${hasWeb ? `<a href="${escHtml(c.websiteUrl)}" target="_blank" class="ihn-badge ihn-badge-web">web</a>` : ""}
+            ${!hasLI && !hasIG && !hasX && !hasWeb ? '<span class="ihn-lead-none">\u2013</span>' : ""}
           </div>
         </div>
       `;
@@ -341,10 +417,10 @@
           [state.eventName + " Contact List"],
           [state.eventLocation],
           [],
-          ["Name", "LinkedIn", "X", "Instagram", "Luma", "Type"]
+          ["Name", "LinkedIn", "X", "Instagram", "Website", "Luma", "Type"]
         ];
         enrichedContacts.forEach(
-          (c) => rows.push([c.name, c.linkedInUrl, c.twitterUrl, c.instagramUrl, c.url, c.isHost ? "host" : "guest"])
+          (c) => rows.push([c.name, c.linkedInUrl, c.twitterUrl, c.instagramUrl, c.websiteUrl, c.url, c.isHost ? "host" : "guest"])
         );
         const csv = rows.map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
         const a = document.createElement("a");
@@ -383,9 +459,15 @@
         chrome.runtime.sendMessage({ type: "GET_PAUSED_EVENTS" }, (resp) => {
           pausedEvents = resp?.pausedEvents ?? [];
         });
+        chrome.runtime.sendMessage({ type: "GET_CAMPAIGN_PAUSED" }, (resp) => {
+          campaignPaused = resp?.paused ?? false;
+        });
         chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
           progressData = resp;
           if (state.type === "progress") renderPanel();
+        });
+        chrome.runtime.sendMessage({ type: "GET_QUEUE_STATUS" }, (resp) => {
+          nextScheduledAt = resp?.nextScheduledAt ?? null;
         });
         if (progressRefreshTimer) clearInterval(progressRefreshTimer);
         progressRefreshTimer = setInterval(() => {
@@ -398,6 +480,9 @@
             progressData = resp;
             if (state.type === "progress") renderPanel();
           });
+          chrome.runtime.sendMessage({ type: "GET_QUEUE_STATUS" }, (resp) => {
+            nextScheduledAt = resp?.nextScheduledAt ?? null;
+          });
         }, 3e4);
       });
       panelEl?.querySelector("#ihn-scan-another")?.addEventListener("click", () => {
@@ -408,8 +493,22 @@
       });
     } else if (state.type === "progress") {
       titleEl.textContent = "Progress";
-      subtitleEl.textContent = "";
       const data = progressData;
+      let totalSent = 0;
+      let totalPending = 0;
+      let totalFailed = 0;
+      for (const event of data?.events ?? []) {
+        for (const c of event.contacts ?? []) {
+          const s2 = c.connection_queue?.[0]?.status;
+          if (["sent", "accepted"].includes(s2)) totalSent++;
+          else if (s2 === "pending") totalPending++;
+          else if (s2 === "failed") totalFailed++;
+        }
+      }
+      const isRunning = !!(data && totalPending > 0 && !campaignPaused);
+      const isPaused = !!(data && totalPending > 0 && campaignPaused);
+      const isDone = !!(data && totalPending === 0 && data.events.length > 0 && (totalSent > 0 || totalFailed > 0));
+      subtitleEl.innerHTML = !data ? "" : isRunning ? '<span class="ihn-status-pill ihn-pill-running">\u25CF Running</span>' : isPaused ? '<button id="ihn-resume-campaign-btn" class="ihn-status-pill ihn-pill-paused" style="cursor:pointer;border:none;font:inherit;padding:2px 10px">\u25CF Paused \u2014 click to resume</button>' : isDone ? '<span class="ihn-status-pill ihn-pill-done">\u2713 Done</span>' : "";
       if (exportPickerOpen) {
         body.innerHTML = `
         <div class="ihn-export-picker">
@@ -453,24 +552,113 @@
         });
         return;
       }
-      let totalSent = 0;
-      let totalPending = 0;
-      for (const event of data?.events ?? []) {
-        for (const c of event.contacts ?? []) {
-          const s2 = c.connection_queue?.[0]?.status;
-          if (["sent", "accepted"].includes(s2)) totalSent++;
-          else if (s2 === "pending") totalPending++;
+      if (draftPickerOpen) {
+        const events = data?.events ?? [];
+        if (draftState.stage === "pick") {
+          if (events.length === 1) {
+            const ev = events[0];
+            draftState = { stage: "loading", eventId: ev.id, eventName: ev.name ?? "", total: 0 };
+            startDraftFetch(ev.id, ev.name ?? "");
+            return;
+          }
+          body.innerHTML = `
+          <div class="ihn-export-picker">
+            <p class="ihn-export-picker-title">Which event?</p>
+            <div class="ihn-export-picker-list">
+              ${events.map((ev) => `
+                <button class="ihn-draft-event-btn ihn-cta-btn ihn-cta-btn-secondary" data-event-id="${escHtml(ev.id)}" data-event-name="${escHtml(ev.name ?? "")}">
+                  ${escHtml(ev.name ?? "Untitled event")}
+                </button>
+              `).join("")}
+            </div>
+            <div class="ihn-export-picker-actions">
+              <button id="ihn-draft-cancel-btn">Cancel</button>
+            </div>
+          </div>
+        `;
+          panelEl.querySelectorAll(".ihn-draft-event-btn").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const evId = btn.dataset.eventId;
+              const evName = btn.dataset.eventName;
+              draftState = { stage: "loading", eventId: evId, eventName: evName, total: 0 };
+              startDraftFetch(evId, evName);
+              renderPanel();
+            });
+          });
+          panelEl.querySelector("#ihn-draft-cancel-btn")?.addEventListener("click", () => {
+            draftPickerOpen = false;
+            renderPanel();
+          });
+          return;
+        }
+        if (draftState.stage === "loading") {
+          const approxSecs = Math.max(15, draftState.total);
+          body.innerHTML = `
+          <div class="ihn-draft-loading">
+            <div class="ihn-draft-spinner"></div>
+            <p class="ihn-draft-loading-msg">Getting LinkedIn names\u2026</p>
+            <p class="ihn-draft-loading-sub">Visiting each profile to get their real LinkedIn name \u2014 takes ~${approxSecs} seconds</p>
+            <button id="ihn-draft-cancel-btn" style="margin-top:12px">Cancel</button>
+          </div>
+        `;
+          panelEl.querySelector("#ihn-draft-cancel-btn")?.addEventListener("click", () => {
+            draftPickerOpen = false;
+            renderPanel();
+          });
+          return;
+        }
+        if (draftState.stage === "ready") {
+          const { postText, guestNames, totalGuests, eventId, eventName, eventShortName } = draftState;
+          body.innerHTML = `
+          <div class="ihn-draft-ready">
+            <p class="ihn-draft-section-label">Copy this as your post:</p>
+            <textarea id="ihn-draft-textarea" class="ihn-draft-textarea">${escHtml(postText)}</textarea>
+            <button id="ihn-draft-copy-btn" class="ihn-cta-btn ihn-cta-btn-primary">Copy post</button>
+
+            <p class="ihn-draft-section-label" style="margin-top:14px">Tip: tag attendees for more reach</p>
+            <p class="ihn-draft-tag-hint">Tagging event guests in your photo boosts visibility. In the LinkedIn app: tap your photo \u2192 Tag people \u2192 search each name below</p>
+            <div class="ihn-draft-names">${guestNames.map((n) => `<span class="ihn-draft-name">${escHtml(n)}</span>`).join("")}</div>
+            ${totalGuests >= 15 ? `<button id="ihn-draft-shuffle-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Shuffle (${totalGuests} total)</button>` : ""}
+
+            <button id="ihn-draft-cancel-btn" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Done</button>
+          </div>
+        `;
+          panelEl.querySelector("#ihn-draft-copy-btn")?.addEventListener("click", () => {
+            const text = panelEl.querySelector("#ihn-draft-textarea")?.value ?? postText;
+            navigator.clipboard.writeText(text).catch(() => {
+            });
+            const btn = panelEl.querySelector("#ihn-draft-copy-btn");
+            if (btn) {
+              btn.textContent = "Copied!";
+              setTimeout(() => {
+                btn.textContent = "Copy post";
+              }, 2e3);
+            }
+          });
+          panelEl.querySelector("#ihn-draft-shuffle-btn")?.addEventListener("click", () => {
+            draftState = { stage: "loading", eventId, eventName, total: 0 };
+            startDraftFetch(eventId, eventName);
+            renderPanel();
+          });
+          panelEl.querySelector("#ihn-draft-cancel-btn")?.addEventListener("click", () => {
+            draftPickerOpen = false;
+            renderPanel();
+          });
+          return;
         }
       }
-      const topLabel = totalSent > 0 ? `${totalSent} sent total` : totalPending > 0 ? `${totalPending} queued \xB7 sending soon` : "0 sent";
+      const topLabel = !data ? "\u2026" : totalSent > 0 ? `${totalSent} connected${totalFailed > 0 ? ` \xB7 ${totalFailed} skipped` : ""}` : totalPending > 0 ? `${totalPending} queued \xB7 sending soon` : totalFailed > 0 ? `0 connected \xB7 ${totalFailed} skipped (no LinkedIn found)` : "0 connected";
+      const nextConnLabel = isRunning ? nextConnectionLabel(nextScheduledAt) : "";
       body.innerHTML = `
       <div class="ihn-chart-wrap">
-        ${data ? renderChart(data.chartData) : '<p class="ihn-chart-empty">Loading\u2026</p>'}
+        ${data ? renderChart(data.chartData, totalPending > 0, totalFailed > 0 && totalSent === 0) : '<p class="ihn-chart-empty">Loading\u2026</p>'}
       </div>
       <div class="ihn-results-header">
         <p class="ihn-total-sent">${topLabel}</p>
         <button id="ihn-progress-export-csv" title="Export CSV" class="ihn-export-btn">${icons.download} CSV</button>
       </div>
+      ${isRunning ? `<p class="ihn-keep-open-note">Sending connections \xB7 keep Chrome open</p>` : ""}
+      <p class="ihn-pacing-note">We only send 35 connection requests per day during business hours to keep your account safe.${nextConnLabel ? ` ${nextConnLabel}.` : ""}</p>
       <div class="ihn-events-list">
         ${(data?.events ?? []).map((event) => {
         const contacts = event.contacts ?? [];
@@ -482,7 +670,7 @@
         ).length;
         const isEventPaused = pausedEvents.includes(event.id);
         const expanded = expandedEvents.has(event.id);
-        const eventBadge = sentCount > 0 ? `<span class="ihn-event-badge">${sentCount} sent</span>` : pendingCount > 0 ? `<span class="ihn-event-badge ihn-event-badge-queued">${pendingCount} queued</span>` : "";
+        const eventBadge = sentCount > 0 ? `<span class="ihn-event-badge">${sentCount} connected</span>` : pendingCount > 0 ? `<span class="ihn-event-badge ${isEventPaused ? "ihn-event-badge-paused" : "ihn-event-badge-queued"}">${pendingCount} queued${isEventPaused ? " \xB7 paused" : ""}</span>` : "";
         return `<div class="ihn-event-row" data-event-id="${escHtml(event.id)}">
             <div class="ihn-event-header">
               <span class="ihn-event-chevron">${expanded ? icons.chevronDown : icons.chevronRight}</span>
@@ -505,11 +693,15 @@
           }[error] ?? (error ? error : "");
           const linkedInUrl = c.linkedin_url ?? "";
           const instagramUrl = c.instagram_url ?? "";
+          const twitterUrl = c.twitter_url ?? "";
+          const websiteUrl = c.website_url ?? "";
           return `<div class="ihn-contact-row">
                 <span class="ihn-contact-name">${escHtml(c.name ?? "\u2014")}</span>
                 <div class="ihn-contact-right">
                   ${linkedInUrl ? `<a href="${escHtml(linkedInUrl)}" target="_blank" class="ihn-badge ihn-badge-li" onclick="event.stopPropagation()">in</a>` : ""}
                   ${instagramUrl ? `<a href="${escHtml(instagramUrl)}" target="_blank" class="ihn-badge ihn-badge-ig" onclick="event.stopPropagation()">ig</a>` : ""}
+                  ${twitterUrl ? `<a href="${escHtml(twitterUrl)}" target="_blank" class="ihn-badge ihn-badge-x" onclick="event.stopPropagation()">x</a>` : ""}
+                  ${websiteUrl ? `<a href="${escHtml(websiteUrl)}" target="_blank" class="ihn-badge ihn-badge-web" onclick="event.stopPropagation()">web</a>` : ""}
                   ${showStatus ? `<span class="ihn-status-badge ihn-status-${escHtml(status)}">${escHtml(status)}</span>` : ""}
                   ${showStatus && errorLabel ? `<span class="ihn-error-tip" title="${escHtml(errorLabel)}">?</span>` : ""}
                 </div>
@@ -519,16 +711,25 @@
       }).join("")}
         ${!data || data.events.length === 0 ? '<p class="ihn-empty">No events yet.</p>' : ""}
       </div>
+      ${data && data.events.length > 0 ? `<button id="ihn-draft-post-btn" class="ihn-cta-btn ihn-cta-btn-primary" style="margin-top:8px">\u270D\uFE0F Draft LinkedIn post</button>` : ""}
+      <button id="ihn-progress-scan-another" class="ihn-cta-btn ihn-cta-btn-secondary" style="margin-top:8px">Scan another event</button>
+      <p style="margin:12px 0 0;font-size:11px;color:#999;text-align:center">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank" style="color:#999;cursor:pointer">Jenny Chen</a></p>
     `;
       panelEl.querySelectorAll(".ihn-event-pause-btn").forEach((btn) => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
           const evId = btn.dataset.eventId;
-          const isPaused = btn.dataset.paused === "true";
-          chrome.runtime.sendMessage({ type: isPaused ? "RESUME_EVENT" : "PAUSE_EVENT", eventId: evId }, () => {
-            pausedEvents = isPaused ? pausedEvents.filter((id) => id !== evId) : [...pausedEvents, evId];
+          const isPaused2 = btn.dataset.paused === "true";
+          chrome.runtime.sendMessage({ type: isPaused2 ? "RESUME_EVENT" : "PAUSE_EVENT", eventId: evId }, () => {
+            pausedEvents = isPaused2 ? pausedEvents.filter((id) => id !== evId) : [...pausedEvents, evId];
             renderPanel();
           });
+        });
+      });
+      panelEl.querySelector("#ihn-resume-campaign-btn")?.addEventListener("click", () => {
+        chrome.runtime.sendMessage({ type: "RESUME_CAMPAIGN" }, () => {
+          campaignPaused = false;
+          renderPanel();
         });
       });
       panelEl.querySelectorAll(".ihn-event-header").forEach((header) => {
@@ -541,9 +742,20 @@
           renderPanel();
         });
       });
+      panelEl.querySelector("#ihn-draft-post-btn")?.addEventListener("click", () => {
+        draftPickerOpen = true;
+        draftState = { stage: "pick" };
+        renderPanel();
+      });
       panelEl.querySelector("#ihn-progress-export-csv")?.addEventListener("click", () => {
         exportPickerOpen = true;
         renderPanel();
+      });
+      panelEl.querySelector("#ihn-progress-scan-another")?.addEventListener("click", () => {
+        state = { type: "idle" };
+        enrichedContacts = [];
+        noteValue = "";
+        closePanel();
       });
       return;
     } else if (state.type === "contacts") {
@@ -555,6 +767,7 @@
         const hasLI = !!c.linkedInUrl;
         const hasIG = !!c.instagramUrl;
         const hasX = !!c.twitterUrl;
+        const hasWeb = !!c.websiteUrl;
         const status = c.linkedInUrl ? contactStatuses.get(c.linkedInUrl) ?? null : null;
         const statusDot = status === "sent" || status === "accepted" ? '<span class="ihn-status-dot ihn-status-sent">\u25CF</span>' : status === "failed" ? '<span class="ihn-status-dot ihn-status-failed">\u25CF</span>' : status === "pending" ? '<span class="ihn-status-dot ihn-status-pending">\u25CF</span>' : "";
         return `
@@ -566,7 +779,8 @@
             ${hasLI ? `<a href="${escHtml(c.linkedInUrl)}" target="_blank" class="ihn-badge ihn-badge-li">in</a>` : ""}
             ${hasIG ? `<a href="${escHtml(c.instagramUrl)}" target="_blank" class="ihn-badge ihn-badge-ig">ig</a>` : ""}
             ${hasX ? `<a href="${escHtml(c.twitterUrl)}" target="_blank" class="ihn-badge ihn-badge-x">x</a>` : ""}
-            ${!hasLI && !hasIG && !hasX ? '<span class="ihn-lead-none">\u2013</span>' : ""}
+            ${hasWeb ? `<a href="${escHtml(c.websiteUrl)}" target="_blank" class="ihn-badge ihn-badge-web">web</a>` : ""}
+            ${!hasLI && !hasIG && !hasX && !hasWeb ? '<span class="ihn-lead-none">\u2013</span>' : ""}
           </div>
         </div>
       `;
@@ -702,9 +916,15 @@
         chrome.runtime.sendMessage({ type: "GET_PAUSED_EVENTS" }, (resp) => {
           pausedEvents = resp?.pausedEvents ?? [];
         });
+        chrome.runtime.sendMessage({ type: "GET_CAMPAIGN_PAUSED" }, (resp) => {
+          campaignPaused = resp?.paused ?? false;
+        });
         chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
           progressData = resp;
           if (state.type === "progress") renderPanel();
+        });
+        chrome.runtime.sendMessage({ type: "GET_QUEUE_STATUS" }, (resp) => {
+          nextScheduledAt = resp?.nextScheduledAt ?? null;
         });
         if (progressRefreshTimer) clearInterval(progressRefreshTimer);
         progressRefreshTimer = setInterval(() => {
@@ -716,6 +936,9 @@
           chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
             progressData = resp;
             if (state.type === "progress") renderPanel();
+          });
+          chrome.runtime.sendMessage({ type: "GET_QUEUE_STATUS" }, (resp) => {
+            nextScheduledAt = resp?.nextScheduledAt ?? null;
           });
         }, 3e4);
       }
@@ -737,28 +960,27 @@
     const existingSet = new Set(existingUrls);
     const toEnrich = existingUrls.length > 0 ? allUrls.filter((u) => !existingSet.has(u.url)) : allUrls;
     if (toEnrich.length === 0) {
-      state = { type: "progress" };
-      progressData = null;
+      enrichedContacts = existingContacts.map((c) => ({
+        url: c.luma_profile_url,
+        isHost: c.is_host ?? false,
+        name: c.name ?? "",
+        linkedInUrl: c.linkedin_url ?? "",
+        instagramUrl: c.instagram_url ?? "",
+        twitterUrl: c.twitter_url ?? "",
+        websiteUrl: c.website_url ?? ""
+      }));
+      noteValue = defaultNote(eventName);
+      const linkedInReady = await checkLinkedInLogin();
+      state = {
+        type: "results",
+        found: linkedInCount,
+        total: existingUrls.length,
+        eventId: cachedEventId ?? "",
+        linkedInReady,
+        eventName,
+        eventLocation
+      };
       renderPanel();
-      chrome.runtime.sendMessage({ type: "GET_PAUSED_EVENTS" }, (resp) => {
-        pausedEvents = resp?.pausedEvents ?? [];
-      });
-      chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
-        progressData = resp;
-        if (state.type === "progress") renderPanel();
-      });
-      if (progressRefreshTimer) clearInterval(progressRefreshTimer);
-      progressRefreshTimer = setInterval(() => {
-        if (state.type !== "progress") {
-          clearInterval(progressRefreshTimer);
-          progressRefreshTimer = null;
-          return;
-        }
-        chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
-          progressData = resp;
-          if (state.type === "progress") renderPanel();
-        });
-      }, 3e4);
       return;
     }
     const total = toEnrich.length;
@@ -770,6 +992,7 @@
       let linkedInUrl = "";
       let instagramUrl = "";
       let twitterUrl = "";
+      let websiteUrl = "";
       try {
         const resp = await fetch(url, { credentials: "include" });
         if (resp.ok) {
@@ -778,16 +1001,26 @@
           linkedInUrl = extractLinkedInUrlFromHtml(html);
           instagramUrl = extractInstagramUrlFromHtml(html);
           twitterUrl = extractTwitterUrlFromHtml(html);
+          websiteUrl = extractWebsiteUrlFromHtml(html);
         }
       } catch {
       }
       const fallbackName = url.split("/").pop()?.replace(/-/g, " ") ?? "Unknown";
       const name = displayName || fallbackName;
-      enriched.push({ url, isHost, name, linkedInUrl, instagramUrl, twitterUrl });
+      enriched.push({ url, isHost, name, linkedInUrl, instagramUrl, twitterUrl, websiteUrl });
       state = { type: "scanning", current: name, done: i + 1, total, startTime };
       renderPanel();
     }
-    enrichedContacts = enriched;
+    const existingMapped = existingContacts.map((c) => ({
+      url: c.luma_profile_url,
+      isHost: c.is_host ?? false,
+      name: c.name ?? "",
+      linkedInUrl: c.linkedin_url ?? "",
+      instagramUrl: c.instagram_url ?? "",
+      twitterUrl: c.twitter_url ?? "",
+      websiteUrl: c.website_url ?? ""
+    }));
+    enrichedContacts = [...existingMapped, ...enriched];
     chrome.runtime.sendMessage(
       { type: "START_ENRICHMENT", data: { lumaUrl: location.href, eventName, contacts: enriched } },
       (result) => {
@@ -817,28 +1050,88 @@
         <div id="ihn-panel-title">Importing contacts\u2026</div>
         <div id="ihn-panel-subtitle"></div>
       </div>
-      <button id="ihn-close-btn" aria-label="Close">${icons.xMark}</button>
+      <div style="display:flex;gap:4px;align-items:center">
+        <button id="ihn-minimize-btn" aria-label="Minimize">\u2014</button>
+        <button id="ihn-close-btn" aria-label="Close">${icons.xMark}</button>
+      </div>
     </div>
     <div id="ihn-panel-body"></div>
   `;
     document.body.appendChild(panelEl);
     panelEl.querySelector("#ihn-close-btn").addEventListener("click", closePanel);
+    panelEl.querySelector("#ihn-minimize-btn").addEventListener("click", minimizePanel);
+    miniEl = document.createElement("div");
+    miniEl.id = "ihn-mini";
+    miniEl.setAttribute("role", "button");
+    miniEl.setAttribute("tabindex", "0");
+    miniEl.setAttribute("aria-label", "Restore panel");
+    miniEl.innerHTML = `<img src="${chrome.runtime.getURL("icons/icon48.png")}" width="22" height="22" style="display:block;border-radius:3px" alt="">`;
+    document.body.appendChild(miniEl);
+    miniEl.addEventListener("click", restorePanel);
+    miniEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") restorePanel();
+    });
   }
   function openPanel() {
     if (!panelEl) createPanel();
     requestAnimationFrame(() => panelEl?.classList.add("ihn-open"));
   }
   function closePanel() {
+    miniMode = false;
     panelEl?.classList.remove("ihn-open");
+    miniEl?.classList.remove("ihn-mini-visible");
     if (progressRefreshTimer) {
       clearInterval(progressRefreshTimer);
       progressRefreshTimer = null;
     }
   }
+  function minimizePanel() {
+    miniMode = true;
+    panelEl?.classList.remove("ihn-open");
+    miniEl?.classList.add("ihn-mini-visible");
+  }
+  function restorePanel() {
+    miniMode = false;
+    miniEl?.classList.remove("ihn-mini-visible");
+    requestAnimationFrame(() => panelEl?.classList.add("ihn-open"));
+  }
   if (typeof chrome !== "undefined" && chrome.runtime) {
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg.type === "OPEN_PANEL") {
         handleImportClick();
+      }
+      if (msg.type === "OPEN_PROGRESS") {
+        openPanel();
+        state = { type: "progress" };
+        renderPanel();
+        chrome.runtime.sendMessage({ type: "GET_PAUSED_EVENTS" }, (resp) => {
+          pausedEvents = resp?.pausedEvents ?? [];
+        });
+        chrome.runtime.sendMessage({ type: "GET_CAMPAIGN_PAUSED" }, (resp) => {
+          campaignPaused = resp?.paused ?? false;
+        });
+        chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
+          progressData = resp;
+          if (state.type === "progress") renderPanel();
+        });
+        chrome.runtime.sendMessage({ type: "GET_QUEUE_STATUS" }, (resp) => {
+          nextScheduledAt = resp?.nextScheduledAt ?? null;
+        });
+        if (progressRefreshTimer) clearInterval(progressRefreshTimer);
+        progressRefreshTimer = setInterval(() => {
+          if (state.type !== "progress") {
+            clearInterval(progressRefreshTimer);
+            progressRefreshTimer = null;
+            return;
+          }
+          chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, (resp) => {
+            progressData = resp;
+            if (state.type === "progress") renderPanel();
+          });
+          chrome.runtime.sendMessage({ type: "GET_QUEUE_STATUS" }, (resp) => {
+            nextScheduledAt = resp?.nextScheduledAt ?? null;
+          });
+        }, 3e4);
       }
     });
   }

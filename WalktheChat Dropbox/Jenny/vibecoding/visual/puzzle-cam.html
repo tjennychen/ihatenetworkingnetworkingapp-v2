@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Puzzle Acupuncture — Chi Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=IBM+Plex+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --o:#FF2878;--omid:#FF55A0;--olt:#FF95C8;--opale:rgba(255,40,120,.14);
+  --cream:#07000E;--parch:#120020;
+  --bark:#03000A;--bk2:#C8B0F0;--bk3:#7058A0;
+  --neon:#00F0FF;--neon2:#7B2FFF;
+}
+html,body{height:100%;overflow:hidden}
+body{
+  background:#03000A;
+  display:flex;align-items:stretch;justify-content:stretch;
+  padding:0;font-family:'IBM Plex Mono',monospace;
+}
+.app{width:100%;height:100vh;display:flex;flex-direction:column;background:var(--bark);border:none;overflow:hidden}
+
+/* HEADER */
+.hdr{background:var(--bark);border-bottom:1.5px solid var(--o);box-shadow:0 0 18px rgba(255,40,120,.25),0 1px 0 var(--neon2);padding:11px 20px;display:flex;align-items:center;justify-content:space-between}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:2.5px;width:30px;height:30px}
+.lg{border-radius:1.5px}
+.lg:nth-child(odd){background:var(--o)}
+.lg:nth-child(even){background:transparent;border:1.5px solid var(--omid)}
+.logo-words h1{font-family:'Press Start 2P',monospace;font-size:9.5px;color:var(--o);line-height:1;letter-spacing:.04em}
+.logo-words p{font-size:7.5px;color:var(--olt);margin-top:5px;letter-spacing:.09em}
+.status-pill{display:flex;align-items:center;gap:7px;padding:5px 13px;border:1px solid rgba(255,40,120,.5);border-radius:2px;background:rgba(255,40,120,.08);box-shadow:0 0 10px rgba(255,40,120,.15)}
+.led{width:5px;height:5px;background:var(--o);border-radius:50%;animation:led 1.8s ease-in-out infinite}
+@keyframes led{0%,100%{opacity:1}50%{opacity:.25}}
+.status-pill span{font-size:8.5px;font-weight:700;color:var(--o);letter-spacing:.1em}
+
+/* MAIN */
+.main{display:grid;grid-template-columns:1fr 280px;flex:1;min-height:0;overflow:hidden}
+
+/* CAMERA */
+.cam-section{background:var(--bark);display:flex;flex-direction:column;border-right:2.5px solid var(--bark);min-height:0}
+.cam-wrap{position:relative;overflow:hidden;flex:1;min-height:0}
+#video{display:none;position:absolute}
+#canvas{position:absolute;inset:0;width:100%;height:100%}
+.scanlines{position:absolute;inset:0;pointer-events:none;z-index:2;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.04) 3px,rgba(0,0,0,.04) 4px)}
+.hud{position:absolute;inset:0;pointer-events:none;z-index:3}
+.hc{position:absolute;width:18px;height:18px;border-color:var(--o);border-style:solid;opacity:.7}
+.hc.tl{top:10px;left:10px;border-width:2px 0 0 2px}
+.hc.tr{top:10px;right:10px;border-width:2px 2px 0 0}
+.hc.bl{bottom:10px;left:10px;border-width:0 0 2px 2px}
+.hc.br{bottom:10px;right:10px;border-width:0 2px 2px 0}
+.hud-lbl{position:absolute;font-size:7px;color:rgba(0,240,255,.55);letter-spacing:.1em;text-shadow:0 0 8px rgba(0,240,255,.5)}
+.hud-lbl.tl{top:13px;left:34px}.hud-lbl.br{bottom:13px;right:34px}
+
+/* ACU POINTS */
+.acu-layer{position:absolute;inset:0;z-index:4}
+.acp{position:absolute;width:18px;height:18px;transform:translate(-50%,-50%);cursor:pointer;transition:left .18s ease-out,top .18s ease-out}
+.acp-core{position:absolute;inset:5px;background:var(--o);border-radius:50%;transition:transform .2s;z-index:2;box-shadow:0 0 10px var(--o),0 0 20px rgba(255,40,120,.5)}
+.acp-ring{position:absolute;inset:0;border:1.5px solid var(--o);border-radius:50%;animation:ring 2.6s ease-out infinite}
+@keyframes ring{0%{transform:scale(1);opacity:.85}100%{transform:scale(3.2);opacity:0}}
+.acp:nth-child(2) .acp-ring{animation-delay:.3s}.acp:nth-child(3) .acp-ring{animation-delay:.65s}
+.acp:nth-child(4) .acp-ring{animation-delay:1s}.acp:nth-child(5) .acp-ring{animation-delay:1.3s}
+.acp:nth-child(6) .acp-ring{animation-delay:1.6s}.acp:nth-child(7) .acp-ring{animation-delay:1.9s}
+.acp:nth-child(8) .acp-ring{animation-delay:2.2s}.acp:nth-child(9) .acp-ring{animation-delay:2.5s}
+.acp.active .acp-core{background:#fff;box-shadow:0 0 12px #fff}
+.acp:hover .acp-core{transform:scale(1.6)}
+.acp-tag{position:absolute;left:50%;top:-20px;transform:translateX(-50%);font-size:7px;color:var(--olt);background:rgba(26,8,0,.85);padding:2px 5px;border-radius:1px;white-space:nowrap;opacity:0;transition:opacity .15s;pointer-events:none}
+.acp:hover .acp-tag{opacity:1}
+
+/* LOADING */
+.load-overlay{position:absolute;inset:0;z-index:10;background:var(--bark);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
+.px-loader{display:grid;grid-template-columns:repeat(8,11px);gap:3px}
+.pxc{width:11px;height:11px;border-radius:1.5px;background:var(--bk2);animation:pxf 1.4s ease-in-out infinite}
+@keyframes pxf{0%,100%{background:var(--bk2)}50%{background:var(--o)}}
+.load-msg{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--olt);letter-spacing:.1em;animation:blink 1s step-end infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* CAM CONTROLS */
+.cam-ctrl{background:rgba(3,0,10,.97);border-top:1px solid rgba(123,47,255,.35);padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0}
+.ctrl-g{display:flex;align-items:center;gap:6px}
+.ctrl-lbl{font-size:7.5px;color:var(--bk3);letter-spacing:.12em;text-transform:uppercase}
+.btn-g{display:flex;gap:3px}
+.btn{background:transparent;border:1px solid rgba(120,80,200,.45);color:var(--olt);font-family:'IBM Plex Mono',monospace;font-size:8.5px;padding:3px 7px;cursor:pointer;border-radius:2px;transition:all .12s;line-height:1}
+.btn:hover{border-color:var(--o);color:var(--o);box-shadow:0 0 8px rgba(255,40,120,.3)}
+.btn.on{background:var(--o);border-color:var(--o);color:#03000A;font-weight:700;box-shadow:0 0 12px rgba(255,40,120,.5)}
+
+/* STATS */
+.stats{padding:13px 11px;display:flex;flex-direction:column;gap:11px;background:#07000E;border-left:1px solid rgba(123,47,255,.3);overflow-y:auto;min-height:0}
+.sblock{border:1px solid rgba(123,47,255,.28);border-radius:2px;padding:9px 10px;background:var(--cream);box-shadow:0 0 12px rgba(123,47,255,.08) inset}
+.stitle{font-size:7px;font-weight:700;color:var(--neon);letter-spacing:.16em;text-transform:uppercase;border-bottom:1px solid rgba(123,47,255,.25);padding-bottom:5px;margin-bottom:8px;text-shadow:0 0 10px rgba(0,240,255,.5)}
+
+/* Meridian bars */
+.m-row{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.m-row:last-child{margin-bottom:0}
+.m-nm{font-size:7.5px;font-weight:700;color:var(--bk2);width:46px;flex-shrink:0}
+.m-bg{flex:1;height:7px;background:var(--parch);border-radius:1px;overflow:hidden}
+.m-fill{height:100%;background:linear-gradient(90deg,var(--neon2),var(--o));border-radius:1px;transition:width .9s cubic-bezier(.4,0,.2,1);box-shadow:0 0 6px var(--o)}
+.m-val{font-size:7.5px;color:var(--bk3);width:24px;text-align:right}
+
+/* Chi status */
+.chi-msg{font-size:10.5px;font-weight:700;color:var(--o);line-height:1.4;min-height:1.6em;transition:opacity .3s}
+.chi-rec{font-size:8px;color:var(--bk2);font-style:italic;line-height:1.65;margin-top:7px;min-height:3.5em;white-space:pre-line;transition:opacity .3s}
+
+/* Active point / live scan */
+.live-title{font-size:10px;font-weight:700;color:var(--o);line-height:1.3;min-height:1.4em;transition:opacity .3s}
+.live-loc{font-size:8px;color:var(--bk3);font-style:italic;margin:4px 0 6px;line-height:1.4;transition:opacity .3s}
+.live-rec{font-size:8px;color:var(--bk2);line-height:1.7;white-space:pre-line;border-left:2px solid var(--o);padding-left:7px;transition:opacity .3s;min-height:3em}
+.pt-id{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--o);margin-bottom:4px}
+.pt-ch{font-size:9px;font-weight:700;color:var(--bk2);margin-bottom:4px}
+.pt-loc{font-size:7.5px;color:var(--bk3);font-style:italic;margin-bottom:7px;line-height:1.5}
+.pt-how-lbl{font-size:6.5px;font-weight:700;color:var(--bk3);letter-spacing:.12em;text-transform:uppercase;margin-bottom:3px}
+.pt-how{font-size:8px;color:var(--bk2);line-height:1.7;white-space:pre-line;border-left:2px solid var(--o);padding-left:7px;margin-bottom:6px}
+.pt-effect{font-size:7.5px;color:var(--omid);font-style:italic;line-height:1.5}
+/* Palette + mic */
+.pal-g{display:flex;gap:4px;align-items:center}
+.pal-sw{width:16px;height:16px;border-radius:2px;cursor:pointer;border:2px solid transparent;transition:all .12s;flex-shrink:0}
+.pal-sw.on{border-color:#fff;box-shadow:0 0 7px rgba(255,255,255,.45)}
+.pal-sw:hover{transform:scale(1.2)}
+.snd-bar{width:44px;height:6px;background:rgba(255,255,255,.1);border-radius:1px;overflow:hidden;flex-shrink:0}
+.snd-fill{height:100%;background:var(--o);border-radius:1px;width:0%;transition:width .06s}
+</style>
+</head>
+<body>
+<div class="app">
+
+<header class="hdr">
+  <div class="logo">
+    <div class="logo-grid">
+      <div class="lg"></div><div class="lg"></div><div class="lg"></div>
+      <div class="lg"></div><div class="lg"></div><div class="lg"></div>
+      <div class="lg"></div><div class="lg"></div><div class="lg"></div>
+    </div>
+    <div class="logo-words">
+      <h1>PUZZLE ACUPUNCTURE</h1>
+      <p>CHI SCANNER v2.7 · SAN FRANCISCO, CA</p>
+    </div>
+  </div>
+  <div class="status-pill"><div class="led"></div><span id="scanStatus">SCANNING</span></div>
+</header>
+
+<div class="main">
+  <div class="cam-section">
+    <div class="cam-wrap">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <div class="scanlines"></div>
+      <div class="hud">
+        <div class="hc tl"></div><div class="hc tr"></div>
+        <div class="hc bl"></div><div class="hc br"></div>
+        <div class="hud-lbl tl">PUZZLE-CAM_001</div>
+        <div class="hud-lbl br" id="hudCoords">—</div>
+      </div>
+      <div class="acu-layer" id="acuLayer"></div>
+      <div class="load-overlay" id="loadOverlay">
+        <div class="px-loader" id="pxLoader"></div>
+        <div class="load-msg" id="loadMsg">INITIALIZING CHI SCANNER...</div>
+      </div>
+    </div>
+    <div class="cam-ctrl">
+      <div class="ctrl-g">
+        <span class="ctrl-lbl">PX</span>
+        <div class="btn-g" id="sizeG">
+          <button class="btn" data-size="8">8</button>
+          <button class="btn on" data-size="16">16</button>
+          <button class="btn" data-size="24">24</button>
+          <button class="btn" data-size="32">32</button>
+        </div>
+      </div>
+      <div class="ctrl-g">
+        <span class="ctrl-lbl">FILTER</span>
+        <div class="btn-g" id="filterG">
+          <button class="btn on" data-filter="natural">NATURAL</button>
+          <button class="btn" data-filter="warm">WARM CHI</button>
+          <button class="btn" data-filter="scan">CHI SCAN</button>
+          <button class="btn" data-filter="kaleido">KALEIDO</button>
+        </div>
+      </div>
+      <div class="ctrl-g">
+        <span class="ctrl-lbl">PALETTE</span>
+        <div class="pal-g" id="palG"></div>
+      </div>
+      <div class="ctrl-g">
+        <span class="ctrl-lbl">MIC</span>
+        <div class="snd-bar"><div class="snd-fill" id="sndFill"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+
+    <div class="sblock">
+      <div class="stitle">MERIDIAN READINGS</div>
+      <div id="mRows"></div>
+    </div>
+
+    <div class="sblock">
+      <div class="stitle">CHI STATUS</div>
+      <div class="chi-msg" id="chiMsg">CALIBRATING...</div>
+      <div class="chi-rec" id="chiRec">Stand in front of the scanner.\nMeridian baseline initializing.</div>
+    </div>
+
+    <div class="sblock">
+      <div class="stitle" id="tipTitle">LIVE MERIDIAN SCAN</div>
+      <!-- Live scan feed (default) -->
+      <div id="liveTip">
+        <div class="live-title" id="liveTitle">AWAITING PATIENT</div>
+        <div class="live-loc"  id="liveLoc">No motion detected</div>
+        <div class="live-rec"  id="liveRec">Approach the scanner.\nHover any orange dot for\nmassage instructions.</div>
+      </div>
+      <!-- Massage tip (on hover) -->
+      <div id="ptContent" style="display:none">
+        <div class="pt-id"     id="ptId">—</div>
+        <div class="pt-ch"     id="ptCh">—</div>
+        <div class="pt-loc"    id="ptLoc">—</div>
+        <div class="pt-how-lbl">HOW TO MASSAGE</div>
+        <div class="pt-how"    id="ptHow">—</div>
+        <div class="pt-effect" id="ptEffect">—</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────────
+
+// Acupoint offsets from face center (dx/dy as % of frame)
+const ACU_PTS = [
+  {dx:0,  dy:-22, id:'GV-20'}, {dx:-18,dy:-6, id:'ST-2' }, {dx:18, dy:-6, id:'ST-2' },
+  {dx:0,  dy:14,  id:'REN-12'},{dx:-27,dy:22, id:'PC-6' }, {dx:27, dy:22, id:'PC-6' },
+  {dx:0,  dy:30,  id:'REN-4' },{dx:-21,dy:50, id:'ST-36'}, {dx:21, dy:50, id:'ST-36'},
+];
+
+const PT_INFO = {
+  'GV-20': {
+    ch:'百会 · Hundred Meetings', loc:'Crown of the head — your spiritual antenna.',
+    how:'Press firmly with middle finger.\nCircular motion, 30 seconds.\nVisualize a sunbeam entering your skull.\n(Optional but encouraged.)',
+    effect:'→ Calms mind, raises yang, stops nodding off in meetings.',
+  },
+  'ST-2': {
+    ch:'四白 · Four Whites', loc:'Just below each eye socket, on the cheekbone.',
+    how:'Gentle circles with index fingertip.\nLight pressure only.\n(Eyes are nearby. Be careful.)',
+    effect:'→ Brightens eyes, clears sinuses, makes you look "alive."',
+  },
+  'REN-12': {
+    ch:'中脘 · Middle Cavity', loc:'Midway between belly button and bottom of ribcage.',
+    how:'Warm your hands first.\nGentle circular pressure, clockwise.\nClockwise for sluggish digestion,\ncounterclockwise for "too fast."',
+    effect:'→ Regulates stomach qi, soothes poor food life choices.',
+  },
+  'PC-6': {
+    ch:'内关 · Inner Pass', loc:'Inner wrist, 3 fingers up from crease, between the two tendons.',
+    how:'Press straight down with thumb.\nFirm, sustained pressure.\nBreathe slowly for 2–3 minutes.',
+    effect:'→ Calms anxiety, relieves nausea, slows racing heart.',
+  },
+  'REN-4': {
+    ch:'关元 · Origin Pass', loc:'3 fingers below belly button, center line.',
+    how:'Warm hands. Gentle palm pressure.\nBreath deeply into the belly.\n2 minutes minimum. No rushing.\nOriginal qi lives here.',
+    effect:'→ Tonifies original qi, calms existential dread (results vary).',
+  },
+  'ST-36': {
+    ch:'足三里 · Leg Three Miles', loc:'4 fingers below kneecap, outside of shin bone.',
+    how:'Press firmly with thumb. May be sore.\nThat\'s it working. (Allegedly.)\n1–2 minutes each side.',
+    effect:'→ Boosts immune system, increases energy, ancient survival point.',
+  },
+};
+
+const MERIDIANS = [
+  {nm:'LIVER',v:72},{nm:'HEART',v:68},{nm:'LUNG',v:75},
+  {nm:'SPLEEN',v:80},{nm:'KIDNEY',v:65},{nm:'BLADDER',v:71},
+];
+const MERIDIAN_BASE = [72, 68, 75, 80, 65, 71];
+
+const PALETTES = [
+  { nm:'CYBER',  hex:'#FF2878', o:'#FF2878', omid:'#FF55A0', olt:'#FF95C8', opale:'rgba(255,40,120,.14)', cream:'#07000E', parch:'#120020', bark:'#03000A', bk2:'#C8B0F0', bk3:'#7058A0', grout:'#0A0018', scanBg:'#000005' },
+  { nm:'ACID',   hex:'#39FF14', o:'#39FF14', omid:'#5FFF3A', olt:'#8FFF70', opale:'rgba(57,255,20,.14)',  cream:'#020F00', parch:'#052000', bark:'#010800', bk2:'#B0F0B0', bk3:'#507050', grout:'#031500', scanBg:'#000400' },
+  { nm:'PLASMA', hex:'#FF00FF', o:'#FF00FF', omid:'#FF50FF', olt:'#FF90FF', opale:'rgba(255,0,255,.14)',  cream:'#0A000A', parch:'#180018', bark:'#060006', bk2:'#F0B0F0', bk3:'#805080', grout:'#120012', scanBg:'#050005' },
+  { nm:'CRYO',   hex:'#00E5FF', o:'#00E5FF', omid:'#40EEFF', olt:'#80F4FF', opale:'rgba(0,229,255,.14)', cream:'#00080F', parch:'#001525', bark:'#000508', bk2:'#B0E8F8', bk3:'#406880', grout:'#001020', scanBg:'#000308' },
+  { nm:'FIRE',   hex:'#FF6B35', o:'#FF6B35', omid:'#FF8C5A', olt:'#FFB88A', opale:'#FFEEDE',            cream:'#FFFBF7', parch:'#F2E3D0', bark:'#1A0800', bk2:'#5C2D0A', bk3:'#8B5230', grout:'#F8E8D8', scanBg:'#061208' },
+];
+
+// Chi status messages keyed to [stillness, low, mid, high, surge, emergency]
+// Each has [title, rec] arrays and per-band variants for mid
+const CHI_STILL_MSGS = [
+  ['QI STAGNATION: CRITICAL 🧊', 'Zero movement. Meridians filing\na formal HR complaint.'],
+  ['MAXIMUM YIN ACHIEVED', 'You are becoming furniture.\nAt least blink dramatically.'],
+  ['FROZEN QI DETECTED', 'Still as a frozen pond.\nPrescription: one (1) jump.'],
+];
+const CHI_BAND_MSGS = [
+  [['CEREBRAL CHI STIRRING',  'Head energy present.\nThoughts are chi too. (Barely.)'],
+   ['WIND-COLD AT GV-20',     'Head chi: excessive.\nStop overthinking. Use ST-36.']],
+  [['HEART FIRE GENTLE 🕯️',  'Upper body qi activating.\nEmotional meridian: cautiously open.'],
+   ['HEART QI CIRCULATING 🔥','Upper yang flowing.\nYou might survive this visit.']],
+  [['LUNG METAL CONDUCTING',  'Chest chi present.\nBreath is medicine. Breathe more.'],
+   ['LUNG–SPLEEN AXIS OPEN',  'Respiratory chi balanced.\nDisturbingly functional today.']],
+  [['EARTH ELEMENT GROUNDING','Core energy detected.\nSpleen is... okay with this.'],
+   ['FIVE ELEMENTS HARMONIZED','Core meridians singing.\nTransformation energy: present.']],
+  [['WATER CONSTITUTION ACTIVE','Lower body warming.\nKidney jing slowly returning.'],
+   ['KIDNEY YANG IGNITED ⚡',  'Kidney fire restored.\nOriginal qi: partially located.']],
+  [['BLADDER MERIDIAN FLOWING','Lower extremities engaged.\nDrink water. This is a prescription.'],
+   ['BLADDER CHANNEL FLUSHED', 'Lower meridians flowing.\nThe ancestors are impressed.']],
+];
+const CHI_SURGE_MSGS = [
+  ['UNCONTROLLED YANG SURGE ⚡','Chi fully left the chat.\nPrescription: sit down, breathe.'],
+  ['RECKLESS QI EXPENDITURE', 'Spending yang like rent money.\n3 sessions minimum.'],
+  ['YANG OVERFLOW IMMINENT',   'Energy going everywhere at once.\nFascinating. Chaotic. Valid.'],
+];
+const LIVE_QUIPS = [
+  ['Head chi flowing. You\'re thinking.\nMaybe too hard. Needle GV-20.', 'Cerebral activity: concerning.\nOverthinker confirmed. ST-36 stat.'],
+  ['Heart meridian open. You feel.\nPericardium: unguarded. Brave.', 'Upper body yang. Heart fire.\nDangerous for feelings. Worth it.'],
+  ['Lung metal conducting.\nBreath = medicine. Breathe again.', 'Chest chi active.\nImmune system says hello.'],
+  ['Spleen earth element grounded.\nSomething is digesting (hopefully food).', 'Abdominal chi present.\nWhat did you eat. Was it worth it.'],
+  ['Kidney yang igniting.\nOriginal qi stirring from storage.', 'Lower body warming up.\nDrink water. We\'re serious.'],
+  ['Bladder meridian engaged.\nLower extremities: confirmed existing.', 'Leg chi flowing. ST-36 awakening.\nAncient survival point activated.'],
+];
+
+// ── STATE ─────────────────────────────────────────────────────────────
+let pixelSize = 16, filterMode = 'natural';
+let isRunning = false, isDemo = false;
+let offCvs, offCtx, video, canvas, ctx;
+let acuEls = [], isHoveringPt = false;
+
+// Motion tracking
+let prevFrameData = null;
+let faceSmX = 0.5, faceSmY = 0.35;
+let lastMotionX = 0.5, lastMotionY = 0.35;
+let motionStaleness = 0;
+let smoothMag = 0;
+let regionMotion = new Array(6).fill(0);
+let meridianValues = [...MERIDIAN_BASE];
+
+// Chi line animation
+let chiPhase = 0;
+let frameCount = 0;
+
+// Per-point independent jitter
+let acuJitter = ACU_PTS.map(() => ({
+  jx:0, jy:0,
+  vx:(Math.random()-.5)*.4, vy:(Math.random()-.5)*.4,
+  freq: 0.6 + Math.random()*.8,
+}));
+
+// Audio
+let audioCtx = null, analyser = null;
+let soundLevel = 0, soundBass = 0;
+
+// Palette-driven canvas colors (default = CYBER)
+let groutColor = '#0A0018', chiColor = '#FF2878', scanBgColor = '#000005';
+let activePal = 0;
+
+// ── BOOT ──────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  video  = document.getElementById('video');
+  canvas = document.getElementById('canvas');
+  ctx    = canvas.getContext('2d');
+  buildLoader(); buildMeridians(); buildAcuPts(); bindControls(); bindPalette();
+  startCamera(); initAudio();
+  setInterval(updateChiStatus, 1800);
+});
+
+// ── LOADER ────────────────────────────────────────────────────────────
+function buildLoader() {
+  const g = document.getElementById('pxLoader');
+  for (let i = 0; i < 64; i++) {
+    const c = document.createElement('div'); c.className = 'pxc';
+    c.style.animationDelay = ((i%8)*.1 + Math.floor(i/8)*.08) + 's';
+    g.appendChild(c);
+  }
+}
+
+// ── MERIDIAN BARS ─────────────────────────────────────────────────────
+function buildMeridians() {
+  const cont = document.getElementById('mRows');
+  MERIDIANS.forEach((m, i) => {
+    const row = document.createElement('div'); row.className = 'm-row';
+    row.innerHTML = `<div class="m-nm">${m.nm}</div>
+      <div class="m-bg"><div class="m-fill" id="mf${i}" style="width:${m.v}%"></div></div>
+      <div class="m-val" id="mv${i}">${m.v}%</div>`;
+    cont.appendChild(row);
+  });
+}
+
+function updateMeridianBars() {
+  for (let i = 0; i < 6; i++) {
+    // Each bar responds to motion in its corresponding body region
+    const activity = regionMotion[i] * 1200;
+    const target   = MERIDIAN_BASE[i] + Math.min(25, activity) + (Math.random()-.5)*2.5;
+    meridianValues[i] = meridianValues[i]*.88 + Math.max(18, Math.min(99, target))*.12;
+    const f = document.getElementById('mf'+i), v = document.getElementById('mv'+i);
+    if (f) f.style.width = Math.round(meridianValues[i]) + '%';
+    if (v) v.textContent = Math.round(meridianValues[i]) + '%';
+  }
+}
+
+// ── ACU POINTS ────────────────────────────────────────────────────────
+function buildAcuPts() {
+  const layer = document.getElementById('acuLayer');
+  ACU_PTS.forEach((p, i) => {
+    const el = document.createElement('div'); el.className = 'acp';
+    el.innerHTML = `<div class="acp-core"></div><div class="acp-ring"></div><div class="acp-tag">${p.id}</div>`;
+    el.addEventListener('mouseenter', () => showTip(p.id, el));
+    el.addEventListener('mouseleave', clearTip);
+    layer.appendChild(el); acuEls.push(el);
+  });
+  updateAcuPositions();
+}
+
+function showTip(id, el) {
+  const pt = PT_INFO[id]; if (!pt) return;
+  isHoveringPt = true;
+  acuEls.forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('liveTip').style.display    = 'none';
+  document.getElementById('ptContent').style.display  = 'block';
+  document.getElementById('tipTitle').textContent     = 'MASSAGE INSTRUCTIONS';
+  document.getElementById('ptId').textContent   = id;
+  document.getElementById('ptCh').textContent   = pt.ch;
+  document.getElementById('ptLoc').textContent  = pt.loc;
+  document.getElementById('ptHow').textContent  = pt.how;
+  document.getElementById('ptEffect').textContent = pt.effect;
+}
+
+function clearTip() {
+  isHoveringPt = false;
+  acuEls.forEach(e => e.classList.remove('active'));
+  document.getElementById('liveTip').style.display   = 'block';
+  document.getElementById('ptContent').style.display = 'none';
+  document.getElementById('tipTitle').textContent    = 'LIVE MERIDIAN SCAN';
+}
+
+function updateAcuPositions() {
+  ACU_PTS.forEach((p, i) => {
+    const j = acuJitter[i];
+    const x = faceSmX*100 + p.dx + j.jx;
+    const y = faceSmY*100 + p.dy + j.jy;
+    acuEls[i].style.left = Math.max(2, Math.min(97, x)) + '%';
+    acuEls[i].style.top  = Math.max(2, Math.min(97, y)) + '%';
+  });
+}
+
+function updateAcuJitter() {
+  const soundKick = soundBass * 3;
+  acuJitter.forEach(j => {
+    j.vx += (Math.random()-.5) * (0.18 + soundKick);
+    j.vy += (Math.random()-.5) * (0.18 + soundKick);
+    j.vx *= 0.86; j.vy *= 0.86;
+    j.jx += j.vx * j.freq;
+    j.jy += j.vy * j.freq;
+    // Spring back toward 0
+    j.jx += -j.jx * 0.025;
+    j.jy += -j.jy * 0.025;
+    j.jx = Math.max(-9, Math.min(9, j.jx));
+    j.jy = Math.max(-9, Math.min(9, j.jy));
+  });
+}
+
+// ── AUDIO ─────────────────────────────────────────────────────────────
+async function initAudio() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio:true, video:false });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.75;
+    src.connect(analyser);
+  } catch(e) { /* mic not available */ }
+}
+
+function tickAudio() {
+  if (!analyser) return;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(buf);
+  // Overall level
+  let sum = 0; for (let i=0; i<buf.length; i++) sum += buf[i];
+  const raw = (sum / buf.length / 255) * 3;
+  soundLevel = soundLevel*.72 + Math.min(1, raw)*.28;
+  // Bass (bins 0-3, roughly 0-500Hz)
+  let bass = 0; for (let i=0; i<4; i++) bass += buf[i];
+  soundBass = soundBass*.6 + (bass/(4*255))*.4;
+  const sf = document.getElementById('sndFill');
+  if (sf) sf.style.width = Math.min(100, Math.round(soundLevel*100)) + '%';
+}
+
+// ── CONTROLS ──────────────────────────────────────────────────────────
+function bindControls() {
+  document.getElementById('sizeG').addEventListener('click', e => {
+    const b = e.target.closest('.btn'); if (!b) return;
+    document.querySelectorAll('#sizeG .btn').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); pixelSize = parseInt(b.dataset.size); resetOff();
+    document.getElementById('hudCoords').textContent = `${canvas.width}×${canvas.height} · ${pixelSize}PX`;
+  });
+  document.getElementById('filterG').addEventListener('click', e => {
+    const b = e.target.closest('.btn'); if (!b) return;
+    document.querySelectorAll('#filterG .btn').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); filterMode = b.dataset.filter;
+  });
+}
+
+function bindPalette() {
+  const g = document.getElementById('palG');
+  PALETTES.forEach((p, i) => {
+    const sw = document.createElement('div');
+    sw.className = 'pal-sw' + (i===0 ? ' on' : '');
+    sw.dataset.pal = i; sw.style.background = p.hex; sw.title = p.nm;
+    sw.addEventListener('click', () => {
+      document.querySelectorAll('.pal-sw').forEach(x => x.classList.remove('on'));
+      sw.classList.add('on'); applyPalette(i);
+    });
+    g.appendChild(sw);
+  });
+}
+
+function applyPalette(idx) {
+  activePal = idx;
+  const p = PALETTES[idx], r = document.documentElement.style;
+  r.setProperty('--o',     p.o);    r.setProperty('--omid',  p.omid);
+  r.setProperty('--olt',   p.olt);  r.setProperty('--opale', p.opale);
+  r.setProperty('--cream', p.cream);r.setProperty('--parch', p.parch);
+  r.setProperty('--bark',  p.bark); r.setProperty('--bk2',   p.bk2);
+  r.setProperty('--bk3',   p.bk3);
+  groutColor  = p.grout;
+  chiColor    = p.o;
+  scanBgColor = p.scanBg;
+}
+
+// ── CAMERA ────────────────────────────────────────────────────────────
+async function startCamera() {
+  const msg = document.getElementById('loadMsg');
+  msg.textContent = 'REQUESTING CAMERA ACCESS...';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width:{ideal:640}, height:{ideal:480}, facingMode:'user' }
+    });
+    video.srcObject = stream; await video.play();
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    resetOff();
+    document.getElementById('hudCoords').textContent = `${canvas.width}×${canvas.height} · ${pixelSize}PX`;
+    document.getElementById('loadOverlay').style.display = 'none';
+    document.getElementById('scanStatus').textContent = 'LIVE';
+    isRunning = true; requestAnimationFrame(liveLoop);
+  } catch(_) {
+    msg.textContent = 'CAMERA OFFLINE · DEMO MODE';
+    canvas.width=640; canvas.height=480; resetOff(); isDemo=true;
+    setTimeout(()=>{
+      document.getElementById('loadOverlay').style.display='none';
+      document.getElementById('scanStatus').textContent='DEMO';
+      isRunning=true;
+      document.getElementById('hudCoords').textContent = `640×480 · ${pixelSize}PX`;
+      let t=0; (function dl(){
+        if(!isRunning)return; drawDemo(t); chiPhase+=.6; drawChiLines(); t+=.018;
+        // Simulate a moving person in demo
+        faceSmX=0.5+Math.sin(t*.35)*.12; faceSmY=0.35+Math.sin(t*.5)*.08;
+        smoothMag=2+Math.sin(t*1.2)*1.5; motionStaleness=0;
+        regionMotion=regionMotion.map((_,i)=>0.005+Math.abs(Math.sin(t*.3+i*.8))*.02);
+        updateAcuJitter(); tickAudio(); updateAcuPositions(); frameCount++; requestAnimationFrame(dl);
+      })();
+    },1800);
+  }
+}
+
+function resetOff() {
+  const cols=Math.max(1,Math.floor((canvas.width||640)/pixelSize));
+  const rows=Math.max(1,Math.floor((canvas.height||480)/pixelSize));
+  offCvs=document.createElement('canvas'); offCvs.width=cols; offCvs.height=rows;
+  offCtx=offCvs.getContext('2d'); offCtx.imageSmoothingEnabled=true; prevFrameData=null;
+}
+
+// ── LIVE LOOP ─────────────────────────────────────────────────────────
+function liveLoop() {
+  if(!isRunning)return;
+  if(video.readyState>=2){
+    const cols=offCvs.width, rows=offCvs.height;
+    offCtx.save(); offCtx.scale(-1,1); offCtx.drawImage(video,-cols,0,cols,rows); offCtx.restore();
+    const imgData=offCtx.getImageData(0,0,cols,rows);
+    renderTiles(imgData.data,cols,rows);
+    chiPhase+=0.6;
+    drawChiLines();
+    frameCount++;
+    updateAcuJitter(); tickAudio();
+    // Analyze every 3rd frame (~10fps at 30fps)
+    if(frameCount%3===0) analyzeFrame(imgData.data,cols,rows);
+  }
+  requestAnimationFrame(liveLoop);
+}
+
+// ── FRAME ANALYSIS (one pass: motion centroid + region) ───────────────
+function analyzeFrame(data, cols, rows) {
+  if(!prevFrameData || prevFrameData.length!==data.length){
+    prevFrameData=new Uint8ClampedArray(data); return;
+  }
+
+  let sx=0, sy=0, tot=0;
+  const regAcc = new Array(6).fill(0);
+  const bandH  = rows / 6;
+
+  for(let i=0; i<cols*rows; i++){
+    const pi=i*4;
+    const diff=Math.abs(data[pi]-prevFrameData[pi])
+              +Math.abs(data[pi+1]-prevFrameData[pi+1])
+              +Math.abs(data[pi+2]-prevFrameData[pi+2]);
+    if(diff>22){
+      const x=i%cols, y=Math.floor(i/cols);
+      sx+=x*diff; sy+=y*diff; tot+=diff;
+      regAcc[Math.min(5,Math.floor(y/bandH))]+=diff;
+    }
+  }
+  prevFrameData.set(data);
+
+  // Motion magnitude (per pixel, 0–255ish scale)
+  const mag = tot/(cols*rows);
+  smoothMag  = smoothMag*0.82 + mag*0.18;
+
+  // Face position from motion centroid
+  if(mag>0.4 && tot>0){
+    lastMotionX = sx/(tot*cols);
+    lastMotionY = sy/(tot*rows);
+    motionStaleness=0;
+  } else {
+    motionStaleness++;
+  }
+  const tx = motionStaleness>120 ? 0.5  : lastMotionX;
+  const ty = motionStaleness>120 ? 0.35 : lastMotionY;
+  const sp = motionStaleness>120 ? 0.004: 0.12;
+  faceSmX += (tx-faceSmX)*sp;
+  faceSmY += (ty-faceSmY)*sp;
+  updateAcuPositions();
+
+  // Region motion (smoothed, normalized)
+  const bandPx = cols * bandH;
+  for(let i=0;i<6;i++){
+    regionMotion[i] = regionMotion[i]*0.88 + (regAcc[i]/(bandPx*255*3))*0.12;
+  }
+
+  // Update bars every 4 analysis frames
+  if(frameCount%4===0) updateMeridianBars();
+  if(frameCount%5===0 && !isHoveringPt) updateLiveCommentary();
+}
+
+// ── CHI STATUS (timer-driven, uses smoothMag) ──────────────────────────
+function updateChiStatus() {
+  const mag  = smoothMag;
+  const band = regionMotion.indexOf(Math.max(...regionMotion));
+  let msg, rec;
+
+  if(motionStaleness>200){
+    msg='AWAITING NEXT PATIENT'; rec='Scanner in standby mode.\nApproach to activate chi scan.';
+  } else if(mag<0.25){
+    const pick=CHI_STILL_MSGS[Math.floor(Date.now()/4000)%CHI_STILL_MSGS.length];
+    [msg,rec]=pick;
+  } else if(mag<7){
+    const tier = mag<2 ? 0 : 1;
+    [msg,rec] = CHI_BAND_MSGS[band][tier];
+  } else if(mag<20){
+    const pick=CHI_SURGE_MSGS[Math.floor(Date.now()/2500)%CHI_SURGE_MSGS.length];
+    [msg,rec]=pick;
+  } else {
+    msg='🚨 MERIDIAN EMERGENCY 🚨'; rec='MAXIMUM CHAOS ENERGY.\nStop. Breathe. Lie on floor.\nThis is not a drill.';
+  }
+
+  const cm=document.getElementById('chiMsg'), cr=document.getElementById('chiRec');
+  if(cm.textContent!==msg){ cm.style.opacity='0'; setTimeout(()=>{cm.textContent=msg;cm.style.opacity='1';},300); }
+  if(cr.textContent!==rec){ cr.style.opacity='0'; setTimeout(()=>{cr.textContent=rec;cr.style.opacity='1';},300); }
+}
+
+// ── LIVE COMMENTARY (active-point section) ────────────────────────────
+function updateLiveCommentary() {
+  let title, loc, rec;
+  const band    = regionMotion.indexOf(Math.max(...regionMotion));
+  const bandNames=['HEAD / MIND','UPPER BODY','CHEST','ABDOMEN','LOWER BODY','LEGS'];
+  const mNames  =['LIVER','HEART','LUNG','SPLEEN','KIDNEY','BLADDER'];
+
+  if(motionStaleness>150){
+    title='AWAITING PATIENT'; loc='No motion detected';
+    rec='Approach the scanner.\nHover any orange dot for\nmassage instructions.';
+  } else if(smoothMag<0.25){
+    title='— PATIENT STILL —'; loc='Hold position';
+    rec='Hover a glowing dot for\nmassage instructions,\nor move to activate scan.';
+  } else {
+    title=`${mNames[band]} MERIDIAN ACTIVE`;
+    loc=`Motion zone: ${bandNames[band]}`;
+    const q=LIVE_QUIPS[band];
+    rec=q[Math.floor(Date.now()/4500)%q.length];
+  }
+
+  setLive(title, loc, rec);
+}
+
+function setLive(title, loc, rec) {
+  const t=document.getElementById('liveTitle');
+  const l=document.getElementById('liveLoc');
+  const r=document.getElementById('liveRec');
+  if(t.textContent!==title){ t.style.opacity='0'; setTimeout(()=>{t.textContent=title;t.style.opacity='1';},260); }
+  if(l.textContent!==loc)  { l.textContent=loc; }
+  if(r.textContent!==rec)  { r.style.opacity='0'; setTimeout(()=>{r.textContent=rec;r.style.opacity='1';},260); }
+}
+
+// ── CHI FLOW LINES (drawn on canvas after tile render) ────────────────
+function drawChiLines() {
+  const soundBoost = 1 + soundLevel * 2.5;
+  const alpha = Math.min(0.9, smoothMag/7 + soundLevel * 0.45);
+  if(alpha<0.04) return;
+
+  const W=canvas.width, H=canvas.height;
+  // Acupoint canvas positions (use per-point jitter too)
+  const pts=ACU_PTS.map((p,i)=>({
+    x:(faceSmX + p.dx/100 + acuJitter[i].jx/100)*W,
+    y:(faceSmY + p.dy/100 + acuJitter[i].jy/100)*H,
+  }));
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = chiColor;
+  ctx.lineWidth   = 1.5 * soundBoost;
+  ctx.setLineDash([6,10]);
+  ctx.lineDashOffset = -chiPhase;
+  ctx.shadowBlur  = 10 + soundLevel * 20;
+  ctx.shadowColor = chiColor;
+
+  // Central vessel: GV-20(0) → REN-12(3) → REN-4(6)
+  ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y); ctx.lineTo(pts[3].x,pts[3].y); ctx.lineTo(pts[6].x,pts[6].y); ctx.stroke();
+  // Left line: ST-2L(1) → PC-6L(4) → ST-36L(7)
+  ctx.beginPath(); ctx.moveTo(pts[1].x,pts[1].y); ctx.lineTo(pts[4].x,pts[4].y); ctx.lineTo(pts[7].x,pts[7].y); ctx.stroke();
+  // Right line: ST-2R(2) → PC-6R(5) → ST-36R(8)
+  ctx.beginPath(); ctx.moveTo(pts[2].x,pts[2].y); ctx.lineTo(pts[5].x,pts[5].y); ctx.lineTo(pts[8].x,pts[8].y); ctx.stroke();
+
+  // Cross connectors (subtle, slower animation)
+  ctx.setLineDash([3,14]); ctx.lineDashOffset = -chiPhase*.5; ctx.globalAlpha=alpha*.4;
+  ctx.beginPath(); ctx.moveTo(pts[1].x,pts[1].y); ctx.lineTo(pts[0].x,pts[0].y); ctx.lineTo(pts[2].x,pts[2].y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pts[4].x,pts[4].y); ctx.lineTo(pts[3].x,pts[3].y); ctx.lineTo(pts[5].x,pts[5].y); ctx.stroke();
+
+  ctx.restore();
+}
+
+// ── DEMO MODE ─────────────────────────────────────────────────────────
+function drawDemo(t) {
+  const cols=offCvs.width, rows=offCvs.height;
+  const img=offCtx.createImageData(cols,rows); const d=img.data;
+  for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+    const nx=x/cols-0.5, ny=y/rows-0.5;
+    const r2=nx*nx+ny*ny;
+    const v=(Math.sin(nx*7+t)+Math.sin(ny*5.5-t*.75)+Math.sin((nx+ny)*4.5+t*1.2)+Math.sin(Math.sqrt(r2)*12-t*.9))/4*.5+.5;
+    const i=(y*cols+x)*4;
+    // DMT palette: deep purple→pink→cyan
+    d[i]  = Math.min(255, 40  + v*215 | 0);
+    d[i+1]= Math.min(255, 0   + v*80  + Math.sin(r2*15+t)*40 | 0);
+    d[i+2]= Math.min(255, 80  + v*175 + Math.cos(t*0.8)*30 | 0);
+    d[i+3]=255;
+  }
+  offCtx.putImageData(img,0,0); renderTiles(d,cols,rows);
+}
+
+// ── KALEIDOSCOPE TRANSFORM ────────────────────────────────────────────
+function kaleidoXY(x, y, cols, rows) {
+  const cx=cols/2, cy=rows/2;
+  let dx=x-cx, dy=y-cy;
+  let r=Math.sqrt(dx*dx+dy*dy);
+  let theta=Math.atan2(dy,dx) + chiPhase*0.007;
+  const N=8, seg=(Math.PI*2)/N;
+  theta=((theta%seg)+seg)%seg;
+  if(theta>seg/2) theta=seg-theta;
+  // Voronoi-style ripple
+  r += Math.sin(r*0.28 - chiPhase*0.04) * 2.5 + Math.cos(r*0.15 + chiPhase*0.02) * 1.5;
+  const sx=Math.round(cx + r*Math.cos(theta));
+  const sy=Math.round(cy + r*Math.sin(theta));
+  return { sx:Math.max(0,Math.min(cols-1,sx)), sy:Math.max(0,Math.min(rows-1,sy)) };
+}
+
+// ── TILE RENDERER ─────────────────────────────────────────────────────
+function renderTiles(data,cols,rows){
+  const W=canvas.width,H=canvas.height,ps=pixelSize;
+  const gap=Math.max(1,Math.ceil(ps*.14)),tw=ps-gap,rad=Math.min(3,Math.floor(tw*.18));
+  const hasRR=typeof ctx.roundRect==='function';
+  ctx.fillStyle=filterMode==='scan'?scanBgColor:groutColor;
+  ctx.fillRect(0,0,W,H);
+  for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+    let srcX=x, srcY=y;
+    if(filterMode==='kaleido'){
+      const k=kaleidoXY(x,y,cols,rows);
+      srcX=k.sx; srcY=k.sy;
+    }
+    const idx=(srcY*cols+srcX)*4;
+    const[r,g,b]=applyFilter(data[idx],data[idx+1],data[idx+2],x,y,cols,rows);
+    ctx.fillStyle=`rgb(${r|0},${g|0},${b|0})`;
+    const px=x*ps+gap, py=y*ps+gap;
+    if(hasRR&&rad>0){ctx.beginPath();ctx.roundRect(px,py,tw,tw,rad);ctx.fill();}
+    else ctx.fillRect(px,py,tw,tw);
+  }
+}
+
+function applyFilter(r,g,b,x,y,cols,rows){
+  switch(filterMode){
+    case'warm':return[Math.min(255,r*1.18+28),Math.min(255,g*.82),Math.max(0,b*.4)];
+    case'scan':{const lum=r*.299+g*.587+b*.114,t=lum/255;
+      if(t<.25)return[0,t*4*160|0,220]; if(t<.5)return[0,190,(1-(t-.25)*4)*190|0];
+      if(t<.75)return[(t-.5)*4*255|0,210,0]; return[255,(1-(t-.75)*4)*200|0,0];}
+    case'kaleido':{
+      // Hue-rotate: shift channels + inject neon based on polar angle
+      const cx=(cols||1)/2, cy=(rows||1)/2;
+      const ang=(Math.atan2((y||0)-cy,(x||0)-cx)/Math.PI+1)/2; // 0-1
+      const t2=(ang + chiPhase*0.003)%1;
+      const lum=(r+g+b)/3;
+      // Spectral shift
+      const rr=Math.min(255, r*0.5 + Math.sin(t2*Math.PI*2)*60 + lum*0.3);
+      const gg=Math.min(255, g*0.4 + Math.sin(t2*Math.PI*2+2.1)*60 + lum*0.3);
+      const bb=Math.min(255, b*0.6 + Math.sin(t2*Math.PI*2+4.2)*60 + lum*0.3);
+      return[Math.max(0,rr),Math.max(0,gg),Math.max(0,bb)];}
+    default:return[r,g,b];
+  }
+}
+</script>
+</body>
+</html>

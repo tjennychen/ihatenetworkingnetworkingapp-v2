@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Puzzle Acupuncture — Chi Mirror</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=IBM+Plex+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#0D0500;overflow:hidden;width:100vw;height:100vh}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+#ui{position:fixed;inset:0;pointer-events:none;font-family:'IBM Plex Mono',monospace}
+video{visibility:hidden;position:absolute;top:0;left:0;width:1px;height:1px;pointer-events:none}
+#controls{position:absolute;bottom:20px;left:20px;display:flex;flex-direction:column;gap:6px;pointer-events:all}
+#controls label{display:flex;align-items:center;gap:8px;font-size:7px;color:rgba(255,229,42,0.6);letter-spacing:.06em;font-family:'IBM Plex Mono',monospace}
+#controls input[type=range]{width:90px;accent-color:#F79A19;cursor:pointer}
+#emotion-panel{position:absolute;top:72px;right:20px;width:200px;background:rgba(13,5,0,0.85);border:1px solid rgba(255,107,53,0.4);border-radius:2px;padding:10px}
+#emotion-radar{position:static !important;width:180px !important;height:180px !important;display:block;margin:6px auto}
+</style>
+</head>
+<body>
+<video id="vid" autoplay playsinline muted></video>
+<canvas id="glc"></canvas>
+<canvas id="c"></canvas>
+<div id="ui">
+  <!-- Logo top-left -->
+  <div style="position:absolute;top:16px;left:20px;display:flex;align-items:center;gap:10px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;width:22px;height:22px">
+      <div style="background:#CF0F0F;border-radius:1px"></div>
+      <div style="border:1px solid #F79A19;border-radius:1px"></div>
+      <div style="background:#CF0F0F;border-radius:1px"></div>
+      <div style="border:1px solid #F79A19;border-radius:1px"></div>
+      <div style="background:#CF0F0F;border-radius:1px"></div>
+      <div style="border:1px solid #F79A19;border-radius:1px"></div>
+      <div style="background:#CF0F0F;border-radius:1px"></div>
+      <div style="border:1px solid #F79A19;border-radius:1px"></div>
+      <div style="background:#CF0F0F;border-radius:1px"></div>
+    </div>
+    <span style="font-family:'Press Start 2P',monospace;font-size:7px;color:#F79A19;letter-spacing:.05em">PUZZLE ACUT.</span>
+  </div>
+
+
+  <!-- Emotion panel right side -->
+  <div id="emotion-panel">
+    <div style="font-family:'Press Start 2P',monospace;font-size:6px;color:#F79A19;letter-spacing:.08em;margin-bottom:4px">情 EMOTION CHI</div>
+    <canvas id="emotion-radar"></canvas>
+    <div id="emotion-dominant" style="font-family:'IBM Plex Mono',monospace;font-size:7px;color:#FFE52A;letter-spacing:.05em;margin-top:4px;line-height:1.5"></div>
+    <div id="emotion-body" style="font-family:'IBM Plex Mono',monospace;font-size:7px;color:rgba(255,229,42,0.6);letter-spacing:.04em;margin-top:6px;line-height:1.6;border-top:1px solid rgba(247,154,25,0.2);padding-top:6px"></div>
+    <div id="emotion-care" style="font-family:'IBM Plex Mono',monospace;font-size:7px;color:rgba(187,203,100,0.7);letter-spacing:.04em;margin-top:6px;border-top:1px solid rgba(247,154,25,0.2);padding-top:6px"></div>
+    <div id="emotion-quote" style="font-family:'IBM Plex Mono',monospace;font-size:6px;color:rgba(247,154,25,0.5);letter-spacing:.03em;margin-top:8px;border-top:1px solid rgba(247,154,25,0.15);padding-top:6px;font-style:italic"></div>
+  </div>
+
+  <!-- Reading bottom-center -->
+  <div id="reading" style="position:absolute;bottom:110px;left:50%;transform:translateX(-50%);text-align:center;max-width:360px">
+    <p id="reading-text" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#FFE52A;letter-spacing:.06em;line-height:1.6"></p>
+  </div>
+
+  <!-- Loading indicator (removed on first Holistic result) -->
+  <div id="loading" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Press Start 2P',monospace;font-size:10px;color:#FF6B35;letter-spacing:.1em">LOADING CHI...</div>
+
+  <!-- Controls bottom-left -->
+  <div id="controls">
+    <label>SPEED  <input type="range" id="ctrl-speed" min="0.1" max="2.0" step="0.1"  value="1.0"></label>
+    <label>SCALE  <input type="range" id="ctrl-scale" min="0.5" max="3.0" step="0.1"  value="1.0"></label>
+    <label>PULSE  <input type="range" id="ctrl-pulse" min="0.0" max="1.0" step="0.05" value="0.5"></label>
+    <label>ORANGE <input type="range" id="ctrl-hue"   min="0.0" max="1.0" step="0.05" value="0.0"></label>
+  </div>
+</div>
+<script>
+const vid = document.getElementById('vid');
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+
+// WebGL setup
+const glCanvas = document.getElementById('glc');
+const gl = glCanvas.getContext('webgl') || glCanvas.getContext('experimental-webgl');
+
+function resizeGL() {
+  glCanvas.width  = window.innerWidth;
+  glCanvas.height = window.innerHeight;
+  if (gl) gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+}
+resizeGL();
+
+// ── Shaders ──────────────────────────────────────────────────────────────────
+const VS_SRC = `
+attribute vec2 a_pos;
+void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
+`;
+
+const FS_SRC = `
+precision mediump float;
+uniform float u_time;
+uniform float u_speed;
+uniform float u_cellScale;
+uniform float u_pulse;
+uniform float u_hueShift;
+uniform vec2  u_resolution;
+uniform vec2  u_motionXY;
+uniform float u_intensity;
+
+float voronoi(vec2 uv, float scale, float t) {
+  uv *= scale;
+  vec2 i = floor(uv);
+  vec2 f = fract(uv);
+  float minDist = 1.0;
+  for (int x = -1; x <= 1; x++) {
+    for (int y = -1; y <= 1; y++) {
+      vec2 n    = vec2(float(x), float(y));
+      vec2 cell = i + n;
+      float seed = dot(cell, vec2(127.1, 311.7));
+      vec2 center = 0.5 + 0.4 * vec2(
+        sin(seed * 6.28318 + t),
+        cos(seed * 5.17    + t)
+      );
+      minDist = min(minDist, length(n + center - f));
+    }
+  }
+  return minDist;
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution;
+
+  float warp = 0.15 + u_intensity * 0.3;
+  uv = mix(uv, u_motionXY, warp * 0.4);
+
+  float t  = u_time * u_speed;
+  float c1 = voronoi(uv, 5.0  * u_cellScale, t * 0.7);
+  float c2 = voronoi(uv, 10.0 * u_cellScale, t * 1.1);
+  float c3 = voronoi(uv, 20.0 * u_cellScale, t * 1.5);
+
+  float A       = c1;
+  float B       = mix(c2, c3, 0.5);
+  float pulse   = sin(u_time * 1.2) * 0.5 + 0.5;
+  float reaction = clamp((A - B + pulse * u_pulse * 0.3) * 2.0 + 0.5, 0.0, 1.0);
+  reaction = mix(reaction, pow(reaction, 0.5), u_intensity * 0.6);
+
+  vec3 colA  = vec3(0.05, 0.02, 0.0);
+  vec3 colB  = vec3(1.0, 0.42 + u_hueShift * 0.2, 0.21);
+  vec3 colC  = vec3(1.0, 0.85, 0.63);
+  vec3 color = reaction < 0.5
+    ? mix(colA, colB, reaction * 2.0)
+    : mix(colB, colC, (reaction - 0.5) * 2.0);
+
+  float edge    = 1.0 - smoothstep(0.0, 0.08, c1);
+  color        += vec3(1.0, 0.5, 0.2) * edge * 0.6;
+
+  vec2  vigUV   = uv - 0.5;
+  float vignette = clamp(1.0 - dot(vigUV, vigUV) * 1.5, 0.0, 1.0);
+  color *= vignette;
+
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
+
+function compileShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error('Shader error:', gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+function buildProgram() {
+  const vs   = compileShader(gl.VERTEX_SHADER,   VS_SRC);
+  const fs   = compileShader(gl.FRAGMENT_SHADER, FS_SRC);
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.error('Program link error:', gl.getProgramInfoLog(prog));
+    return null;
+  }
+  return prog;
+}
+
+let glProg     = null;
+let glUniforms = {};
+
+function initGL() {
+  if (!gl) return;
+  glProg = buildProgram();
+  if (!glProg) return;
+  gl.useProgram(glProg);
+
+  const verts = new Float32Array([-1,-1, 1,-1, -1,1, 1,1]);
+  const buf   = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+  const aPos = gl.getAttribLocation(glProg, 'a_pos');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  glUniforms = {
+    time:       gl.getUniformLocation(glProg, 'u_time'),
+    speed:      gl.getUniformLocation(glProg, 'u_speed'),
+    cellScale:  gl.getUniformLocation(glProg, 'u_cellScale'),
+    pulse:      gl.getUniformLocation(glProg, 'u_pulse'),
+    hueShift:   gl.getUniformLocation(glProg, 'u_hueShift'),
+    resolution: gl.getUniformLocation(glProg, 'u_resolution'),
+    motionXY:   gl.getUniformLocation(glProg, 'u_motionXY'),
+    intensity:  gl.getUniformLocation(glProg, 'u_intensity'),
+  };
+}
+
+initGL();
+
+function drawGL() {
+  if (!gl || !glProg) return;
+  gl.uniform1f(glUniforms.time,       performance.now() / 1000);
+  gl.uniform1f(glUniforms.speed,      parseFloat(document.getElementById('ctrl-speed')?.value  ?? 1.0));
+  gl.uniform1f(glUniforms.cellScale,  parseFloat(document.getElementById('ctrl-scale')?.value  ?? 1.0));
+  gl.uniform1f(glUniforms.pulse,      parseFloat(document.getElementById('ctrl-pulse')?.value  ?? 0.5));
+  gl.uniform1f(glUniforms.hueShift,   parseFloat(document.getElementById('ctrl-hue')?.value    ?? 0.0));
+  gl.uniform2f(glUniforms.resolution, glCanvas.width, glCanvas.height);
+  gl.uniform2f(glUniforms.motionXY,   window.motionData?.x ?? 0.5, window.motionData?.y ?? 0.5);
+  gl.uniform1f(glUniforms.intensity,  Math.min(1, (window.motionData?.intensity ?? 0) + gestureShaderBoost));
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+let landmarks = null; // 468 points [{x,y,z}] normalized 0-1
+let handLandmarks = { left: null, right: null };
+let poseLandmarks = null;
+window.motionData = { x: 0.5, y: 0.5, intensity: 0 };
+let gestureShaderBoost = 0;
+
+// ── Emotion Detection State ───────────────────────────────────────────────────
+// Smoothed scores (lerped, used for rendering)
+const emotionScores = { anger: 0, joy: 0, worry: 0, grief: 0, fear: 0 };
+// Raw target scores (updated every 500ms from face-api)
+const emotionTargets = { anger: 0, joy: 0, worry: 0, grief: 0, fear: 0 };
+let lastEmotionDetect = 0;
+let emotionDetectionInFlight = false;
+const EMOTION_LERP = 0.12;
+
+let prevHandCentroid = null;
+
+// Audio / Five Elements state
+let audioCtx, analyser, freqData;
+let elementLevels = { water: 0, wood: 0, fire: 0, earth: 0, metal: 0 };
+let dominantElement = 'fire';
+
+async function startAudio() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  audioCtx = new AudioContext();
+  const source = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  source.connect(analyser);
+  freqData = new Uint8Array(analyser.frequencyBinCount);
+}
+
+// Five Elements: map FFT bins to elements
+// At 44100Hz sample rate, fftSize 2048 → binCount 1024, each bin = ~43Hz
+function updateElements() {
+  if (!analyser) return;
+  analyser.getByteFrequencyData(freqData);
+  const sampleRate = audioCtx.sampleRate;
+  const binHz = sampleRate / analyser.fftSize;
+
+  function bandAvg(loHz, hiHz) {
+    const lo = Math.floor(loHz / binHz);
+    const hi = Math.min(Math.floor(hiHz / binHz), freqData.length - 1);
+    if (lo >= hi) return 0;
+    let sum = 0;
+    for (let i = lo; i <= hi; i++) sum += freqData[i];
+    return sum / (hi - lo + 1) / 255; // normalize 0-1
+  }
+
+  elementLevels.water = bandAvg(20, 80);
+  elementLevels.wood  = bandAvg(80, 250);
+  elementLevels.fire  = bandAvg(250, 2000);
+  elementLevels.earth = bandAvg(2000, 6000);
+  elementLevels.metal = bandAvg(6000, 20000);
+
+  dominantElement = Object.entries(elementLevels).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+// Helper: convert normalized landmark to canvas coords
+function lmToCanvas(lm) {
+  return { x: lm.x * canvas.width, y: lm.y * canvas.height };
+}
+
+const ACUPOINTS = [
+  { idx: 9,   name: 'Yintang',  code: 'EX-HN3', tip: 'Calms the Shen' },
+  { idx: 50,  name: 'ST3',      code: 'ST3',     tip: 'Grounds earth chi' },
+  { idx: 248, name: 'LI20',     code: 'LI20',    tip: 'Opens the lungs' },
+  { idx: 55,  name: 'BL2',      code: 'BL2',     tip: 'Clears the head' },
+  { idx: 352, name: 'TW23',     code: 'TW23',    tip: 'Harmonizes triple warmer' },
+  { idx: 151, name: 'GV24',     code: 'GV24',    tip: 'Lifts the spirit' },
+];
+
+const ELEMENT_CONFIG = {
+  water: { color: '#6B35FF', glowColor: 'rgba(107,53,255,', name: 'Water', organ: 'Kidney' },
+  wood:  { color: '#BBCB64', glowColor: 'rgba(187,203,100,', name: 'Wood',  organ: 'Liver'  },
+  fire:  { color: '#CF0F0F', glowColor: 'rgba(207,15,15,',   name: 'Fire',  organ: 'Heart'  },
+  earth: { color: '#FFE52A', glowColor: 'rgba(255,229,42,',  name: 'Earth', organ: 'Spleen' },
+  metal: { color: '#F0F0FF', glowColor: 'rgba(240,240,255,', name: 'Metal', organ: 'Lung'   },
+};
+
+const particles = [];
+const MAX_PARTICLES = 400;
+
+class Particle {
+  constructor(x, y, element, meridianDir) {
+    this.x = x;
+    this.y = y;
+    this.element = element;
+    const cfg = ELEMENT_CONFIG[element];
+    this.color = cfg.color;
+    this.glowColor = cfg.glowColor;
+    const angle = meridianDir + (Math.random() - 0.5) * 0.6;
+    const speed = 0.8 + Math.random() * 1.5;
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.life = 1.0;
+    this.decay = 0.008 + Math.random() * 0.012;
+    this.size = 2 + Math.random() * 3;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vx *= 0.98;
+    this.vy *= 0.98;
+    this.life -= this.decay;
+  }
+  draw(ctx) {
+    if (this.life <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = this.life * 0.85;
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function spawnAmbientParticles() {
+  if (particles.length >= MAX_PARTICLES * 0.3) return;
+  const x = Math.random() * canvas.width;
+  const y = canvas.height + 10;
+  const el = ['fire', 'earth', 'metal'][Math.floor(Math.random() * 3)];
+  const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.5;
+  const p = new Particle(x, y, el, angle);
+  p.vy = -0.5 - Math.random();
+  particles.push(p);
+}
+
+function spawnHandParticles() {
+  const tips = [4, 8, 12, 16, 20];
+  for (const side of ['left', 'right']) {
+    const hand = handLandmarks[side];
+    if (!hand) continue;
+    for (const idx of tips) {
+      if (particles.length >= MAX_PARTICLES) return;
+      const pt = lmToCanvas(hand[idx]);
+      const angle = Math.random() * Math.PI * 2;
+      particles.push(new Particle(pt.x, pt.y, dominantElement, angle));
+    }
+  }
+}
+
+function spawnPoseParticles() {
+  if (!poseLandmarks) return;
+  const segments = [[11, 13], [13, 15], [12, 14], [14, 16]];
+  for (const [a, b] of segments) {
+    if (particles.length >= MAX_PARTICLES) break;
+    const p0 = lmToCanvas(poseLandmarks[a]);
+    const p1 = lmToCanvas(poseLandmarks[b]);
+    const t  = Math.random();
+    const sx = p0.x + (p1.x - p0.x) * t;
+    const sy = p0.y + (p1.y - p0.y) * t;
+    const angle = Math.atan2(p1.y - p0.y, p1.x - p0.x);
+    particles.push(new Particle(sx, sy, dominantElement, angle));
+  }
+}
+
+// ── Gesture Detection ────────────────────────────────────────────────────────
+function isExtended(hand, tipIdx, baseIdx) {
+  return hand[tipIdx].y < hand[baseIdx].y - 0.04;
+}
+
+function detectGesture(hand) {
+  if (!hand) return null;
+  const index  = isExtended(hand, 8,  6);
+  const middle = isExtended(hand, 12, 10);
+  const ring   = isExtended(hand, 16, 14);
+  const pinky  = isExtended(hand, 20, 18);
+
+  if (index && middle && ring && pinky) return 'open_palm';
+  if (index && middle && !ring && !pinky) return 'peace';
+  if (index && !middle && !ring && !pinky) return 'point';
+  if (!index && !middle && !ring && !pinky) return 'fist';
+  return null;
+}
+
+function detectBothHandsRaised() {
+  if (!poseLandmarks) return false;
+  return poseLandmarks[15].y < poseLandmarks[11].y &&
+         poseLandmarks[16].y < poseLandmarks[12].y;
+}
+
+function detectNamaste() {
+  if (!handLandmarks.left || !handLandmarks.right) return false;
+  const dx = handLandmarks.left[0].x - handLandmarks.right[0].x;
+  const dy = handLandmarks.left[0].y - handLandmarks.right[0].y;
+  return Math.sqrt(dx * dx + dy * dy) < 0.1;
+}
+
+function processGestures() {
+  const leftGesture  = detectGesture(handLandmarks.left);
+  const rightGesture = detectGesture(handLandmarks.right);
+  let gesture = rightGesture || leftGesture;
+
+  if (detectBothHandsRaised()) gesture = 'both_raised';
+  if (detectNamaste()) gesture = 'namaste';
+
+  if (gesture !== activeGesture) {
+    activeGesture = gesture;
+    if (gesture) triggerGestureEffect(gesture);
+  }
+}
+
+function triggerGestureEffect(gesture) {
+  const readingEl = document.getElementById('reading-text');
+  if (readingEl && GESTURE_READINGS[gesture]) {
+    readingEl.textContent = GESTURE_READINGS[gesture];
+    clearTimeout(gestureReadingTimer);
+    gestureReadingTimer = setTimeout(() => {
+      const cfg = ELEMENT_UI[dominantElement];
+      if (cfg && readingEl) readingEl.textContent = cfg.readings[lastReadingIdx];
+    }, 3000);
+  }
+
+  switch (gesture) {
+    case 'open_palm':
+      gestureShaderBoost = 0.8;
+      for (let i = 0; i < 30 && particles.length < MAX_PARTICLES; i++) {
+        const x = Math.random() * canvas.width;
+        const p = new Particle(x, 0, 'earth', Math.PI / 2 + (Math.random() - 0.5) * 0.3);
+        p.vy = 0.8 + Math.random();
+        particles.push(p);
+      }
+      break;
+
+    case 'peace':
+      gestureShaderBoost = 0.5;
+      ['left', 'right'].forEach(side => {
+        const hand = handLandmarks[side];
+        if (!hand) return;
+        const pt = lmToCanvas(hand[9]);
+        for (let i = 0; i < 15 && particles.length < MAX_PARTICLES; i++) {
+          const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.8;
+          particles.push(new Particle(pt.x, pt.y, 'wood', angle));
+        }
+      });
+      break;
+
+    case 'point': {
+      gestureShaderBoost = 0.3;
+      const hand = handLandmarks.right || handLandmarks.left;
+      if (hand) {
+        const tip  = lmToCanvas(hand[8]);
+        const base = lmToCanvas(hand[6]);
+        const angle = Math.atan2(tip.y - base.y, tip.x - base.x);
+        for (let i = 0; i < 20 && particles.length < MAX_PARTICLES; i++) {
+          particles.push(new Particle(tip.x, tip.y, dominantElement, angle + (Math.random() - 0.5) * 0.2));
+        }
+      }
+      break;
+    }
+
+    case 'fist':
+      gestureShaderBoost = 1.0;
+      ['left', 'right'].forEach(side => {
+        const hand = handLandmarks[side];
+        if (!hand) return;
+        const pt = lmToCanvas(hand[9]);
+        for (let i = 0; i < 20 && particles.length < MAX_PARTICLES; i++) {
+          const startX = pt.x + (Math.random() - 0.5) * 200;
+          const startY = pt.y + (Math.random() - 0.5) * 200;
+          const angle = Math.atan2(pt.y - startY, pt.x - startX);
+          particles.push(new Particle(startX, startY, 'water', angle));
+        }
+      });
+      break;
+
+    case 'both_raised':
+      gestureShaderBoost = 0.6;
+      yangScore = Math.min(100, yangScore + 30);
+      break;
+
+    case 'namaste':
+      gestureShaderBoost = 0.4;
+      yangScore = yangScore * 0.7 + 50 * 0.3;
+      break;
+  }
+}
+
+function drawAcupoints(time) {
+  if (!landmarks) return;
+  const pulse = (Math.sin(time / 400) + 1) / 2;
+  const audioBoost = (elementLevels.fire + elementLevels.earth) * 2;
+  const coreR = 4 + pulse * 2;
+  const glowR = 14 + pulse * 6 + audioBoost * 8;
+
+  // Pick dominant emotion color, fallback to orange
+  let dotColor = '#F79A19';
+  let mbMaxScore = 0;
+  for (const em of RADAR_EMOTIONS) {
+    if (emotionScores[em.key] > mbMaxScore) { mbMaxScore = emotionScores[em.key]; dotColor = em.color; }
+  }
+
+  for (const ap of ACUPOINTS) {
+    const pt = lmToCanvas(landmarks[ap.idx]);
+
+    // Outer glow
+    const grad = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, glowR);
+    grad.addColorStop(0,   dotColor + 'cc');
+    grad.addColorStop(0.4, dotColor + '55');
+    grad.addColorStop(1,   dotColor + '00');
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, glowR, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Bright core
+    ctx.save();
+    ctx.shadowColor = dotColor;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, coreR, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.restore();
+
+    // Label
+    ctx.save();
+    ctx.globalAlpha = 0.55 + pulse * 0.35;
+    ctx.fillStyle = '#FFE52A';
+    ctx.font = '7px IBM Plex Mono';
+    ctx.fillText(ap.code, pt.x + 8, pt.y + 3);
+    ctx.restore();
+  }
+}
+
+function updateYinYang() {
+  if (!landmarks) return;
+  const nose = lmToCanvas(landmarks[4]);
+
+  if (prevNoseX !== null) {
+    const dx = nose.x - prevNoseX;
+    const dy = nose.y - prevNoseY;
+    const velocity = Math.sqrt(dx * dx + dy * dy);
+
+    const targetYang = Math.min(100, velocity * 10);
+    yangScore = yangScore * 0.92 + targetYang * 0.08;
+
+    stillFrames = velocity < 0.5 ? stillFrames + 1 : 0;
+  }
+
+  prevNoseX = nose.x;
+  prevNoseY = nose.y;
+}
+
+function drawYinYangMeter() {
+  const cx = canvas.width / 2;
+  const cy = canvas.height - 60;
+  const r = 50;
+  const startAngle = Math.PI + 0.3;
+  const total = Math.PI * 2 - 0.6;
+
+  ctx.save();
+
+  // Background arc
+  ctx.globalAlpha = 0.3;
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startAngle, startAngle + total);
+  ctx.stroke();
+
+  // Yang fill
+  const fillEnd = startAngle + (yangScore / 100) * total;
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = yangScore > 70 ? '#CF0F0F' : yangScore < 30 ? '#BBCB64' : '#FFE52A';
+  ctx.shadowColor = ctx.strokeStyle;
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startAngle, fillEnd);
+  ctx.stroke();
+
+  // Labels
+  ctx.globalAlpha = 0.5;
+  ctx.shadowBlur = 0;
+  ctx.font = '7px IBM Plex Mono';
+  ctx.fillStyle = '#BBCB64';
+  ctx.fillText('YIN', cx - r - 20, cy + 5);
+  ctx.fillStyle = '#CF0F0F';
+  ctx.fillText('YANG', cx + r + 4, cy + 5);
+
+  // Status text
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = '#FFE52A';
+  ctx.font = '8px IBM Plex Mono';
+  ctx.textAlign = 'center';
+  const status = yangScore > 70 ? 'excess yang — breathe' : yangScore < 30 ? 'stagnant qi — move' : 'balanced chi';
+  ctx.fillText(status, cx, cy + 20);
+  ctx.textAlign = 'left';
+
+  ctx.restore();
+}
+
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  resizeGL();
+}
+resize();
+window.addEventListener('resize', resize);
+
+function updateMotionData() {
+  const pts = [];
+  if (handLandmarks.left)  pts.push(...handLandmarks.left);
+  if (handLandmarks.right) pts.push(...handLandmarks.right);
+  if (pts.length === 0 && landmarks) pts.push(landmarks[4]); // fallback: nose
+
+  if (pts.length === 0) return;
+
+  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+
+  let intensity = 0;
+  if (prevHandCentroid) {
+    const dx = cx - prevHandCentroid.x;
+    const dy = cy - prevHandCentroid.y;
+    intensity = Math.min(1, Math.sqrt(dx * dx + dy * dy) * 20);
+  }
+  prevHandCentroid = { x: cx, y: cy };
+
+  window.motionData = {
+    x: cx,
+    y: 1 - cy,
+    intensity: (window.motionData.intensity || 0) * 0.85 + intensity * 0.15,
+  };
+}
+
+// MediaPipe Holistic (face + hands + pose)
+const holistic = new Holistic({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${f}` });
+holistic.setOptions({
+  modelComplexity: 1,
+  smoothLandmarks: true,
+  refineFaceLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5,
+});
+holistic.onResults(results => {
+  document.getElementById('loading')?.remove();
+  landmarks           = results.faceLandmarks             || null;
+  poseLandmarks       = results.poseLandmarks             || null;
+  handLandmarks.left  = results.leftHandLandmarks         || null;
+  handLandmarks.right = results.rightHandLandmarks        || null;
+  updateMotionData();
+});
+
+const camera = new Camera(vid, {
+  onFrame: async () => { await holistic.send({ image: vid }); },
+  width: 640, height: 480
+});
+camera.start();
+startAudio().catch(console.error);
+
+// ── face-api.js: load models for emotion detection ────────────────────────────
+const FACEAPI_MODELS_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights/';
+let faceApiReady = false;
+
+Promise.all([
+  faceapi.nets.tinyFaceDetector.loadFromUri(FACEAPI_MODELS_URL),
+  faceapi.nets.faceExpressionNet.loadFromUri(FACEAPI_MODELS_URL),
+]).then(() => {
+  faceApiReady = true;
+  console.log('face-api models loaded');
+}).catch(err => {
+  console.warn('face-api load error:', err);
+  const el = document.getElementById('reading-text');
+  if (el) el.textContent = 'emotion scan unavailable';
+});
+
+async function runEmotionDetection() {
+  if (!faceApiReady || emotionDetectionInFlight) return;
+  const now = Date.now();
+  if (now - lastEmotionDetect < 500) return;
+  lastEmotionDetect = now;
+  emotionDetectionInFlight = true;
+
+  try {
+    if (vid.readyState < 2 || !vid.videoWidth) return;
+    const result = await faceapi
+      .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.2 }))
+      .withFaceExpressions();
+
+    if (!result) {
+      // No face — decay targets toward zero
+      for (const k in emotionTargets) emotionTargets[k] *= 0.8;
+      return;
+    }
+
+    const e = result.expressions;
+    // Map face-api 7 expressions → 5 TCM emotions
+    emotionTargets.anger = e.angry;
+    emotionTargets.joy   = e.happy;
+    emotionTargets.grief = (e.sad + e.disgusted) / 2;
+    emotionTargets.fear  = e.fearful;
+    emotionTargets.worry = e.surprised;
+  } catch (err) {
+    // Silently ignore — detection errors are transient
+  } finally {
+    emotionDetectionInFlight = false;
+  }
+}
+
+let prevNoseX = null, prevNoseY = null;
+let yangScore = 50;
+let stillFrames = 0;
+const ELEMENT_UI = {
+  water: { icon: '💧', color: '#6B35FF', name: 'Water', readings: [
+    'Kidney chi flowing — rest is medicine',
+    'Water nourishes Wood — trust the process',
+    'Deep reserves within you — draw from them',
+  ]},
+  wood:  { icon: '🌿', color: '#BBCB64', name: 'Wood', readings: [
+    'Liver awake — let the tension move through',
+    'Wood energy rises — vision is clear today',
+    'Growth requires release — what can you let go?',
+  ]},
+  fire:  { icon: '🔥', color: '#CF0F0F', name: 'Fire', readings: [
+    'Heart energy rising — stay present, breathe',
+    'Fire warms the spirit — connection is near',
+    'Yang is high — channel it with intention',
+  ]},
+  earth: { icon: '🌕', color: '#FFE52A', name: 'Earth', readings: [
+    'Spleen grounded — nourish yourself today',
+    'Earth steadies all — you are supported',
+    'Center holds — digest what you have received',
+  ]},
+  metal: { icon: '✨', color: '#F0F0FF', name: 'Metal', readings: [
+    'Lung clarity — release what no longer serves',
+    'Metal purifies — breathe in, let go',
+    'Autumn energy — honor endings and beginnings',
+  ]},
+};
+
+const GESTURE_READINGS = {
+  open_palm:   'Open channels — chi flows freely',
+  peace:       'Creative force rising — Wood energy',
+  point:       'Where intention goes, energy follows',
+  fist:        'Gathering jing — store your essence',
+  both_raised: 'Heart fire — lifting the spirit',
+  namaste:     'Shen is clear — heart and mind united',
+};
+
+// ── TCM Emotion Content (from 黄帝内经 + classical sources) ──────────────────
+const TCM_EMOTION_DATA = {
+  anger: {
+    zh: '怒', organ: 'Liver 肝',
+    qi:    '怒则气上 — qi rises like a kettle lid blown off',
+    body:  'Watch: chest tight, sighing, red eyes, headache',
+    care:  'Care for 肝 Liver — massage your ribs, breathe out tension',
+    quote: '怒则气上，伤肝 — Anger rises, strains the Liver',
+  },
+  joy: {
+    zh: '喜', organ: 'Heart 心',
+    qi:    '喜则气缓 — qi scatters like a balloon releasing air',
+    body:  'Watch: insomnia, restlessness, scattered focus',
+    care:  'Care for 心 Heart — rest, slow your breath, be still',
+    quote: '喜则气缓，伤心 — Joy scatters, strains the Heart',
+  },
+  worry: {
+    zh: '思', organ: 'Spleen 脾',
+    qi:    '思则气结 — qi knots like a tangled rope',
+    body:  'Watch: bloating, poor appetite, digestive discomfort',
+    care:  'Care for 脾 Spleen — rub abdomen clockwise, walk slowly',
+    quote: '思则气结，伤脾 — Worry knots, strains the Spleen',
+  },
+  grief: {
+    zh: '悲', organ: 'Lung 肺',
+    qi:    '悲则气消 — qi drains like a leaking balloon',
+    body:  'Watch: shallow breath, dry skin, low energy',
+    care:  'Care for 肺 Lung — tap chest, breathe deeply, let go',
+    quote: '悲则气消，伤肺 — Grief drains, strains the Lung',
+  },
+  fear: {
+    zh: '恐', organ: 'Kidney 肾',
+    qi:    '恐则气下 — qi sinks like a sudden drop',
+    body:  'Watch: weak knees, lower back ache, fatigue',
+    care:  'Care for 肾 Kidney — warm your lower back, rub your ears',
+    quote: '恐则气下，伤肾 — Fear sinks, strains the Kidney',
+  },
+};
+
+let lastElementForUI = null;
+let lastReadingIdx = 0;
+
+function updateUI() {
+  const el = dominantElement;
+  if (el === lastElementForUI) return;
+  lastElementForUI = el;
+  const cfg = ELEMENT_UI[el];
+  const iconEl = document.getElementById('element-icon');
+  const nameEl = document.getElementById('element-name');
+  const badgeEl = document.getElementById('element-badge');
+  const readingEl = document.getElementById('reading-text');
+  if (iconEl) iconEl.textContent = cfg.icon;
+  if (nameEl) { nameEl.textContent = cfg.name.toUpperCase(); nameEl.style.color = cfg.color; }
+  if (badgeEl) badgeEl.style.borderColor = cfg.color;
+  lastReadingIdx = (lastReadingIdx + 1) % cfg.readings.length;
+  if (readingEl) readingEl.textContent = cfg.readings[lastReadingIdx];
+}
+
+let lastDominantEmotion = null;
+
+function updateEmotionPanel() {
+  let dominant = null;
+  let maxScore = 0.08;
+  for (const k in emotionScores) {
+    if (emotionScores[k] > maxScore) { maxScore = emotionScores[k]; dominant = k; }
+  }
+
+  const domEl   = document.getElementById('emotion-dominant');
+  const bodyEl  = document.getElementById('emotion-body');
+  const careEl  = document.getElementById('emotion-care');
+  const quoteEl = document.getElementById('emotion-quote');
+
+  if (!domEl) return;
+
+  if (!dominant) {
+    lastDominantEmotion = null;
+    domEl.textContent  = '— balanced —';
+    bodyEl.textContent = '';
+    careEl.textContent = '';
+    if (quoteEl) quoteEl.textContent = '';
+    return;
+  }
+
+  const data = TCM_EMOTION_DATA[dominant];
+  const domColor = RADAR_EMOTIONS.find(e => e.key === dominant)?.color || '#FFE52A';
+  if (dominant !== lastDominantEmotion) {
+    lastDominantEmotion = dominant;
+    domEl.textContent = `${data.zh} ${dominant.toUpperCase()} — ${data.organ}`;
+    domEl.style.color = domColor;
+    const panel = document.getElementById('emotion-panel');
+    if (panel) panel.style.borderColor = domColor + '80';
+    bodyEl.innerHTML = `<span style="opacity:0.5">qi:</span> ${data.qi}<br><span style="opacity:0.5">body:</span> ${data.body}`;
+    careEl.textContent = data.care;
+    if (quoteEl) quoteEl.textContent = data.quote;
+  }
+}
+
+function checkChiScan() {
+  if (stillFrames >= STILL_THRESHOLD && !chiScanActive && landmarks) {
+    chiScanActive = true;
+    chiScanFrame = 0;
+    stillFrames = 0;
+    ACUPOINTS.forEach(ap => {
+      const pt = lmToCanvas(landmarks[ap.idx]);
+      for (let i = 0; i < 15 && particles.length < MAX_PARTICLES; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        particles.push(new Particle(pt.x, pt.y, dominantElement, angle));
+      }
+    });
+  }
+}
+
+function drawChiScan() {
+  if (!chiScanActive) return;
+  chiScanFrame++;
+  const progress = chiScanFrame / CHI_SCAN_FRAMES;
+  const cfg = ELEMENT_CONFIG[dominantElement];
+
+  if (progress < 0.5) {
+    const r = progress * 2 * Math.min(canvas.width, canvas.height) * 0.6;
+    ctx.save();
+    ctx.globalAlpha = (1 - progress * 2) * 0.3;
+    ctx.strokeStyle = cfg.color;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = cfg.color;
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  if (chiScanFrame === 20 || chiScanFrame === 40) {
+    ctx.save();
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = cfg.color;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  }
+
+  if (chiScanFrame >= CHI_SCAN_FRAMES) chiScanActive = false;
+}
+
+// ── Emotion Radar Chart ───────────────────────────────────────────────────────
+const radarCanvas = document.getElementById('emotion-radar');
+const radarCtx = radarCanvas ? radarCanvas.getContext('2d') : null;
+if (radarCanvas) { radarCanvas.width = 180; radarCanvas.height = 180; }
+
+const RADAR_EMOTIONS = [
+  { key: 'anger', zh: '怒', en: 'Anger', color: '#CF0F0F' },
+  { key: 'joy',   zh: '喜', en: 'Joy',   color: '#F79A19' },
+  { key: 'grief', zh: '悲', en: 'Grief', color: '#BBCB64' },
+  { key: 'fear',  zh: '恐', en: 'Fear',  color: '#9DB84E' },
+  { key: 'worry', zh: '思', en: 'Worry', color: '#FFE52A' },
+];
+
+function drawEmotionRadar() {
+  if (!radarCtx) return;
+
+  const W = 180, H = 180;
+
+  const cx = W / 2, cy = H / 2;
+  const R  = 68;
+  const N  = RADAR_EMOTIONS.length;
+
+  radarCtx.clearRect(0, 0, W, H);
+
+  // Compute dominant emotion color for polygon
+  let radarDomColor = '#FFE52A';
+  let radarDomScore = 0;
+  RADAR_EMOTIONS.forEach(em => {
+    if (emotionScores[em.key] > radarDomScore) { radarDomScore = emotionScores[em.key]; radarDomColor = em.color; }
+  });
+
+  // Draw grid rings
+  [0.33, 0.66, 1.0].forEach(frac => {
+    radarCtx.save();
+    radarCtx.globalAlpha = 0.12;
+    radarCtx.strokeStyle = '#888';
+    radarCtx.lineWidth = 0.5;
+    radarCtx.beginPath();
+    for (let i = 0; i < N; i++) {
+      const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+      const x = cx + Math.cos(angle) * R * frac;
+      const y = cy + Math.sin(angle) * R * frac;
+      i === 0 ? radarCtx.moveTo(x, y) : radarCtx.lineTo(x, y);
+    }
+    radarCtx.closePath();
+    radarCtx.stroke();
+    radarCtx.restore();
+  });
+
+  // Draw axis lines + labels
+  RADAR_EMOTIONS.forEach((em, i) => {
+    const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+    const tipX  = cx + Math.cos(angle) * R;
+    const tipY  = cy + Math.sin(angle) * R;
+
+    radarCtx.save();
+    radarCtx.globalAlpha = 0.3;
+    radarCtx.strokeStyle = em.color;
+    radarCtx.lineWidth = 0.5;
+    radarCtx.beginPath();
+    radarCtx.moveTo(cx, cy);
+    radarCtx.lineTo(tipX, tipY);
+    radarCtx.stroke();
+    radarCtx.restore();
+
+    const labelX = cx + Math.cos(angle) * (R + 14);
+    const labelY = cy + Math.sin(angle) * (R + 14);
+    const score  = emotionScores[em.key];
+    const alpha  = 0.4 + score * 0.6;
+
+    radarCtx.save();
+    radarCtx.globalAlpha = alpha;
+    radarCtx.fillStyle = em.color;
+    radarCtx.font = 'bold 9px IBM Plex Mono';
+    radarCtx.textAlign = 'center';
+    radarCtx.textBaseline = 'middle';
+    radarCtx.fillText(em.zh, labelX, labelY - 5);
+    radarCtx.font = '6px IBM Plex Mono';
+    radarCtx.globalAlpha = alpha * 0.7;
+    radarCtx.fillText(em.en, labelX, labelY + 5);
+    radarCtx.restore();
+  });
+
+  // Cache vertex positions to avoid duplicate calculation
+  const vertexPositions = RADAR_EMOTIONS.map((em, i) => {
+    const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+    const r = Math.max(0.05, emotionScores[em.key]) * R;
+    return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r, score: emotionScores[em.key] };
+  });
+
+  // Draw filled polygon
+  radarCtx.save();
+  radarCtx.beginPath();
+  vertexPositions.forEach(({ x, y }, i) => {
+    i === 0 ? radarCtx.moveTo(x, y) : radarCtx.lineTo(x, y);
+  });
+  radarCtx.closePath();
+  // Parse dominant color to rgba fill
+  radarCtx.fillStyle = radarDomColor + '30'; // ~19% opacity hex
+  radarCtx.fill();
+  radarCtx.strokeStyle = radarDomColor;
+  radarCtx.lineWidth = 1.5;
+  radarCtx.shadowColor = radarDomColor;
+  radarCtx.shadowBlur = 8;
+  radarCtx.stroke();
+  radarCtx.restore();
+
+  // Draw dots at each vertex
+  vertexPositions.forEach(({ x, y, score }, i) => {
+    const dotColor = RADAR_EMOTIONS[i].color;
+    radarCtx.save();
+    radarCtx.globalAlpha = 0.6 + score * 0.4;
+    radarCtx.fillStyle = dotColor;
+    radarCtx.shadowColor = dotColor;
+    radarCtx.shadowBlur = score > 0.3 ? 10 : 2;
+    radarCtx.beginPath();
+    radarCtx.arc(x, y, 2.5, 0, Math.PI * 2);
+    radarCtx.fill();
+    radarCtx.restore();
+  });
+}
+
+let activeGesture = null;
+let gestureReadingTimer = 0;
+let chiScanActive = false;
+let chiScanFrame = 0;
+const CHI_SCAN_FRAMES = 90;
+const STILL_THRESHOLD = 180;
+
+function render() {
+  drawGL();
+  // Smooth emotion scores toward targets
+  for (const k in emotionScores) {
+    emotionScores[k] = emotionScores[k] * (1 - EMOTION_LERP) + emotionTargets[k] * EMOTION_LERP;
+  }
+  // Trigger async detection (non-blocking)
+  runEmotionDetection();
+  updateElements();
+
+  // Fade trail
+  ctx.fillStyle = 'rgba(13, 5, 0, 0.12)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Spawn particles
+  if (!landmarks) {
+    if (Math.random() < 0.2) spawnAmbientParticles();
+  }
+  if (Math.random() < 0.3) spawnHandParticles();
+  if (Math.random() < 0.2) spawnPoseParticles();
+
+  // Update + draw particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    particles[i].update();
+    particles[i].draw(ctx);
+    if (particles[i].life <= 0) particles.splice(i, 1);
+  }
+
+  drawAcupoints(Date.now());
+  updateYinYang();
+  processGestures();
+  if (gestureShaderBoost > 0.001) gestureShaderBoost *= 0.97;
+  else gestureShaderBoost = 0;
+  drawYinYangMeter();
+  updateUI();
+  checkChiScan();
+  drawChiScan();
+  drawEmotionRadar();
+  updateEmotionPanel();
+
+  requestAnimationFrame(render);
+}
+render();
+</script>
+</body>
+</html>

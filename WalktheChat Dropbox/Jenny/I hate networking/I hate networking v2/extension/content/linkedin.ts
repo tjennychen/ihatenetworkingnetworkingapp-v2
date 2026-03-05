@@ -2,42 +2,101 @@ function getMain(): Element {
   return document.querySelector('main') ?? document.body
 }
 
+// Walk up from the <h1> (person's name) to find the profile top card section.
+// This keeps button searches scoped away from the "More profiles" sidebar.
+function getProfileTopCard(): Element {
+  const h1 = document.querySelector('h1')
+  if (h1) {
+    let el: Element | null = h1.parentElement
+    for (let i = 0; i < 8 && el && el !== document.documentElement; i++) {
+      if (el.tagName === 'SECTION') return el
+      el = el.parentElement
+    }
+  }
+  return getMain()
+}
+
+// Dispatch full native mouse event sequence — LinkedIn ignores synthetic .click() on some buttons
+function nativeClick(el: HTMLElement): void {
+  for (const evt of ['mouseover', 'mousedown', 'mouseup', 'click'] as const) {
+    el.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }))
+  }
+}
+
 function findButtonByText(text: string, root: Element = document.body): HTMLButtonElement | null {
+  const lower = text.toLowerCase()
+  // Prefer exact match, fall back to trimmed-includes to handle LinkedIn's nested spans/icons
+  const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('button'))
   return (
-    Array.from(root.querySelectorAll('button'))
-      .find(b => b.textContent?.trim() === text) as HTMLButtonElement ?? null
+    buttons.find(b => b.textContent?.trim() === text) ??
+    buttons.find(b => b.textContent?.trim().toLowerCase().includes(lower)) ??
+    null
   )
 }
 
 function findConnectButton(): HTMLButtonElement | null {
   const main = getMain()
+  // Primary: bare wildcard matches both "Connect" and "Connect with Jenny" aria-labels (reference: button[aria-label*="Connect"])
   const direct = main.querySelector<HTMLButtonElement>(
-    '[aria-label*="Connect with"], button[aria-label*="Invite"], [data-control-name="connect"]'
+    'button[aria-label*="Connect"], [aria-label*="Connect with"], button[aria-label*="Invite"], [data-control-name="connect"]'
   )
   if (direct) return direct
-  return findButtonByText('Connect', main)
+  // If a dropdown/menu is currently open, search it for Connect.
+  // LinkedIn's artdeco-dropdown uses CSS classes, NOT role="menu" — check both.
+  const openMenu = document.querySelector<Element>(
+    '[role="menu"], .artdeco-dropdown__content--is-open, [data-test-dropdown-content]'
+  )
+  if (openMenu) {
+    // Check aria-label first (reference pattern), then text content fallback
+    const ariaBtn = openMenu.querySelector<HTMLButtonElement>('[aria-label*="Connect"]')
+    if (ariaBtn) return ariaBtn
+    const inMenu = findButtonByText('Connect', openMenu)
+    if (inMenu) return inMenu
+    // LinkedIn sometimes renders the Connect option as div[role="button"], not <button>
+    const divBtn = openMenu.querySelector<HTMLElement>(
+      'div[role="button"][aria-label*="Invite"][aria-label*="connect"], div[role="button"][aria-label*="connect" i]'
+    )
+    if (divBtn) return divBtn as unknown as HTMLButtonElement
+  }
+  // Fallback: search [role="menuitem"] / [role="option"] items anywhere on page —
+  // these only exist when a dropdown is open, so no risk of hitting sidebar buttons.
+  const menuItems = Array.from(document.querySelectorAll<HTMLElement>(
+    '[role="menuitem"], [role="option"], .artdeco-dropdown__item'
+  ))
+  const connectItem = menuItems.find(el =>
+    /^connect$/i.test(el.textContent?.trim() ?? '') ||
+    el.textContent?.trim().toLowerCase().startsWith('connect')
+  )
+  if (connectItem) return connectItem as unknown as HTMLButtonElement
+  // Last resort: scope text search to profile top card (handles inline dropdowns)
+  return findButtonByText('Connect', getProfileTopCard())
 }
 
 async function openMoreActionsIfNeeded(): Promise<void> {
-  const main = getMain()
-  const moreBtn = main.querySelector<HTMLButtonElement>(
-    "button[aria-label='More actions'], button[aria-label*='More member actions']"
-  )
+  const topCard = getProfileTopCard()
+  // Use wildcard for "More actions" to match "More actions for [Name]" variants (reference: button[aria-label*="More actions"])
+  // Also include "Resources" — LinkedIn renamed "More" to "Resources" in October 2024 on some profiles
+  const moreBtn = topCard.querySelector<HTMLButtonElement>(
+    "button[aria-label*='More actions'], button[aria-label*='More member actions'], button[aria-label*='Resources']"
+  ) ?? findButtonByText('More', topCard) ?? findButtonByText('Resources', topCard)
   if (moreBtn) {
     moreBtn.click()
-    await new Promise(r => setTimeout(r, 600))
+    await new Promise(r => setTimeout(r, 800))
   }
 }
 
 async function dismissPremiumPaywall(): Promise<boolean> {
   const paywall = document.querySelector(
-    '[class*="premium-upsell"], [class*="premium_upsell"], [data-test-modal*="premium"], ' +
-    '[class*="upsell"], [aria-label*="Premium"]'
+    '[class*="premium-upsell"], [class*="premium_upsell"], [data-test-modal*="premium"], [aria-label*="Premium"]'
   )
-  if (!paywall) return false
-  const closeBtn = document.querySelector<HTMLButtonElement>(
-    '[aria-label="Dismiss"], [aria-label="Close"], [data-test-modal-close-btn], button[data-modal-dismiss]'
-  )
+  // Also detect "out of free custom notes" modal by presence of "Reactivate Premium" button
+  const reactivateBtn = findButtonByText('Reactivate Premium')
+  if (!paywall && !reactivateBtn) return false
+  // Find close button; fall back to any dismiss button in the same dialog
+  const dialog = (reactivateBtn ?? paywall)?.closest('[role="dialog"]') ?? document
+  const closeBtn =
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Dismiss"], [aria-label="Close"], [data-test-modal-close-btn], button[data-modal-dismiss]') ??
+    document.querySelector<HTMLButtonElement>('[aria-label="Dismiss"], [aria-label="Close"]')
   closeBtn?.click()
   await new Promise(r => setTimeout(r, 500))
   return true
@@ -52,8 +111,21 @@ function namesMatch(pageName: string, expectedName: string): boolean {
   if (!expectedName) return true // no expectation, allow
   const normalize = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '').trim()
   const page = normalize(pageName)
+  const pageWords = page.split(/\s+/)
   const parts = normalize(expectedName).split(/\s+/).filter(Boolean)
-  return parts.every(part => page.includes(part))
+  return parts.every(part =>
+    page.includes(part) ||
+    // LinkedIn abbreviates last names to "F." for privacy — accept single-letter match
+    pageWords.some(w => w.length === 1 && part.startsWith(w))
+  )
+}
+
+function getNoteQuotaReached(): Promise<boolean> {
+  return new Promise(resolve => chrome.storage.local.get('noteQuotaReached', r => resolve(!!r.noteQuotaReached)))
+}
+
+function setNoteQuotaReached(): Promise<void> {
+  return new Promise(resolve => chrome.storage.local.set({ noteQuotaReached: true }, resolve))
 }
 
 async function sendConnection(note?: string, expectedName?: string): Promise<{ success: boolean; error?: string }> {
@@ -70,14 +142,9 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
 
   const main = getMain()
 
-  // Check for already-pending request (scope to main profile section)
+  // Check for already-pending request
   if (findButtonByText('Pending', main) || findButtonByText('Withdraw', main)) {
     return { success: false, error: 'already_pending' }
-  }
-
-  // Check for already-connected (primary action is "Message", no Connect)
-  if (findButtonByText('Message', main) && !findConnectButton()) {
-    return { success: false, error: 'already_connected' }
   }
 
   // Check degree — LinkedIn shows "3rd+" near the name
@@ -85,11 +152,17 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   const degree = degreeEl?.textContent?.trim() ?? ''
   const isThirdDegree = degree.startsWith('3')
 
+  // Try Connect directly first, then open "More" if needed
+  // (2nd-degree connections often hide Connect under "More" button)
   let connectBtn = findConnectButton()
-
   if (!connectBtn) {
     await openMoreActionsIfNeeded()
     connectBtn = findConnectButton()
+  }
+
+  // Only now check already-connected — after we've tried More
+  if (!connectBtn && findButtonByText('Message', main)) {
+    return { success: false, error: 'already_connected' }
   }
 
   if (!connectBtn) {
@@ -97,13 +170,36 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     return { success: false, error: 'connect_not_available' }
   }
 
-  connectBtn.click()
+  nativeClick(connectBtn)
   await new Promise(r => setTimeout(r, 800 + Math.random() * 700))
+
+  // Check for LinkedIn error toast (e.g. "You've reached the weekly invitation limit")
+  const errorToast = document.querySelector('div[data-test-artdeco-toast-item-type="error"]')
+  if (errorToast) {
+    return { success: false, error: `linkedin_error: ${errorToast.textContent?.trim() ?? 'unknown'}` }
+  }
+
+  // Verify the invite dialog is for the right person — LinkedIn modal says
+  // "Personalize your invitation to [Name]" so we can cross-check the name.
+  // This catches clicks that accidentally landed on a sidebar recommendation.
+  if (expectedName) {
+    const dialog = document.querySelector('[role="dialog"]')
+    if (dialog) {
+      const dialogText = dialog.textContent ?? ''
+      if (!namesMatch(dialogText, expectedName)) {
+        // Wrong person's dialog — close it and bail
+        dialog.querySelector<HTMLButtonElement>('[aria-label="Dismiss"], [aria-label="Close"]')?.click()
+        return { success: false, error: `wrong_connect_modal: expected "${expectedName}"` }
+      }
+    }
+  }
 
   // Dismiss any premium popup that appears immediately after clicking Connect
   await dismissPremiumPaywall()
 
-  if (note) {
+  const noteQuotaReached = await getNoteQuotaReached()
+
+  if (note && !noteQuotaReached) {
     const addNoteBtn = findButtonByText('Add a note')
     if (addNoteBtn) {
       addNoteBtn.click()
@@ -123,31 +219,64 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
           await new Promise(r => setTimeout(r, 300))
         }
       } else {
-        // Note quota hit — back on profile page, retry Connect to get the modal again
-        await new Promise(r => setTimeout(r, 800))
-        let retryBtn = findConnectButton()
-        if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
-        if (!retryBtn) return { success: false, error: 'note_quota_reached' }
-        retryBtn.click()
-        await new Promise(r => setTimeout(r, 800 + Math.random() * 500))
+        // Note quota hit — remember this so future connections skip the note entirely
+        await setNoteQuotaReached()
+        await new Promise(r => setTimeout(r, 600))
+        // If "Send without a note" is already visible the connect modal is still open
+        // (paywall was an overlay on it) — no need to re-click Connect
+        if (!findButtonByText('Send without a note')) {
+          // Modal closed after paywall — need to re-find and re-click Connect
+          let retryBtn = findConnectButton()
+          if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
+          if (!retryBtn) return { success: false, error: 'note_quota_reached' }
+          nativeClick(retryBtn)
+          await new Promise(r => setTimeout(r, 800 + Math.random() * 500))
+        }
         // Fall through — sendBtn search below will find "Send without a note"
       }
     }
   }
 
+  // LinkedIn hosts modal content inside #interop-outlet shadow root — check there first
+  const shadowHost = document.querySelector<HTMLElement>('#interop-outlet')
+  const shadowSendBtn = shadowHost?.shadowRoot?.querySelector<HTMLButtonElement>(
+    'button[aria-label="Send without a note"], button[aria-label="Send now"], button.artdeco-button--primary'
+  ) ?? null
+
   const sendBtn =
+    shadowSendBtn ??
     findButtonByText('Send') ??
     findButtonByText('Send without a note') ??
-    document.querySelector<HTMLButtonElement>('[aria-label="Send now"]')
+    document.querySelector<HTMLButtonElement>('[aria-label="Send now"]') ??
+    document.querySelector<HTMLButtonElement>('div.send-invite button.artdeco-button--primary') ??
+    // Reference fallback: data-control-name="send_invite" for older LinkedIn modal variants
+    document.querySelector<HTMLButtonElement>('[data-control-name="send_invite"]')
 
   if (!sendBtn) {
     return { success: false, error: 'send_btn_not_found' }
   }
 
-  sendBtn.click()
+  nativeClick(sendBtn)
   await new Promise(r => setTimeout(r, 500))
 
+  // Text-based weekly limit check — won't break when LinkedIn changes class names
+  const bodyText = document.body.innerText
+  if (bodyText.includes('weekly invitation limit') || bodyText.includes('reached the weekly')) {
+    return { success: false, error: 'weekly_limit_reached' }
+  }
+
   return { success: true }
+}
+
+function extractNameFromHtml(html: string): string {
+  // og:title is cleanest (just the name, no suffix)
+  const ogMatch = html.match(/property="og:title"\s+content="([^"]+)"/)
+    ?? html.match(/content="([^"]+)"\s+property="og:title"/)
+  if (ogMatch) return ogMatch[1].trim()
+  // Fall back to <title> and strip " | LinkedIn" etc.
+  const titleMatch = html.match(/<title>([^<]+)<\/title>/)
+  if (titleMatch) return titleMatch[1].replace(/\s*[|\-–]\s*.*$/i, '').trim()
+  return ''
 }
 
 if (typeof chrome !== 'undefined' && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -157,6 +286,25 @@ if (typeof chrome !== 'undefined' && chrome.runtime) chrome.runtime.onMessage.ad
   }
   if (msg.type === 'GET_LINKEDIN_NAME') {
     sendResponse({ name: getProfileName() })
+    return true
+  }
+  if (msg.type === 'FETCH_LINKEDIN_PROFILES') {
+    ;(async () => {
+      const contacts: { id: string; linkedin_url: string }[] = msg.contacts ?? []
+      const results: { id: string; linkedin_name: string }[] = []
+      for (const c of contacts) {
+        const url = c.linkedin_url.replace('https://linkedin.com/', 'https://www.linkedin.com/')
+        let linkedinName = ''
+        try {
+          const resp = await fetch(url, { credentials: 'include' })
+          const html = await resp.text()
+          linkedinName = extractNameFromHtml(html)
+        } catch { /* ignore */ }
+        results.push({ id: c.id, linkedin_name: linkedinName })
+        chrome.runtime.sendMessage({ type: 'LINKEDIN_NAMES_PROGRESS', done: results.length, total: contacts.length }).catch(() => {})
+      }
+      sendResponse(results)
+    })()
     return true
   }
 })

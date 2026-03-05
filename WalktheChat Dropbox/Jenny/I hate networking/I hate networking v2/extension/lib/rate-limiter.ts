@@ -1,4 +1,4 @@
-const DAILY_LIMIT = 25
+const DAILY_LIMIT = 20
 
 export function checkDailyLimit(sentToday: number): { canSend: boolean; remaining: number } {
   const remaining = Math.max(0, DAILY_LIMIT - sentToday)
