@@ -192,7 +192,8 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   }
 
   connectBtn.click()
-  await waitForModal(3000)
+  const modalAppeared = await waitForModal(3000)
+  trace.set('modal', modalAppeared ? 'yes' : 'timeout')
 
   // Check for LinkedIn error toast (e.g. "You've reached the weekly invitation limit")
   const errorToast = document.querySelector('div[data-test-artdeco-toast-item-type="error"]')
@@ -252,20 +253,17 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
           if (!retryBtn) return { success: false, error: 'note_quota_reached', trace: trace.toString() }
           retryBtn.click()
           await waitForModal(2000)
+          // (no trace needed here — it's a retry path, trace already set)
         }
         // Fall through — sendBtn search below will find "Send without a note"
       }
     }
   }
 
-  const modalPresent = !!document.querySelector('[role="dialog"]') ||
-    !!((document.querySelector('#interop-outlet') as HTMLElement | null)?.shadowRoot?.childElementCount)
-  trace.set('modal', modalPresent ? 'yes' : 'no')
-
   const shadowHost = document.querySelector<HTMLElement>('#interop-outlet')
   const shadowHasContent = !!shadowHost?.shadowRoot?.childElementCount
   trace.set('shadowBtn', shadowHasContent ? 'shadow-present' : 'no-shadow')
-  const shadowSendBtn: HTMLButtonElement | null = null
+  const shadowSendBtn: HTMLButtonElement | null = null // TODO: implement actual shadow DOM send button search
 
   const sendBtn =
     findButtonByText('Send') ??
