@@ -589,6 +589,19 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
     })
   })
 
+  // ── Wire month header expansion ────────────────────────────────────────────
+  document.querySelectorAll<HTMLElement>('.month-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const key = header.getAttribute('data-month-key') ?? ''
+      if (expandedMonths.has(key)) {
+        expandedMonths.delete(key)
+      } else {
+        expandedMonths.add(key)
+      }
+      render()
+    })
+  })
+
   // ── Wire draft button → navigate to full-page draft view ──────────────────
   document.getElementById('btnDraftPost')?.addEventListener('click', () => {
     if (events.length === 0) return
