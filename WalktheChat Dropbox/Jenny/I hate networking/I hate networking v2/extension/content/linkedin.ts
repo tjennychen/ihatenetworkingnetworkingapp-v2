@@ -144,8 +144,8 @@ async function postInvite(
     return { success: false, error: `fetch_failed: ${String(e)}` }
   }
 
-  // 201 Created = success
-  if (resp.status === 201) return { success: true }
+  // 201 Created = success (also accept other 2xx in case LinkedIn varies)
+  if (resp.ok) return { success: true }
 
   return { success: false, error: await parseInviteError(resp) }
 }

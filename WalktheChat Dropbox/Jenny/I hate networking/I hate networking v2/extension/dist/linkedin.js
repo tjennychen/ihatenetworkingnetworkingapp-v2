@@ -102,7 +102,7 @@
     } catch (e) {
       return { success: false, error: `fetch_failed: ${String(e)}` };
     }
-    if (resp.status === 201) return { success: true };
+    if (resp.ok) return { success: true };
     return { success: false, error: await parseInviteError(resp) };
   }
   async function sendConnection(note, expectedName) {
