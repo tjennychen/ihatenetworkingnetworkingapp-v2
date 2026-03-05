@@ -596,16 +596,20 @@ async function launchCampaign(data: {
 
 async function waitForContentScript(tabId: number, timeoutMs = 12000): Promise<boolean> {
   const interval = 500
-  let elapsed = 0
-  while (elapsed < timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const tabExists = await new Promise<boolean>(resolve => {
+      chrome.tabs.get(tabId, () => resolve(!chrome.runtime.lastError))
+    })
+    if (!tabExists) return false
     const ready = await new Promise<boolean>(resolve => {
       chrome.tabs.sendMessage(tabId, { type: 'GET_LINKEDIN_NAME' }, () => {
         resolve(!chrome.runtime.lastError)
       })
     })
     if (ready) return true
+    if (Date.now() >= deadline) break
     await new Promise(r => setTimeout(r, interval))
-    elapsed += interval
   }
   return false
 }
