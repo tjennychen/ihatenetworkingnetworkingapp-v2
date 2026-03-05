@@ -46,16 +46,17 @@ function findConnectButton(): HTMLButtonElement | null {
     '[role="menu"], .artdeco-dropdown__content--is-open, [data-test-dropdown-content]'
   )
   if (openMenu) {
-    // Check aria-label first (reference pattern), then text content fallback
-    const ariaBtn = openMenu.querySelector<HTMLButtonElement>('[aria-label*="Connect" i]')
+    // Use starts-with (^=) NOT contains (*=) — "Remove connection with X" contains "connect"
+    // but its aria-label starts with "Remove", not "Connect".
+    const ariaBtn = openMenu.querySelector<HTMLButtonElement>('[aria-label^="Connect" i], [aria-label^="Invite" i]')
     if (ariaBtn) return ariaBtn
     const inMenu = findButtonByText('Connect', openMenu)
-    // Guard: includes() fallback is too broad — "Remove connection" contains "connect".
-    // Only return if the button text actually starts with "Connect".
+    // Guard: only match if text STARTS with Connect (excludes "Remove connection")
     if (inMenu && /^connect/i.test(inMenu.textContent?.trim() ?? '')) return inMenu
     // LinkedIn sometimes renders the Connect option as div[role="button"], not <button>
+    // Use starts-with (^=) for the same reason — avoid matching "Remove connection"
     const divBtn = openMenu.querySelector<HTMLElement>(
-      'div[role="button"][aria-label*="Invite"][aria-label*="connect"], div[role="button"][aria-label*="connect" i]'
+      'div[role="button"][aria-label^="Invite" i], div[role="button"][aria-label^="Connect" i]'
     )
     if (divBtn) return divBtn as unknown as HTMLButtonElement
   }
@@ -69,8 +70,10 @@ function findConnectButton(): HTMLButtonElement | null {
     el.textContent?.trim().toLowerCase().startsWith('connect')
   )
   if (connectItem) return connectItem as unknown as HTMLButtonElement
-  // Last resort: scope text search to profile top card (handles inline dropdowns)
-  return findButtonByText('Connect', getProfileTopCard())
+  // Last resort: scope text search to profile top card — apply same starts-with guard
+  const lastResort = findButtonByText('Connect', getProfileTopCard())
+  if (lastResort && /^connect/i.test(lastResort.textContent?.trim() ?? '')) return lastResort
+  return null
 }
 
 export function buildTrace() {

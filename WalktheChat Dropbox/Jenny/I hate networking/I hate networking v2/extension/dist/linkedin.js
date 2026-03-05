@@ -35,12 +35,12 @@
       '[role="menu"], .artdeco-dropdown__content--is-open, [data-test-dropdown-content]'
     );
     if (openMenu) {
-      const ariaBtn = openMenu.querySelector('[aria-label*="Connect" i]');
+      const ariaBtn = openMenu.querySelector('[aria-label^="Connect" i], [aria-label^="Invite" i]');
       if (ariaBtn) return ariaBtn;
       const inMenu = findButtonByText("Connect", openMenu);
       if (inMenu && /^connect/i.test(inMenu.textContent?.trim() ?? "")) return inMenu;
       const divBtn = openMenu.querySelector(
-        'div[role="button"][aria-label*="Invite"][aria-label*="connect"], div[role="button"][aria-label*="connect" i]'
+        'div[role="button"][aria-label^="Invite" i], div[role="button"][aria-label^="Connect" i]'
       );
       if (divBtn) return divBtn;
     }
@@ -51,7 +51,9 @@
       (el) => /^connect$/i.test(el.textContent?.trim() ?? "") || el.textContent?.trim().toLowerCase().startsWith("connect")
     );
     if (connectItem) return connectItem;
-    return findButtonByText("Connect", getProfileTopCard());
+    const lastResort = findButtonByText("Connect", getProfileTopCard());
+    if (lastResort && /^connect/i.test(lastResort.textContent?.trim() ?? "")) return lastResort;
+    return null;
   }
   function buildTrace() {
     const fields = [];
