@@ -500,11 +500,17 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
 
   // ── Wire scan CTA ──────────────────────────────────────────────────────────
   document.getElementById('btnScanAnother')?.addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    if (tab?.id) {
-      chrome.tabs.update(tab.id, { url: 'https://lu.ma' })
+    const ctx = await resolveTabContext()
+    if (ctx.kind === 'luma-event') {
+      startScan(ctx)
     } else {
-      chrome.tabs.create({ url: 'https://lu.ma' })
+      // Navigate current tab to lu.ma so user can pick an event
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tab?.id) {
+        chrome.tabs.update(tab.id, { url: 'https://lu.ma' })
+      } else {
+        chrome.tabs.create({ url: 'https://lu.ma' })
+      }
     }
   })
 

@@ -412,11 +412,16 @@
       chrome.runtime.sendMessage({ type: "RESUME_CAMPAIGN" }, () => render());
     });
     document.getElementById("btnScanAnother")?.addEventListener("click", async () => {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id) {
-        chrome.tabs.update(tab.id, { url: "https://lu.ma" });
+      const ctx = await resolveTabContext();
+      if (ctx.kind === "luma-event") {
+        startScan(ctx);
       } else {
-        chrome.tabs.create({ url: "https://lu.ma" });
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) {
+          chrome.tabs.update(tab.id, { url: "https://lu.ma" });
+        } else {
+          chrome.tabs.create({ url: "https://lu.ma" });
+        }
       }
     });
     document.querySelectorAll(".event-row-header").forEach((header) => {
