@@ -223,14 +223,15 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   }
 
   // Dismiss any premium popup that appears immediately after clicking Connect
-  await dismissPremiumPaywall()
+  const paywallDismissed = await dismissPremiumPaywall()
+  trace.set('paywall', paywallDismissed ? 'yes' : 'no')
 
   const noteQuotaReached = await getNoteQuotaReached()
 
   if (note && !noteQuotaReached) {
     const addNoteBtn = findButtonByText('Add a note')
     if (addNoteBtn) {
-      addNoteBtn.click()
+      nativeClick(addNoteBtn)
       await new Promise(r => setTimeout(r, 500))
 
       const paywalled = await dismissPremiumPaywall()
@@ -257,7 +258,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
           let retryBtn = findConnectButton()
           if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
           if (!retryBtn) return { success: false, error: 'note_quota_reached', trace: trace.toString() }
-          retryBtn.click()
+          nativeClick(retryBtn)
           await waitForModal(2000)
           // (no trace needed here — it's a retry path, trace already set)
         }
@@ -266,11 +267,6 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     }
   }
 
-  const shadowHost = document.querySelector<HTMLElement>('#interop-outlet')
-  const shadowHasContent = !!shadowHost?.shadowRoot?.childElementCount
-  trace.set('shadowBtn', shadowHasContent ? 'shadow-present' : 'no-shadow')
-  const shadowSendBtn: HTMLButtonElement | null = null // TODO: implement actual shadow DOM send button search
-
   const sendBtn =
     findButtonByText('Send') ??
     findButtonByText('Send without a note') ??
@@ -278,7 +274,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     // Reference fallback: data-control-name="send_invite" for older LinkedIn modal variants
     document.querySelector<HTMLButtonElement>('[data-control-name="send_invite"]')
 
-  trace.set('regularBtn', (sendBtn && !shadowSendBtn) ? 'found' : 'null')
+  trace.set('regularBtn', sendBtn ? 'found' : 'null')
 
   if (!sendBtn) {
     return { success: false, error: 'send_btn_not_found', trace: trace.toString() }
@@ -290,7 +286,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     return { success: false, error: 'weekly_limit_reached', trace: trace.toString() }
   }
 
-  sendBtn.click()
+  nativeClick(sendBtn)
   await new Promise(r => setTimeout(r, 500))
 
   // Text-based weekly limit check — won't break when LinkedIn changes class names
