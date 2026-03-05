@@ -82,6 +82,42 @@ Track bugs that were fixed so they don't get reintroduced during rewrites.
 
 ---
 
+## [2026-03-04] Transient failures permanently killed queue items
+
+**Symptom:** Queue items with send_btn_not_found or no_response went straight to failed status, never retried.
+
+**Root cause:** No retry logic — any failure immediately set status=failed.
+
+**Fix:** Added TRANSIENT_ERRORS set in service-worker.ts. Errors in that set retry up to 3x with 3-5min delay (incrementing retry_count) before marking permanent failure. Permanent errors (already_connected, wrong_profile, weekly_limit_reached) fail immediately as before.
+
+**Do not revert:** Never collapse transient and permanent errors into a single failure path again. retry_count must be incremented on transient retries, not reset.
+
+---
+
+## [2026-03-04] Fixed 800ms timeout caused send_btn_not_found on slow LinkedIn renders
+
+**Symptom:** Send button not found even though modal was visible.
+
+**Root cause:** setTimeout(800ms) after clicking Connect was a guess — LinkedIn's React rendering can take 1-2s on slow connections.
+
+**Fix:** Replaced with waitForModal() — polls every 150ms up to 3s for [role="dialog"] or #interop-outlet shadow content. Resolves as soon as modal appears.
+
+**Do not revert:** Never use setTimeout(800ms) as a modal wait. Use waitForModal().
+
+---
+
+## [2026-03-04] Fixed 2500ms tab buffer caused no_response errors
+
+**Symptom:** Content script not ready when CONNECT message was sent — no_response errors.
+
+**Root cause:** setTimeout(2500ms) after tab load was a guess. Some LinkedIn profiles load slowly.
+
+**Fix:** Replaced with waitForContentScript() — pings GET_LINKEDIN_NAME every 500ms up to 12s. Uses wall-clock deadline (Date.now()) not tick counting. Short-circuits if tab is closed.
+
+**Do not revert:** Never use setTimeout(2500ms) as a content script readiness check. Use waitForContentScript().
+
+---
+
 ## Template for new entries
 
 ```
