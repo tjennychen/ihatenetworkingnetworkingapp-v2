@@ -653,7 +653,7 @@ camera.start();
 startAudio().catch(console.error);
 
 // ── face-api.js: load models for emotion detection ────────────────────────────
-const FACEAPI_MODELS_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights/';
+const FACEAPI_MODELS_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights/';
 let faceApiReady = false;
 
 Promise.all([
@@ -662,7 +662,11 @@ Promise.all([
 ]).then(() => {
   faceApiReady = true;
   console.log('face-api models loaded');
-}).catch(err => console.warn('face-api load error:', err));
+}).catch(err => {
+  console.warn('face-api load error:', err);
+  const el = document.getElementById('reading-text');
+  if (el) el.textContent = 'emotion scan unavailable';
+});
 
 let prevNoseX = null, prevNoseY = null;
 let yangScore = 50;
