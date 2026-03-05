@@ -311,3 +311,29 @@ input:focus { border-color: #4f46e5; }
 .mt-4 { margin-top: 4px; }
 .mt-8 { margin-top: 8px; }
 .mt-12 { margin-top: 12px; }
+
+.month-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.month-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex: 1;
+}
+.month-count {
+  font-size: 11px;
+  color: #9ca3af;
+}
+.month-group + .month-group {
+  border-top: 1px solid #f3f4f6;
+  margin-top: 4px;
+  padding-top: 2px;
+}
