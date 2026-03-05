@@ -13,10 +13,10 @@
 body{background:#0D0500;overflow:hidden;width:100vw;height:100vh}
 canvas{position:fixed;inset:0;width:100%;height:100%}
 #ui{position:fixed;inset:0;pointer-events:none;font-family:'IBM Plex Mono',monospace}
-video{display:none;position:absolute}
+video{visibility:hidden;position:absolute;top:0;left:0;width:1px;height:1px;pointer-events:none}
 #controls{position:absolute;bottom:20px;left:20px;display:flex;flex-direction:column;gap:6px;pointer-events:all}
-#controls label{display:flex;align-items:center;gap:8px;font-size:7px;color:rgba(255,184,138,0.7);letter-spacing:.06em;font-family:'IBM Plex Mono',monospace}
-#controls input[type=range]{width:90px;accent-color:#FF6B35;cursor:pointer}
+#controls label{display:flex;align-items:center;gap:8px;font-size:7px;color:rgba(255,229,42,0.6);letter-spacing:.06em;font-family:'IBM Plex Mono',monospace}
+#controls input[type=range]{width:90px;accent-color:#F79A19;cursor:pointer}
 #emotion-panel{position:absolute;top:72px;right:20px;width:200px;background:rgba(13,5,0,0.85);border:1px solid rgba(255,107,53,0.4);border-radius:2px;padding:10px}
 #emotion-radar{position:static !important;width:180px !important;height:180px !important;display:block;margin:6px auto}
 </style>
@@ -29,38 +29,33 @@ video{display:none;position:absolute}
   <!-- Logo top-left -->
   <div style="position:absolute;top:16px;left:20px;display:flex;align-items:center;gap:10px">
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;width:22px;height:22px">
-      <div style="background:#FF6B35;border-radius:1px"></div>
-      <div style="border:1px solid #FF8C5A;border-radius:1px"></div>
-      <div style="background:#FF6B35;border-radius:1px"></div>
-      <div style="border:1px solid #FF8C5A;border-radius:1px"></div>
-      <div style="background:#FF6B35;border-radius:1px"></div>
-      <div style="border:1px solid #FF8C5A;border-radius:1px"></div>
-      <div style="background:#FF6B35;border-radius:1px"></div>
-      <div style="border:1px solid #FF8C5A;border-radius:1px"></div>
-      <div style="background:#FF6B35;border-radius:1px"></div>
+      <div style="background:#CF0F0F;border-radius:1px"></div>
+      <div style="border:1px solid #F79A19;border-radius:1px"></div>
+      <div style="background:#CF0F0F;border-radius:1px"></div>
+      <div style="border:1px solid #F79A19;border-radius:1px"></div>
+      <div style="background:#CF0F0F;border-radius:1px"></div>
+      <div style="border:1px solid #F79A19;border-radius:1px"></div>
+      <div style="background:#CF0F0F;border-radius:1px"></div>
+      <div style="border:1px solid #F79A19;border-radius:1px"></div>
+      <div style="background:#CF0F0F;border-radius:1px"></div>
     </div>
-    <span style="font-family:'Press Start 2P',monospace;font-size:7px;color:#FF6B35;letter-spacing:.05em">PUZZLE ACUT.</span>
+    <span style="font-family:'Press Start 2P',monospace;font-size:7px;color:#F79A19;letter-spacing:.05em">PUZZLE ACUT.</span>
   </div>
 
-  <!-- Element badge top-right -->
-  <div id="element-badge" style="position:absolute;top:16px;right:20px;padding:6px 14px;border:1.5px solid #FF6B35;border-radius:2px;background:rgba(13,5,0,0.7)">
-    <span id="element-icon" style="font-size:16px">🔥</span>
-    <span id="element-name" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#FF6B35;margin-left:6px;letter-spacing:.08em">FIRE</span>
-  </div>
 
   <!-- Emotion panel right side -->
   <div id="emotion-panel">
-    <div style="font-family:'Press Start 2P',monospace;font-size:6px;color:#FF6B35;letter-spacing:.08em;margin-bottom:4px">情 EMOTION CHI</div>
+    <div style="font-family:'Press Start 2P',monospace;font-size:6px;color:#F79A19;letter-spacing:.08em;margin-bottom:4px">情 EMOTION CHI</div>
     <canvas id="emotion-radar"></canvas>
-    <div id="emotion-dominant" style="font-family:'IBM Plex Mono',monospace;font-size:7px;color:#FF6B35;letter-spacing:.05em;margin-top:4px;line-height:1.5"></div>
-    <div id="emotion-body" style="font-family:'IBM Plex Mono',monospace;font-size:7px;color:rgba(255,184,138,0.7);letter-spacing:.04em;margin-top:6px;line-height:1.6;border-top:1px solid rgba(255,107,53,0.2);padding-top:6px"></div>
-    <div id="emotion-care" style="font-family:'IBM Plex Mono',monospace;font-size:7px;color:rgba(255,184,138,0.5);letter-spacing:.04em;margin-top:6px;border-top:1px solid rgba(255,107,53,0.2);padding-top:6px"></div>
-    <div id="emotion-quote" style="font-family:'IBM Plex Mono',monospace;font-size:6px;color:rgba(255,107,53,0.4);letter-spacing:.03em;margin-top:8px;border-top:1px solid rgba(255,107,53,0.15);padding-top:6px;font-style:italic"></div>
+    <div id="emotion-dominant" style="font-family:'IBM Plex Mono',monospace;font-size:7px;color:#FFE52A;letter-spacing:.05em;margin-top:4px;line-height:1.5"></div>
+    <div id="emotion-body" style="font-family:'IBM Plex Mono',monospace;font-size:7px;color:rgba(255,229,42,0.6);letter-spacing:.04em;margin-top:6px;line-height:1.6;border-top:1px solid rgba(247,154,25,0.2);padding-top:6px"></div>
+    <div id="emotion-care" style="font-family:'IBM Plex Mono',monospace;font-size:7px;color:rgba(187,203,100,0.7);letter-spacing:.04em;margin-top:6px;border-top:1px solid rgba(247,154,25,0.2);padding-top:6px"></div>
+    <div id="emotion-quote" style="font-family:'IBM Plex Mono',monospace;font-size:6px;color:rgba(247,154,25,0.5);letter-spacing:.03em;margin-top:8px;border-top:1px solid rgba(247,154,25,0.15);padding-top:6px;font-style:italic"></div>
   </div>
 
   <!-- Reading bottom-center -->
   <div id="reading" style="position:absolute;bottom:110px;left:50%;transform:translateX(-50%);text-align:center;max-width:360px">
-    <p id="reading-text" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#FFB88A;letter-spacing:.06em;line-height:1.6"></p>
+    <p id="reading-text" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#FFE52A;letter-spacing:.06em;line-height:1.6"></p>
   </div>
 
   <!-- Loading indicator (removed on first Holistic result) -->
@@ -305,9 +300,9 @@ const ACUPOINTS = [
 
 const ELEMENT_CONFIG = {
   water: { color: '#6B35FF', glowColor: 'rgba(107,53,255,', name: 'Water', organ: 'Kidney' },
-  wood:  { color: '#35FF6B', glowColor: 'rgba(53,255,107,',  name: 'Wood',  organ: 'Liver'  },
-  fire:  { color: '#FF4D1C', glowColor: 'rgba(255,77,28,',   name: 'Fire',  organ: 'Heart'  },
-  earth: { color: '#FFB835', glowColor: 'rgba(255,184,53,',  name: 'Earth', organ: 'Spleen' },
+  wood:  { color: '#BBCB64', glowColor: 'rgba(187,203,100,', name: 'Wood',  organ: 'Liver'  },
+  fire:  { color: '#CF0F0F', glowColor: 'rgba(207,15,15,',   name: 'Fire',  organ: 'Heart'  },
+  earth: { color: '#FFE52A', glowColor: 'rgba(255,229,42,',  name: 'Earth', organ: 'Spleen' },
   metal: { color: '#F0F0FF', glowColor: 'rgba(240,240,255,', name: 'Metal', organ: 'Lung'   },
 };
 
@@ -524,23 +519,23 @@ function drawAcupoints(time) {
 
     ctx.save();
     ctx.globalAlpha = 0.3 + pulse * 0.4;
-    ctx.strokeStyle = '#FF6B35';
+    ctx.strokeStyle = '#F79A19';
     ctx.lineWidth = 1.5;
-    ctx.shadowColor = '#FF6B35';
+    ctx.shadowColor = '#F79A19';
     ctx.shadowBlur = 12;
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.globalAlpha = 0.8 + pulse * 0.2;
-    ctx.fillStyle = '#FFD700';
+    ctx.fillStyle = '#FFE52A';
     ctx.shadowBlur = 6;
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.globalAlpha = 0.5 + pulse * 0.3;
-    ctx.fillStyle = '#FFB88A';
+    ctx.fillStyle = '#FFE52A';
     ctx.font = '7px IBM Plex Mono';
     ctx.fillText(ap.code, pt.x + 8, pt.y + 3);
     ctx.restore();
@@ -586,7 +581,7 @@ function drawYinYangMeter() {
   // Yang fill
   const fillEnd = startAngle + (yangScore / 100) * total;
   ctx.globalAlpha = 0.9;
-  ctx.strokeStyle = yangScore > 70 ? '#FF4D1C' : yangScore < 30 ? '#6B35FF' : '#FFB835';
+  ctx.strokeStyle = yangScore > 70 ? '#CF0F0F' : yangScore < 30 ? '#BBCB64' : '#FFE52A';
   ctx.shadowColor = ctx.strokeStyle;
   ctx.shadowBlur = 10;
   ctx.beginPath();
@@ -597,14 +592,14 @@ function drawYinYangMeter() {
   ctx.globalAlpha = 0.5;
   ctx.shadowBlur = 0;
   ctx.font = '7px IBM Plex Mono';
-  ctx.fillStyle = '#6B35FF';
+  ctx.fillStyle = '#BBCB64';
   ctx.fillText('YIN', cx - r - 20, cy + 5);
-  ctx.fillStyle = '#FF4D1C';
+  ctx.fillStyle = '#CF0F0F';
   ctx.fillText('YANG', cx + r + 4, cy + 5);
 
   // Status text
   ctx.globalAlpha = 0.7;
-  ctx.fillStyle = '#FFB88A';
+  ctx.fillStyle = '#FFE52A';
   ctx.font = '8px IBM Plex Mono';
   ctx.textAlign = 'center';
   const status = yangScore > 70 ? 'excess yang — breathe' : yangScore < 30 ? 'stagnant qi — move' : 'balanced chi';
@@ -698,8 +693,9 @@ async function runEmotionDetection() {
   emotionDetectionInFlight = true;
 
   try {
+    if (vid.readyState < 2 || !vid.videoWidth) return;
     const result = await faceapi
-      .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.3 }))
+      .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.2 }))
       .withFaceExpressions();
 
     if (!result) {
@@ -731,17 +727,17 @@ const ELEMENT_UI = {
     'Water nourishes Wood — trust the process',
     'Deep reserves within you — draw from them',
   ]},
-  wood:  { icon: '🌿', color: '#35FF6B', name: 'Wood', readings: [
+  wood:  { icon: '🌿', color: '#BBCB64', name: 'Wood', readings: [
     'Liver awake — let the tension move through',
     'Wood energy rises — vision is clear today',
     'Growth requires release — what can you let go?',
   ]},
-  fire:  { icon: '🔥', color: '#FF4D1C', name: 'Fire', readings: [
+  fire:  { icon: '🔥', color: '#CF0F0F', name: 'Fire', readings: [
     'Heart energy rising — stay present, breathe',
     'Fire warms the spirit — connection is near',
     'Yang is high — channel it with intention',
   ]},
-  earth: { icon: '🌕', color: '#FFB835', name: 'Earth', readings: [
+  earth: { icon: '🌕', color: '#FFE52A', name: 'Earth', readings: [
     'Spleen grounded — nourish yourself today',
     'Earth steadies all — you are supported',
     'Center holds — digest what you have received',
@@ -843,9 +839,13 @@ function updateEmotionPanel() {
   }
 
   const data = TCM_EMOTION_DATA[dominant];
+  const domColor = RADAR_EMOTIONS.find(e => e.key === dominant)?.color || '#FFE52A';
   if (dominant !== lastDominantEmotion) {
     lastDominantEmotion = dominant;
     domEl.textContent = `${data.zh} ${dominant.toUpperCase()} — ${data.organ}`;
+    domEl.style.color = domColor;
+    const panel = document.getElementById('emotion-panel');
+    if (panel) panel.style.borderColor = domColor + '80';
     bodyEl.innerHTML = `<span style="opacity:0.5">qi:</span> ${data.qi}<br><span style="opacity:0.5">body:</span> ${data.body}`;
     careEl.textContent = data.care;
     if (quoteEl) quoteEl.textContent = data.quote;
@@ -904,11 +904,11 @@ const radarCtx = radarCanvas ? radarCanvas.getContext('2d') : null;
 if (radarCanvas) { radarCanvas.width = 180; radarCanvas.height = 180; }
 
 const RADAR_EMOTIONS = [
-  { key: 'anger', zh: '怒', en: 'Anger'  },
-  { key: 'joy',   zh: '喜', en: 'Joy'    },
-  { key: 'grief', zh: '悲', en: 'Grief'  },
-  { key: 'fear',  zh: '恐', en: 'Fear'   },
-  { key: 'worry', zh: '思', en: 'Worry'  },
+  { key: 'anger', zh: '怒', en: 'Anger', color: '#CF0F0F' },
+  { key: 'joy',   zh: '喜', en: 'Joy',   color: '#F79A19' },
+  { key: 'grief', zh: '悲', en: 'Grief', color: '#BBCB64' },
+  { key: 'fear',  zh: '恐', en: 'Fear',  color: '#9DB84E' },
+  { key: 'worry', zh: '思', en: 'Worry', color: '#FFE52A' },
 ];
 
 function drawEmotionRadar() {
@@ -922,11 +922,18 @@ function drawEmotionRadar() {
 
   radarCtx.clearRect(0, 0, W, H);
 
+  // Compute dominant emotion color for polygon
+  let radarDomColor = '#FFE52A';
+  let radarDomScore = 0;
+  RADAR_EMOTIONS.forEach(em => {
+    if (emotionScores[em.key] > radarDomScore) { radarDomScore = emotionScores[em.key]; radarDomColor = em.color; }
+  });
+
   // Draw grid rings
   [0.33, 0.66, 1.0].forEach(frac => {
     radarCtx.save();
-    radarCtx.globalAlpha = 0.15;
-    radarCtx.strokeStyle = '#FF6B35';
+    radarCtx.globalAlpha = 0.12;
+    radarCtx.strokeStyle = '#888';
     radarCtx.lineWidth = 0.5;
     radarCtx.beginPath();
     for (let i = 0; i < N; i++) {
@@ -947,8 +954,8 @@ function drawEmotionRadar() {
     const tipY  = cy + Math.sin(angle) * R;
 
     radarCtx.save();
-    radarCtx.globalAlpha = 0.25;
-    radarCtx.strokeStyle = '#FF6B35';
+    radarCtx.globalAlpha = 0.3;
+    radarCtx.strokeStyle = em.color;
     radarCtx.lineWidth = 0.5;
     radarCtx.beginPath();
     radarCtx.moveTo(cx, cy);
@@ -959,11 +966,11 @@ function drawEmotionRadar() {
     const labelX = cx + Math.cos(angle) * (R + 14);
     const labelY = cy + Math.sin(angle) * (R + 14);
     const score  = emotionScores[em.key];
-    const alpha  = 0.35 + score * 0.65;
+    const alpha  = 0.4 + score * 0.6;
 
     radarCtx.save();
     radarCtx.globalAlpha = alpha;
-    radarCtx.fillStyle = '#FF6B35';
+    radarCtx.fillStyle = em.color;
     radarCtx.font = 'bold 9px IBM Plex Mono';
     radarCtx.textAlign = 'center';
     radarCtx.textBaseline = 'middle';
@@ -988,22 +995,24 @@ function drawEmotionRadar() {
     i === 0 ? radarCtx.moveTo(x, y) : radarCtx.lineTo(x, y);
   });
   radarCtx.closePath();
-  radarCtx.fillStyle = 'rgba(255,107,53,0.18)';
+  // Parse dominant color to rgba fill
+  radarCtx.fillStyle = radarDomColor + '30'; // ~19% opacity hex
   radarCtx.fill();
-  radarCtx.strokeStyle = 'rgba(255,107,53,0.7)';
+  radarCtx.strokeStyle = radarDomColor;
   radarCtx.lineWidth = 1.5;
-  radarCtx.shadowColor = '#FF6B35';
-  radarCtx.shadowBlur = 6;
+  radarCtx.shadowColor = radarDomColor;
+  radarCtx.shadowBlur = 8;
   radarCtx.stroke();
   radarCtx.restore();
 
   // Draw dots at each vertex
   vertexPositions.forEach(({ x, y, score }, i) => {
+    const dotColor = RADAR_EMOTIONS[i].color;
     radarCtx.save();
     radarCtx.globalAlpha = 0.6 + score * 0.4;
-    radarCtx.fillStyle = '#FF6B35';
-    radarCtx.shadowColor = '#FF6B35';
-    radarCtx.shadowBlur = score > 0.3 ? 8 : 2;
+    radarCtx.fillStyle = dotColor;
+    radarCtx.shadowColor = dotColor;
+    radarCtx.shadowBlur = score > 0.3 ? 10 : 2;
     radarCtx.beginPath();
     radarCtx.arc(x, y, 2.5, 0, Math.PI * 2);
     radarCtx.fill();
