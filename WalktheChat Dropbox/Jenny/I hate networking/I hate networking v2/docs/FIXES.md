@@ -118,6 +118,82 @@ Track bugs that were fixed so they don't get reintroduced during rewrites.
 
 ---
 
+## [2026-03-05] `[aria-label*="Connect" i]` matched "Remove connection" — removed existing connections
+
+**Symptom:** Extension opened already-connected profiles and removed the connection.
+
+**Root cause:** `[aria-label*="Connect" i]` (contains, case-insensitive) matched aria-labels like "Remove connection with X" because "connection" contains "connect". Three sites were affected: aria-label search in open menu, `div[role="button"]` fallback, and last-resort `findButtonByText` call.
+
+**Fix:** Changed all three to `[aria-label^="Connect" i]` (starts-with). Added `/^connect/i` text guard on `findButtonByText` results so only buttons whose text STARTS WITH "Connect" are returned.
+
+**Do not revert:** NEVER use `[aria-label*="Connect"]` (contains) in any dropdown/menu context. Always use `^=` (starts-with) or add explicit "remove" exclusion guard.
+
+---
+
+## [2026-03-05] Campaign re-launch reset all queue entries including failed/sent
+
+**Symptom:** Failed contacts were reopened repeatedly; extension visited already-connected profiles; sent contacts could be double-queued.
+
+**Root cause:** Both `saveEnrichedContacts()` and `launchCampaign()` used `upsert(..., { onConflict: 'contact_id' })` without `ignoreDuplicates`. Every campaign re-launch overwrote ALL existing queue rows (pending/failed/sent) back to pending.
+
+**Fix:** Added `ignoreDuplicates: true` to both upsert calls. New contacts get inserted; existing entries (any status) are left untouched.
+
+**Do not revert:** Never upsert into `connection_queue` without `ignoreDuplicates: true`. Explicit resets must be done via SQL, never by re-launching the campaign.
+
+---
+
+## [2026-03-05] `namesMatch()` too strict — blocked first-name-same, last-name-different (Luma nicknames)
+
+**Symptom:** `wrong_profile: expected "Akira Nirvana", got "Akira Hu"` — person uses stage name on Luma, real name on LinkedIn. Correct person, wrong name match.
+
+**Root cause:** `namesMatch()` required ALL words in expected name to appear on page. Luma users commonly use nicknames/handles that don't match their LinkedIn real name.
+
+**Fix:** Only require first name (first word) to match. LinkedIn URL from Luma is the authoritative identifier; name check is just a sanity guard against navigating to wrong page.
+
+**Do not revert:** Do not go back to requiring all words to match. First name only is correct.
+
+---
+
+## [2026-03-05] Post-paywall Connect modal in broken state — Send click does nothing
+
+**Symptom:** `paywall=yes|modalClosed=no` — paywall dismissed, Connect modal visible, Send button found and clicked, but modal never closed. Connection not sent.
+
+**Root cause:** After dismissing a premium paywall, LinkedIn's Connect modal is left in a broken state. `nativeClick` on the Send button is silently ignored.
+
+**Fix:** After any paywall dismissal, always close any remaining dialog and re-click Connect fresh for a clean modal. If paywall fires again immediately, return `paywall_loop` error.
+
+**Do not revert:** Never try to send from the modal behind a just-dismissed paywall. Always close and re-click Connect.
+
+---
+
+## [2026-03-05] `findButtonByText('Send')` on `document.body` matched wrong button
+
+**Symptom:** `status=sent` in DB but connection not actually sent. Extension clicked a non-Connect "Send" button elsewhere on page (messaging compose, InMail).
+
+**Fix:** Scoped Send button search to `[role="dialog"]` only. Shadow DOM search (`#interop-outlet`) added as first search before regular DOM.
+
+**Do not revert:** Always scope Send button search to the open dialog. Never search `document.body` for the Send button.
+
+---
+
+## [2026-03-05] No post-send verification — `success=true` without confirming modal closed
+
+**Symptom:** DB showed `status=sent` but person not connected. Code returned success after clicking Send without verifying anything happened.
+
+**Fix:** Poll for up to 3s after clicking Send waiting for modal to close. LinkedIn closes the modal on successful send. If modal stays open → return `send_unverified` (transient, will retry). New trace key: `modalClosed=yes/no`.
+
+**Do not revert:** Never return `success=true` immediately after clicking Send. Always verify modal closes.
+
+---
+
+## [2026-03-05] pg_cron queue monitor — auto-resets retriable failures every 30 min
+
+**What was added:** `public.ihn_queue_monitor()` function scheduled via pg_cron every 30 min. Resets `send_unverified`, `paywall_*`, `send_btn_not_found`, `wrong_connect_modal`, `no_response`, `linkedin_error` failures from last 24h back to pending. Logs results to `queue_monitor_log` table.
+
+**To check monitor logs:** `SELECT * FROM queue_monitor_log ORDER BY ran_at DESC LIMIT 5;`
+
+---
+
 ## Template for new entries
 
 ```
