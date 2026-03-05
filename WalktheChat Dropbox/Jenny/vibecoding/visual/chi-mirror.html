@@ -766,43 +766,40 @@ const GESTURE_READINGS = {
 const TCM_EMOTION_DATA = {
   anger: {
     zh: '怒', organ: 'Liver 肝',
-    qi:   '怒则气上 — qi rises like a kettle lid blown off',
-    body: 'Watch: chest tight, sighing, red eyes, headache',
-    care: 'Care for 肝 Liver — massage your ribs, breathe out tension',
+    qi:    '怒则气上 — qi rises like a kettle lid blown off',
+    body:  'Watch: chest tight, sighing, red eyes, headache',
+    care:  'Care for 肝 Liver — massage your ribs, breathe out tension',
+    quote: '怒则气上，伤肝 — Anger rises, strains the Liver',
   },
   joy: {
     zh: '喜', organ: 'Heart 心',
-    qi:   '喜则气缓 — qi scatters like a balloon releasing air',
-    body: 'Watch: insomnia, restlessness, scattered focus',
-    care: 'Care for 心 Heart — rest, slow your breath, be still',
+    qi:    '喜则气缓 — qi scatters like a balloon releasing air',
+    body:  'Watch: insomnia, restlessness, scattered focus',
+    care:  'Care for 心 Heart — rest, slow your breath, be still',
+    quote: '喜则气缓，伤心 — Joy scatters, strains the Heart',
   },
   worry: {
     zh: '思', organ: 'Spleen 脾',
-    qi:   '思则气结 — qi knots like a tangled rope',
-    body: 'Watch: bloating, poor appetite, digestive discomfort',
-    care: 'Care for 脾 Spleen — rub abdomen clockwise, walk slowly',
+    qi:    '思则气结 — qi knots like a tangled rope',
+    body:  'Watch: bloating, poor appetite, digestive discomfort',
+    care:  'Care for 脾 Spleen — rub abdomen clockwise, walk slowly',
+    quote: '思则气结，伤脾 — Worry knots, strains the Spleen',
   },
   grief: {
     zh: '悲', organ: 'Lung 肺',
-    qi:   '悲则气消 — qi drains like a leaking balloon',
-    body: 'Watch: shallow breath, dry skin, low energy',
-    care: 'Care for 肺 Lung — tap chest, breathe deeply, let go',
+    qi:    '悲则气消 — qi drains like a leaking balloon',
+    body:  'Watch: shallow breath, dry skin, low energy',
+    care:  'Care for 肺 Lung — tap chest, breathe deeply, let go',
+    quote: '悲则气消，伤肺 — Grief drains, strains the Lung',
   },
   fear: {
     zh: '恐', organ: 'Kidney 肾',
-    qi:   '恐则气下 — qi sinks like a sudden drop',
-    body: 'Watch: weak knees, lower back ache, fatigue',
-    care: 'Care for 肾 Kidney — warm your lower back, rub your ears',
+    qi:    '恐则气下 — qi sinks like a sudden drop',
+    body:  'Watch: weak knees, lower back ache, fatigue',
+    care:  'Care for 肾 Kidney — warm your lower back, rub your ears',
+    quote: '恐则气下，伤肾 — Fear sinks, strains the Kidney',
   },
 };
-
-const NEIJING_QUOTES = [
-  '怒则气上，伤肝 — Anger rises, strains the Liver',
-  '喜则气缓，伤心 — Joy scatters, strains the Heart',
-  '思则气结，伤脾 — Worry knots, strains the Spleen',
-  '悲则气消，伤肺 — Grief drains, strains the Lung',
-  '恐则气下，伤肾 — Fear sinks, strains the Kidney',
-];
 
 let lastElementForUI = null;
 let lastReadingIdx = 0;
@@ -844,14 +841,12 @@ function updateEmotionPanel() {
   }
 
   const data = TCM_EMOTION_DATA[dominant];
-  domEl.textContent = `${data.zh} ${dominant.toUpperCase()} — ${data.organ}`;
-
   if (dominant !== lastDominantEmotion) {
     lastDominantEmotion = dominant;
+    domEl.textContent = `${data.zh} ${dominant.toUpperCase()} — ${data.organ}`;
     bodyEl.innerHTML = `<span style="opacity:0.5">qi:</span> ${data.qi}<br><span style="opacity:0.5">body:</span> ${data.body}`;
     careEl.textContent = data.care;
-    const quoteIdx = ['anger','joy','worry','grief','fear'].indexOf(dominant);
-    if (quoteEl) quoteEl.textContent = NEIJING_QUOTES[quoteIdx] || '';
+    if (quoteEl) quoteEl.textContent = data.quote;
   }
 }
 
