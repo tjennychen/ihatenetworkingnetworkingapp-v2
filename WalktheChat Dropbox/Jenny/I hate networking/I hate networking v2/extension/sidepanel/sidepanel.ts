@@ -222,7 +222,14 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
     ? `Thanks ${hostMentions} for organizing the ${shortName} event!`
     : `Thanks everyone for organizing the ${shortName} event!`
 
-  const guestNames = guests.map((g: any) => nameMap.get(g.id) || g.name || '').filter(Boolean)
+  const confirmedLinkedinIds = new Set([
+    ...guests.filter((g: any) => g.linkedin_name).map((g: any) => g.id),
+    ...fetchedMap.keys(),
+  ])
+  const guestNames = guests
+    .filter((g: any) => confirmedLinkedinIds.has(g.id))
+    .map((g: any) => nameMap.get(g.id)!)
+    .filter(Boolean)
   draftState = { stage: 'ready', eventId, eventName, postText, guestNames, totalGuests }
   await renderDraftView(state)
 }
@@ -304,7 +311,7 @@ async function renderDraftView(state: Extract<AppState, { type: 'campaign' }>): 
         </div>
         ` : ''}
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;·&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `
     wireBack()
     document.getElementById('btnCopyPost')?.addEventListener('click', () => {
@@ -593,6 +600,13 @@ function wireAuthGate(): void {
   })
 }
 
+function wireSignOut(): void {
+  document.getElementById('btnSignOut')?.addEventListener('click', async () => {
+    await new Promise(r => chrome.runtime.sendMessage({ type: 'SIGN_OUT' }, r))
+    render()
+  })
+}
+
 // ── Scan flow ─────────────────────────────────────────────────────────────────
 
 function startScan(ctx: Extract<TabContext, { kind: 'luma-event' }>, hasCampaign = false): void {
@@ -636,7 +650,7 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
       <div class="section">
         <button class="btn btn-primary" id="btnScan">Scan attendees for LinkedIn profiles</button>
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;·&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `
     document.getElementById('btnScan')!.addEventListener('click', () => startScan(ctx, hasCampaign))
     return
@@ -659,7 +673,7 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
         <button class="btn btn-primary" id="btnRescan">Scan again for new attendees</button>
         ${hasCampaign ? `<button class="btn btn-secondary" id="btnViewProgress" style="margin-top:8px;">View campaign progress</button>` : ''}
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;·&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `
     document.getElementById('btnRescan')!.addEventListener('click', () => startScan(ctx, hasCampaign))
     document.getElementById('btnViewProgress')!.addEventListener('click', () => {
@@ -686,7 +700,7 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
         <div class="progress-bg"><div class="progress-fill" style="width:${pct}%"></div></div>
         <div class="progress-meta"><span>${s.done}/${s.total || '?'}</span><span>${eta}</span></div>
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;·&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `
     return
   }
@@ -728,7 +742,7 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
           </button>
         ` : renderAuthGate()}
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;·&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `
     document.getElementById('noteInput')?.addEventListener('input', (e) => {
       noteValue = (e.target as HTMLTextAreaElement).value
@@ -756,7 +770,7 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
         <div class="launched-note">We'll send them slowly during business hours — 35/day max — to keep your account safe.</div>
         <button class="btn btn-secondary" id="btnDone">Done</button>
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;·&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `
     document.getElementById('btnDone')!.addEventListener('click', () => {
       scanState = { type: 'idle' }
@@ -793,6 +807,7 @@ async function render(): Promise<void> {
   } catch (err) {
     root.innerHTML = `<div style="padding:40px 20px;text-align:center;color:#ef4444;font-size:13px;">Something went wrong. Try closing and reopening the panel.<br><br><small style="color:#9ca3af">${err}</small></div>`
   }
+  wireSignOut()
 }
 
 // Scan progress messages from luma.ts content script

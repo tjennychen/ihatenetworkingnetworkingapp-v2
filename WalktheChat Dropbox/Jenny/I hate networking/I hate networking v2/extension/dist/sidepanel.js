@@ -150,14 +150,21 @@
     const fetchedNames = needFetch.length > 0 ? await new Promise(
       (resolve) => chrome.runtime.sendMessage({ type: "GET_LINKEDIN_NAMES", contacts: needFetch.map((c) => ({ id: c.id, linkedin_url: c.linkedin_url })) }, resolve)
     ) ?? [] : [];
-    const fetchedMap = new Map(fetchedNames.filter((f) => f.linkedin_name).map((f) => [f.id, f.linkedin_name]));
+    const badNames = /* @__PURE__ */ new Set(["linkedin", "sign in", "log in", "login", "join linkedin"]);
+    const fetchedMap = new Map(
+      fetchedNames.filter((f) => f.linkedin_name && !badNames.has(f.linkedin_name.toLowerCase())).map((f) => [f.id, f.linkedin_name])
+    );
     const nameMap = /* @__PURE__ */ new Map();
     for (const g of [...guests, ...hosts]) nameMap.set(g.id, g.linkedin_name || g.name || "");
     for (const [id, name] of fetchedMap) nameMap.set(id, name);
     const hostMentions = hosts.map((h) => fetchedMap.get(h.id) || h.linkedin_name || h.name || "").filter(Boolean).map((n) => `@${n}`).join(" ");
     const shortName = eventName.replace(/\s*·\s*[^·]+$/, "").replace(/\s*·\s*[^·]+$/, "").trim();
     const postText = hostMentions ? `Thanks ${hostMentions} for organizing the ${shortName} event!` : `Thanks everyone for organizing the ${shortName} event!`;
-    const guestNames = guests.map((g) => nameMap.get(g.id) || g.name || "").filter(Boolean);
+    const confirmedLinkedinIds = /* @__PURE__ */ new Set([
+      ...guests.filter((g) => g.linkedin_name).map((g) => g.id),
+      ...fetchedMap.keys()
+    ]);
+    const guestNames = guests.filter((g) => confirmedLinkedinIds.has(g.id)).map((g) => nameMap.get(g.id)).filter(Boolean);
     draftState = { stage: "ready", eventId, eventName, postText, guestNames, totalGuests };
     await renderDraftView(state);
   }
@@ -229,14 +236,14 @@
         <div style="margin-bottom:8px;">
           ${s.guestNames.map((n) => `<div class="draft-name-row">${escHtml(n)}</div>`).join("")}
         </div>
-        ${s.totalGuests >= 15 ? `<button class="btn btn-secondary" id="btnDraftShuffle" style="margin-bottom:16px;">Shuffle (${s.totalGuests} total)</button>` : ""}
+        ${s.totalGuests > 15 ? `<button class="btn btn-secondary" id="btnDraftShuffle" style="margin-bottom:16px;">Shuffle (${s.totalGuests} total)</button>` : ""}
         <div style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px;">
           <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Tip: Tag attendees for more reach</div>
           <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0;">In the LinkedIn app: tap your photo \u2192 Tag people \u2192 search each name above</p>
         </div>
         ` : ""}
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;\xB7&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `;
       wireBack();
       document.getElementById("btnCopyPost")?.addEventListener("click", () => {
@@ -404,8 +411,13 @@
     document.getElementById("btnResume")?.addEventListener("click", () => {
       chrome.runtime.sendMessage({ type: "RESUME_CAMPAIGN" }, () => render());
     });
-    document.getElementById("btnScanAnother")?.addEventListener("click", () => {
-      chrome.tabs.create({ url: "https://lu.ma" });
+    document.getElementById("btnScanAnother")?.addEventListener("click", async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        chrome.tabs.update(tab.id, { url: "https://lu.ma" });
+      } else {
+        chrome.tabs.create({ url: "https://lu.ma" });
+      }
     });
     document.querySelectorAll(".event-row-header").forEach((header) => {
       header.addEventListener("click", () => {
@@ -489,6 +501,12 @@
       }
     });
   }
+  function wireSignOut() {
+    document.getElementById("btnSignOut")?.addEventListener("click", async () => {
+      await new Promise((r) => chrome.runtime.sendMessage({ type: "SIGN_OUT" }, r));
+      render();
+    });
+  }
   function startScan(ctx, hasCampaign = false) {
     scanState = { type: "scanning", phase: "starting", done: 0, total: 0, currentName: "", startTime: Date.now() };
     renderEventPage(ctx, hasCampaign);
@@ -527,7 +545,7 @@
       <div class="section">
         <button class="btn btn-primary" id="btnScan">Scan attendees for LinkedIn profiles</button>
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;\xB7&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `;
       document.getElementById("btnScan").addEventListener("click", () => startScan(ctx, hasCampaign));
       return;
@@ -549,7 +567,7 @@
         <button class="btn btn-primary" id="btnRescan">Scan again for new attendees</button>
         ${hasCampaign ? `<button class="btn btn-secondary" id="btnViewProgress" style="margin-top:8px;">View campaign progress</button>` : ""}
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;\xB7&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `;
       document.getElementById("btnRescan").addEventListener("click", () => startScan(ctx, hasCampaign));
       document.getElementById("btnViewProgress").addEventListener("click", () => {
@@ -575,7 +593,7 @@
         <div class="progress-bg"><div class="progress-fill" style="width:${pct}%"></div></div>
         <div class="progress-meta"><span>${s.done}/${s.total || "?"}</span><span>${eta}</span></div>
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;\xB7&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `;
       return;
     }
@@ -615,7 +633,7 @@
           </button>
         ` : renderAuthGate()}
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;\xB7&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `;
       document.getElementById("noteInput")?.addEventListener("input", (e) => {
         noteValue = e.target.value;
@@ -642,7 +660,7 @@
         <div class="launched-note">We'll send them slowly during business hours \u2014 35/day max \u2014 to keep your account safe.</div>
         <button class="btn btn-secondary" id="btnDone">Done</button>
       </div>
-      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> &nbsp;\xB7&nbsp; <button class="auth-toggle-btn" id="btnSignOut">Sign out</button></div>
     `;
       document.getElementById("btnDone").addEventListener("click", () => {
         scanState = { type: "idle" };
@@ -672,6 +690,7 @@
     } catch (err) {
       root.innerHTML = `<div style="padding:40px 20px;text-align:center;color:#ef4444;font-size:13px;">Something went wrong. Try closing and reopening the panel.<br><br><small style="color:#9ca3af">${err}</small></div>`;
     }
+    wireSignOut();
   }
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === "LINKEDIN_NAMES_PROGRESS") {

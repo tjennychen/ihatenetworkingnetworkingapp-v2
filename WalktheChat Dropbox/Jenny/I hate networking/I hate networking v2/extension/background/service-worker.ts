@@ -123,6 +123,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === 'SIGN_OUT') {
+    chrome.storage.local.remove('session', () => sendResponse({ success: true }))
+    return true
+  }
+
   if (msg.type === 'LAUNCH_CAMPAIGN') {
     const { eventId, note, lumaUrl, eventName, contacts } = msg.data
     launchCampaign({ eventId, note, lumaUrl, eventName, contacts }).then(result => sendResponse(result))

@@ -11548,7 +11548,7 @@ ${suffix}`;
   }
 
   // lib/rate-limiter.ts
-  var DAILY_LIMIT = 20;
+  var DAILY_LIMIT = 25;
   function checkDailyLimit(sentToday) {
     const remaining = Math.max(0, DAILY_LIMIT - sentToday);
     return { canSend: sentToday < DAILY_LIMIT, remaining };
@@ -11560,6 +11560,13 @@ ${suffix}`;
   }
 
   // background/service-worker.ts
+  var TRANSIENT_ERRORS = /* @__PURE__ */ new Set([
+    "send_btn_not_found",
+    "no_response",
+    "connect_not_available",
+    "note_quota_reached",
+    "linkedin_error"
+  ]);
   chrome.runtime.onInstalled.addListener(() => {
     chrome.alarms.create("checkQueue", { periodInMinutes: 0.5 });
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -11654,6 +11661,10 @@ ${suffix}`;
           sendResponse({ success: true, sessionReady: false });
         }
       }).catch((err) => sendResponse({ success: false, error: err?.message ?? "Sign up failed" }));
+      return true;
+    }
+    if (msg.type === "SIGN_OUT") {
+      chrome.storage.local.remove("session", () => sendResponse({ success: true }));
       return true;
     }
     if (msg.type === "LAUNCH_CAMPAIGN") {
@@ -11993,6 +12004,25 @@ ${suffix}`;
     updateBadge();
     return { queued: contacts.length, eventId };
   }
+  async function waitForContentScript(tabId, timeoutMs = 12e3) {
+    const interval = 500;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const tabExists = await new Promise((resolve) => {
+        chrome.tabs.get(tabId, () => resolve(!chrome.runtime.lastError));
+      });
+      if (!tabExists) return false;
+      const ready = await new Promise((resolve) => {
+        chrome.tabs.sendMessage(tabId, { type: "GET_LINKEDIN_NAME" }, () => {
+          resolve(!chrome.runtime.lastError);
+        });
+      });
+      if (ready) return true;
+      if (Date.now() >= deadline) break;
+      await new Promise((r) => setTimeout(r, interval));
+    }
+    return false;
+  }
   async function processNextQueueItem() {
     const hour = (/* @__PURE__ */ new Date()).getHours();
     if (hour < 8 || hour >= 21) return;
@@ -12041,10 +12071,20 @@ ${suffix}`;
         if (tid === tabId && info.status === "complete") {
           chrome.tabs.onUpdated.removeListener(listener);
           clearTimeout(timeout);
-          setTimeout(resolve, 2500);
+          setTimeout(resolve, 500);
         }
       });
     });
+    const contentReady = await waitForContentScript(tabId);
+    if (!contentReady) {
+      console.log("[IHN] Content script did not respond in time, requeuing");
+      await chrome.tabs.remove(tabId).catch(() => {
+      });
+      await supabase.from("connection_queue").update({
+        scheduled_at: new Date(Date.now() + 5 * 6e4).toISOString()
+      }).eq("id", item.id);
+      return;
+    }
     const result = await new Promise((resolve) => {
       const timeout = setTimeout(() => resolve({ success: false, error: "no_response" }), 2e4);
       const firstName = item.contacts?.name?.split(" ")[0] || "";
@@ -12060,7 +12100,8 @@ ${suffix}`;
       const sentAt = (/* @__PURE__ */ new Date()).toISOString();
       await supabase.from("connection_queue").update({
         status: "sent",
-        sent_at: sentAt
+        sent_at: sentAt,
+        debug_info: result.trace ?? null
       }).eq("id", item.id);
       await supabase.from("usage_logs").insert({
         user_id: session.user.id,
@@ -12079,23 +12120,32 @@ ${suffix}`;
         lastSentName: item.contacts?.name ?? "",
         nextScheduledAt
       });
-    } else if (result.error === "no_response") {
-      await supabase.from("connection_queue").update({
-        scheduled_at: new Date(Date.now() + 5 * 6e4).toISOString()
-      }).eq("id", item.id);
     } else {
-      await supabase.from("connection_queue").update({
-        status: "failed",
-        error: result.error ?? "unknown"
-      }).eq("id", item.id);
-      const failDelayMinutes = 8 + Math.random() * 12;
-      const nextFailAt = new Date(Date.now() + failDelayMinutes * 6e4).toISOString();
-      const { data: nextFailItem } = await supabase.from("connection_queue").select("id").eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1).single();
-      if (nextFailItem) {
-        await supabase.from("connection_queue").update({ scheduled_at: nextFailAt }).eq("id", nextFailItem.id);
+      const isTransient = TRANSIENT_ERRORS.has(result.error ?? "");
+      const currentRetry = item.retry_count ?? 0;
+      if (isTransient && currentRetry < 3) {
+        const retryDelay = (3 + Math.random() * 2) * 6e4;
+        await supabase.from("connection_queue").update({
+          retry_count: currentRetry + 1,
+          scheduled_at: new Date(Date.now() + retryDelay).toISOString(),
+          debug_info: result.trace ?? null
+        }).eq("id", item.id);
+        console.log(`[IHN] Transient failure (attempt ${currentRetry + 1}/3): ${result.error}`);
+      } else {
+        await supabase.from("connection_queue").update({
+          status: "failed",
+          error: result.error ?? "unknown",
+          debug_info: result.trace ?? null
+        }).eq("id", item.id);
+        const failDelayMinutes = 8 + Math.random() * 12;
+        const nextFailAt = new Date(Date.now() + failDelayMinutes * 6e4).toISOString();
+        const { data: nextFailItem } = await supabase.from("connection_queue").select("id").eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1).single();
+        if (nextFailItem) {
+          await supabase.from("connection_queue").update({ scheduled_at: nextFailAt }).eq("id", nextFailItem.id);
+        }
+        const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
+        await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) });
       }
-      const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
-      await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) });
     }
     await chrome.tabs.remove(tabId).catch(() => {
     });
