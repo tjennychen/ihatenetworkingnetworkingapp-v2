@@ -450,7 +450,8 @@ async function saveContacts(data: {
     .map((c: any) => ({ user_id: session.user.id, contact_id: c.id, status: 'pending', scheduled_at: new Date().toISOString() }))
 
   if (toQueue.length > 0) {
-    await supabase.from('connection_queue').upsert(toQueue, { onConflict: 'contact_id' })
+    // ignoreDuplicates: never reset existing queue entries (failed, sent, pending)
+    await supabase.from('connection_queue').upsert(toQueue, { onConflict: 'contact_id', ignoreDuplicates: true })
   }
 
   return saved.length
@@ -558,31 +559,19 @@ async function launchCampaign(data: {
 
   if (!contacts?.length) return { queued: 0, eventId }
 
-  // Don't re-queue contacts already sent or accepted
-  const { data: existing } = await supabase
-    .from('connection_queue')
-    .select('contact_id, status')
-    .in('contact_id', contacts.map((c: any) => c.id))
-
-  const alreadyDone = new Set(
-    (existing ?? [])
-      .filter((q: any) => q.status === 'sent' || q.status === 'accepted')
-      .map((q: any) => q.contact_id)
-  )
-
   const now = new Date().toISOString()
-  const queueItems = contacts
-    .filter((c: any) => !alreadyDone.has(c.id))
-    .map((c: any) => ({
-      user_id: session.user.id,
-      contact_id: c.id,
-      status: 'pending',
-      note: data.note || '',
-      scheduled_at: now,
-    }))
+  const queueItems = contacts.map((c: any) => ({
+    user_id: session.user.id,
+    contact_id: c.id,
+    status: 'pending',
+    note: data.note || '',
+    scheduled_at: now,
+  }))
 
   if (queueItems.length > 0) {
-    await supabase.from('connection_queue').upsert(queueItems, { onConflict: 'contact_id' })
+    // ignoreDuplicates: never overwrite existing entries (pending/failed/sent/accepted)
+    // Explicit resets must be done via SQL, not by re-launching the campaign
+    await supabase.from('connection_queue').upsert(queueItems, { onConflict: 'contact_id', ignoreDuplicates: true })
   }
 
   // Mark event as running

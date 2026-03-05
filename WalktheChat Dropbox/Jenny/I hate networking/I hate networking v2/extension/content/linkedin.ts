@@ -158,11 +158,13 @@ function namesMatch(pageName: string, expectedName: string): boolean {
   const page = normalize(pageName)
   const pageWords = page.split(/\s+/)
   const parts = normalize(expectedName).split(/\s+/).filter(Boolean)
-  return parts.every(part =>
-    page.includes(part) ||
-    // LinkedIn abbreviates last names to "F." for privacy — accept single-letter match
-    pageWords.some(w => w.length === 1 && part.startsWith(w))
-  )
+  if (parts.length === 0) return true
+  // Only require first name to match — last names often differ between Luma nicknames
+  // and LinkedIn real names (stage names, married names, handles).
+  // The LinkedIn URL from Luma is the authoritative identifier; name is just a sanity check.
+  const firstName = parts[0]
+  return page.includes(firstName) ||
+    pageWords.some(w => w.length === 1 && firstName.startsWith(w))
 }
 
 function getNoteQuotaReached(): Promise<boolean> {

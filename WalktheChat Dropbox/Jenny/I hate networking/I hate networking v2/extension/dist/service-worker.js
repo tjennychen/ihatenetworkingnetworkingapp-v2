@@ -11913,7 +11913,7 @@ ${suffix}`;
     if (!saved) return 0;
     const toQueue = saved.filter((c) => c.linkedin_url).map((c) => ({ user_id: session.user.id, contact_id: c.id, status: "pending", scheduled_at: (/* @__PURE__ */ new Date()).toISOString() }));
     if (toQueue.length > 0) {
-      await supabase.from("connection_queue").upsert(toQueue, { onConflict: "contact_id" });
+      await supabase.from("connection_queue").upsert(toQueue, { onConflict: "contact_id", ignoreDuplicates: true });
     }
     return saved.length;
   }
@@ -11983,12 +11983,8 @@ ${suffix}`;
     if (!eventId) return { queued: 0, eventId: "" };
     const { data: contacts } = await supabase.from("contacts").select("id, linkedin_url").eq("event_id", eventId).eq("user_id", session.user.id).not("linkedin_url", "eq", "");
     if (!contacts?.length) return { queued: 0, eventId };
-    const { data: existing } = await supabase.from("connection_queue").select("contact_id, status").in("contact_id", contacts.map((c) => c.id));
-    const alreadyDone = new Set(
-      (existing ?? []).filter((q) => q.status === "sent" || q.status === "accepted").map((q) => q.contact_id)
-    );
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const queueItems = contacts.filter((c) => !alreadyDone.has(c.id)).map((c) => ({
+    const queueItems = contacts.map((c) => ({
       user_id: session.user.id,
       contact_id: c.id,
       status: "pending",
@@ -11996,7 +11992,7 @@ ${suffix}`;
       scheduled_at: now
     }));
     if (queueItems.length > 0) {
-      await supabase.from("connection_queue").upsert(queueItems, { onConflict: "contact_id" });
+      await supabase.from("connection_queue").upsert(queueItems, { onConflict: "contact_id", ignoreDuplicates: true });
     }
     await supabase.from("events").update({ campaign_status: "running" }).eq("id", eventId);
     const totalPending = queueItems.length;
