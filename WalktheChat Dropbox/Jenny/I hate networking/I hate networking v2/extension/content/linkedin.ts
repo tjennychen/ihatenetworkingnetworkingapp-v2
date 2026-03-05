@@ -73,6 +73,23 @@ export function buildTrace() {
   }
 }
 
+export function waitForModal(timeoutMs = 3000): Promise<boolean> {
+  return new Promise(resolve => {
+    const interval = 150
+    let elapsed = 0
+    const check = () => {
+      const hasDialog = !!document.querySelector('[role="dialog"]')
+      const hasShadow = !!((document.querySelector('#interop-outlet') as HTMLElement | null)
+        ?.shadowRoot?.childElementCount)
+      if (hasDialog || hasShadow) { resolve(true); return }
+      elapsed += interval
+      if (elapsed >= timeoutMs) { resolve(false); return }
+      setTimeout(check, interval)
+    }
+    check()
+  })
+}
+
 async function openMoreActionsIfNeeded(): Promise<void> {
   const topCard = getProfileTopCard()
   // Use wildcard for "More actions" to match "More actions for [Name]" variants (reference: button[aria-label*="More actions"])
@@ -175,7 +192,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   }
 
   connectBtn.click()
-  await new Promise(r => setTimeout(r, 800 + Math.random() * 700))
+  await waitForModal(3000)
 
   // Check for LinkedIn error toast (e.g. "You've reached the weekly invitation limit")
   const errorToast = document.querySelector('div[data-test-artdeco-toast-item-type="error"]')
@@ -234,7 +251,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
           if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
           if (!retryBtn) return { success: false, error: 'note_quota_reached', trace: trace.toString() }
           retryBtn.click()
-          await new Promise(r => setTimeout(r, 800 + Math.random() * 500))
+          await waitForModal(2000)
         }
         // Fall through — sendBtn search below will find "Send without a note"
       }
@@ -245,8 +262,10 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
     !!((document.querySelector('#interop-outlet') as HTMLElement | null)?.shadowRoot?.childElementCount)
   trace.set('modal', modalPresent ? 'yes' : 'no')
 
+  const shadowHost = document.querySelector<HTMLElement>('#interop-outlet')
+  const shadowHasContent = !!shadowHost?.shadowRoot?.childElementCount
+  trace.set('shadowBtn', shadowHasContent ? 'shadow-present' : 'no-shadow')
   const shadowSendBtn: HTMLButtonElement | null = null
-  trace.set('shadowBtn', 'skipped')
 
   const sendBtn =
     findButtonByText('Send') ??
