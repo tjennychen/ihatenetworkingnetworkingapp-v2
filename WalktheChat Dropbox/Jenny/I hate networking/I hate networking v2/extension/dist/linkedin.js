@@ -1,6 +1,11 @@
 "use strict";
 (() => {
   // content/linkedin.ts
+  function nativeClick(el) {
+    el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  }
   function getMain() {
     return document.querySelector("main") ?? document.body;
   }
@@ -30,7 +35,7 @@
       '[role="menu"], .artdeco-dropdown__content--is-open, [data-test-dropdown-content]'
     );
     if (openMenu) {
-      const ariaBtn = openMenu.querySelector('[aria-label*="Connect"]');
+      const ariaBtn = openMenu.querySelector('[aria-label*="Connect" i]');
       if (ariaBtn) return ariaBtn;
       const inMenu = findButtonByText("Connect", openMenu);
       if (inMenu) return inMenu;
@@ -48,15 +53,69 @@
     if (connectItem) return connectItem;
     return findButtonByText("Connect", getProfileTopCard());
   }
+  function buildTrace() {
+    const fields = [];
+    return {
+      set(key, val) {
+        fields.push(`${key}=${val}`);
+      },
+      toString() {
+        return fields.join("|");
+      }
+    };
+  }
+  function waitForDropdown(timeoutMs = 2e3) {
+    return new Promise((resolve) => {
+      const interval = 100;
+      let elapsed = 0;
+      const check = () => {
+        const open = !!document.querySelector(
+          '.artdeco-dropdown__content--is-open, [role="menu"], [data-test-dropdown-content]'
+        );
+        if (open) {
+          resolve(true);
+          return;
+        }
+        elapsed += interval;
+        if (elapsed >= timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(check, interval);
+      };
+      check();
+    });
+  }
+  function waitForModal(timeoutMs = 3e3) {
+    return new Promise((resolve) => {
+      const interval = 150;
+      let elapsed = 0;
+      const check = () => {
+        const hasDialog = !!document.querySelector('[role="dialog"]');
+        const hasShadow = !!document.querySelector("#interop-outlet")?.shadowRoot?.childElementCount;
+        if (hasDialog || hasShadow) {
+          resolve(true);
+          return;
+        }
+        elapsed += interval;
+        if (elapsed >= timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(check, interval);
+      };
+      check();
+    });
+  }
   async function openMoreActionsIfNeeded() {
     const topCard = getProfileTopCard();
     const moreBtn = topCard.querySelector(
-      "button[aria-label*='More actions'], button[aria-label*='More member actions']"
-    ) ?? findButtonByText("More", topCard);
-    if (moreBtn) {
-      moreBtn.click();
-      await new Promise((r) => setTimeout(r, 800));
-    }
+      "button[aria-label*='More actions'], button[aria-label*='More member actions'], button[aria-label*='Resources']"
+    ) ?? findButtonByText("More", topCard) ?? findButtonByText("Resources", topCard);
+    if (!moreBtn) return "not-found";
+    nativeClick(moreBtn);
+    const opened = await waitForDropdown(2e3);
+    return opened ? "opened" : "timeout";
   }
   async function dismissPremiumPaywall() {
     const paywall = document.querySelector(
@@ -96,6 +155,7 @@
     if (!window.location.pathname.startsWith("/in/")) {
       return { success: false, error: "Not a profile page" };
     }
+    const trace = buildTrace();
     const pageName = getProfileName();
     if (!namesMatch(pageName, expectedName ?? "")) {
       return { success: false, error: `wrong_profile: expected "${expectedName}", got "${pageName}"` };
@@ -108,9 +168,12 @@
     const degree = degreeEl?.textContent?.trim() ?? "";
     const isThirdDegree = degree.startsWith("3");
     let connectBtn = findConnectButton();
+    trace.set("connectBtn", connectBtn ? "direct" : "null");
     if (!connectBtn) {
-      await openMoreActionsIfNeeded();
+      const moreResult = await openMoreActionsIfNeeded();
+      trace.set("more", moreResult);
       connectBtn = findConnectButton();
+      trace.set("connectAfterMore", connectBtn ? "found" : "null");
     }
     if (!connectBtn && findButtonByText("Message", main)) {
       return { success: false, error: "already_connected" };
@@ -119,8 +182,9 @@
       if (isThirdDegree) return { success: false, error: "third_degree" };
       return { success: false, error: "connect_not_available" };
     }
-    connectBtn.click();
-    await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
+    nativeClick(connectBtn);
+    const modalAppeared = await waitForModal(3e3);
+    trace.set("modal", modalAppeared ? "yes" : "timeout");
     const errorToast = document.querySelector('div[data-test-artdeco-toast-item-type="error"]');
     if (errorToast) {
       return { success: false, error: `linkedin_error: ${errorToast.textContent?.trim() ?? "unknown"}` };
@@ -135,17 +199,18 @@
         }
       }
     }
-    await dismissPremiumPaywall();
+    const paywallDismissed = await dismissPremiumPaywall();
+    trace.set("paywall", paywallDismissed ? "yes" : "no");
     const noteQuotaReached = await getNoteQuotaReached();
     if (note && !noteQuotaReached) {
       const addNoteBtn = findButtonByText("Add a note");
       if (addNoteBtn) {
-        addNoteBtn.click();
+        nativeClick(addNoteBtn);
         await new Promise((r) => setTimeout(r, 500));
         const paywalled = await dismissPremiumPaywall();
         if (!paywalled) {
           const textarea = document.querySelector(
-            'textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
+            'textarea#custom-message, textarea[name="message"], textarea[id*="note"], [class*="connect-button"] textarea, textarea'
           );
           if (textarea) {
             textarea.focus();
@@ -163,31 +228,43 @@
               await openMoreActionsIfNeeded();
               retryBtn = findConnectButton();
             }
-            if (!retryBtn) return { success: false, error: "note_quota_reached" };
-            retryBtn.click();
-            await new Promise((r) => setTimeout(r, 800 + Math.random() * 500));
+            if (!retryBtn) return { success: false, error: "note_quota_reached", trace: trace.toString() };
+            nativeClick(retryBtn);
+            await waitForModal(2e3);
           }
         }
       }
     }
     const sendBtn = findButtonByText("Send") ?? findButtonByText("Send without a note") ?? document.querySelector('[aria-label="Send now"]') ?? // Reference fallback: data-control-name="send_invite" for older LinkedIn modal variants
     document.querySelector('[data-control-name="send_invite"]');
+    trace.set("regularBtn", sendBtn ? "found" : "null");
     if (!sendBtn) {
-      return { success: false, error: "send_btn_not_found" };
+      return { success: false, error: "send_btn_not_found", trace: trace.toString() };
     }
-    sendBtn.click();
+    const preSendLimit = document.querySelector(".ip-fuse-limit-alert, #ip-fuse-limit-alert__header");
+    if (preSendLimit && getComputedStyle(preSendLimit).display !== "none") {
+      return { success: false, error: "weekly_limit_reached", trace: trace.toString() };
+    }
+    nativeClick(sendBtn);
     await new Promise((r) => setTimeout(r, 500));
     const bodyText = document.body.innerText;
     if (bodyText.includes("weekly invitation limit") || bodyText.includes("reached the weekly")) {
-      return { success: false, error: "weekly_limit_reached" };
+      return { success: false, error: "weekly_limit_reached", trace: trace.toString() };
     }
-    return { success: true };
+    return { success: true, trace: trace.toString() };
   }
+  var BAD_NAMES = /* @__PURE__ */ new Set(["linkedin", "sign in", "log in", "login", "join linkedin"]);
   function extractNameFromHtml(html) {
     const ogMatch = html.match(/property="og:title"\s+content="([^"]+)"/) ?? html.match(/content="([^"]+)"\s+property="og:title"/);
-    if (ogMatch) return ogMatch[1].trim();
+    if (ogMatch) {
+      const name = ogMatch[1].trim();
+      if (!BAD_NAMES.has(name.toLowerCase())) return name;
+    }
     const titleMatch = html.match(/<title>([^<]+)<\/title>/);
-    if (titleMatch) return titleMatch[1].replace(/\s*[|\-–]\s*.*$/i, "").trim();
+    if (titleMatch) {
+      const name = titleMatch[1].replace(/\s*[|\-–]\s*.*$/i, "").trim();
+      if (!BAD_NAMES.has(name.toLowerCase())) return name;
+    }
     return "";
   }
   if (typeof chrome !== "undefined" && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -209,8 +286,10 @@
           let linkedinName = "";
           try {
             const resp = await fetch(url, { credentials: "include" });
-            const html = await resp.text();
-            linkedinName = extractNameFromHtml(html);
+            if (resp.ok) {
+              const html = await resp.text();
+              linkedinName = extractNameFromHtml(html);
+            }
           } catch {
           }
           results.push({ id: c.id, linkedin_name: linkedinName });

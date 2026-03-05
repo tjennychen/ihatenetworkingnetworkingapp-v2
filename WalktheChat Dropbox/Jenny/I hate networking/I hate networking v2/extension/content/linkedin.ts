@@ -79,6 +79,23 @@ export function buildTrace() {
   }
 }
 
+export function waitForDropdown(timeoutMs = 2000): Promise<boolean> {
+  return new Promise(resolve => {
+    const interval = 100
+    let elapsed = 0
+    const check = () => {
+      const open = !!document.querySelector(
+        '.artdeco-dropdown__content--is-open, [role="menu"], [data-test-dropdown-content]'
+      )
+      if (open) { resolve(true); return }
+      elapsed += interval
+      if (elapsed >= timeoutMs) { resolve(false); return }
+      setTimeout(check, interval)
+    }
+    check()
+  })
+}
+
 export function waitForModal(timeoutMs = 3000): Promise<boolean> {
   return new Promise(resolve => {
     const interval = 150
@@ -96,16 +113,16 @@ export function waitForModal(timeoutMs = 3000): Promise<boolean> {
   })
 }
 
-async function openMoreActionsIfNeeded(): Promise<void> {
+async function openMoreActionsIfNeeded(): Promise<string> {
   const topCard = getProfileTopCard()
-  // Use wildcard for "More actions" to match "More actions for [Name]" variants (reference: button[aria-label*="More actions"])
+  // Cover "More actions", "More member actions" (older), and "Resources" (renamed Oct 2024 on creator profiles)
   const moreBtn = topCard.querySelector<HTMLButtonElement>(
-    "button[aria-label*='More actions'], button[aria-label*='More member actions']"
-  ) ?? findButtonByText('More', topCard)
-  if (moreBtn) {
-    nativeClick(moreBtn)
-    await new Promise(r => setTimeout(r, 800))
-  }
+    "button[aria-label*='More actions'], button[aria-label*='More member actions'], button[aria-label*='Resources']"
+  ) ?? findButtonByText('More', topCard) ?? findButtonByText('Resources', topCard)
+  if (!moreBtn) return 'not-found'
+  nativeClick(moreBtn)
+  const opened = await waitForDropdown(2000)
+  return opened ? 'opened' : 'timeout'
 }
 
 async function dismissPremiumPaywall(): Promise<boolean> {
@@ -182,9 +199,10 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   let connectBtn = findConnectButton()
   trace.set('connectBtn', connectBtn ? 'direct' : 'null')
   if (!connectBtn) {
-    await openMoreActionsIfNeeded()
+    const moreResult = await openMoreActionsIfNeeded()
+    trace.set('more', moreResult)
     connectBtn = findConnectButton()
-    trace.set('moreOpened', connectBtn ? 'yes' : 'no')
+    trace.set('connectAfterMore', connectBtn ? 'found' : 'null')
   }
 
   // Only now check already-connected — after we've tried More
@@ -256,7 +274,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
         if (!findButtonByText('Send without a note')) {
           // Modal closed after paywall — need to re-find and re-click Connect
           let retryBtn = findConnectButton()
-          if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
+          if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() } // retry path, trace not needed
           if (!retryBtn) return { success: false, error: 'note_quota_reached', trace: trace.toString() }
           nativeClick(retryBtn)
           await waitForModal(2000)
