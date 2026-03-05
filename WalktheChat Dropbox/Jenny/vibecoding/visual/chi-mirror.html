@@ -824,6 +824,123 @@ function drawChiScan() {
   if (chiScanFrame >= CHI_SCAN_FRAMES) chiScanActive = false;
 }
 
+// ── Emotion Radar Chart ───────────────────────────────────────────────────────
+const radarCanvas = document.getElementById('emotion-radar');
+const radarCtx = radarCanvas ? radarCanvas.getContext('2d') : null;
+
+const RADAR_EMOTIONS = [
+  { key: 'anger', zh: '怒', en: 'Anger'  },
+  { key: 'joy',   zh: '喜', en: 'Joy'    },
+  { key: 'grief', zh: '悲', en: 'Grief'  },
+  { key: 'fear',  zh: '恐', en: 'Fear'   },
+  { key: 'worry', zh: '思', en: 'Worry'  },
+];
+
+function drawEmotionRadar() {
+  if (!radarCtx) return;
+
+  const W = 180, H = 180;
+  radarCanvas.width  = W;
+  radarCanvas.height = H;
+
+  const cx = W / 2, cy = H / 2;
+  const R  = 68;
+  const N  = RADAR_EMOTIONS.length;
+
+  radarCtx.clearRect(0, 0, W, H);
+
+  // Draw grid rings
+  [0.33, 0.66, 1.0].forEach(frac => {
+    radarCtx.save();
+    radarCtx.globalAlpha = 0.15;
+    radarCtx.strokeStyle = '#FF6B35';
+    radarCtx.lineWidth = 0.5;
+    radarCtx.beginPath();
+    for (let i = 0; i < N; i++) {
+      const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+      const x = cx + Math.cos(angle) * R * frac;
+      const y = cy + Math.sin(angle) * R * frac;
+      i === 0 ? radarCtx.moveTo(x, y) : radarCtx.lineTo(x, y);
+    }
+    radarCtx.closePath();
+    radarCtx.stroke();
+    radarCtx.restore();
+  });
+
+  // Draw axis lines + labels
+  RADAR_EMOTIONS.forEach((em, i) => {
+    const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+    const tipX  = cx + Math.cos(angle) * R;
+    const tipY  = cy + Math.sin(angle) * R;
+
+    radarCtx.save();
+    radarCtx.globalAlpha = 0.25;
+    radarCtx.strokeStyle = '#FF6B35';
+    radarCtx.lineWidth = 0.5;
+    radarCtx.beginPath();
+    radarCtx.moveTo(cx, cy);
+    radarCtx.lineTo(tipX, tipY);
+    radarCtx.stroke();
+    radarCtx.restore();
+
+    const labelX = cx + Math.cos(angle) * (R + 14);
+    const labelY = cy + Math.sin(angle) * (R + 14);
+    const score  = emotionScores[em.key];
+    const alpha  = 0.35 + score * 0.65;
+
+    radarCtx.save();
+    radarCtx.globalAlpha = alpha;
+    radarCtx.fillStyle = '#FF6B35';
+    radarCtx.font = 'bold 9px IBM Plex Mono';
+    radarCtx.textAlign = 'center';
+    radarCtx.textBaseline = 'middle';
+    radarCtx.fillText(em.zh, labelX, labelY - 5);
+    radarCtx.font = '6px IBM Plex Mono';
+    radarCtx.globalAlpha = alpha * 0.7;
+    radarCtx.fillText(em.en, labelX, labelY + 5);
+    radarCtx.restore();
+  });
+
+  // Draw filled polygon
+  radarCtx.save();
+  radarCtx.beginPath();
+  RADAR_EMOTIONS.forEach((em, i) => {
+    const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+    const r     = Math.max(0.05, emotionScores[em.key]) * R;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    i === 0 ? radarCtx.moveTo(x, y) : radarCtx.lineTo(x, y);
+  });
+  radarCtx.closePath();
+  radarCtx.fillStyle = 'rgba(255,107,53,0.18)';
+  radarCtx.fill();
+  radarCtx.strokeStyle = 'rgba(255,107,53,0.7)';
+  radarCtx.lineWidth = 1.5;
+  radarCtx.shadowColor = '#FF6B35';
+  radarCtx.shadowBlur = 6;
+  radarCtx.stroke();
+  radarCtx.restore();
+
+  // Draw dots at each vertex
+  RADAR_EMOTIONS.forEach((em, i) => {
+    const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+    const r     = Math.max(0.05, emotionScores[em.key]) * R;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    const score = emotionScores[em.key];
+
+    radarCtx.save();
+    radarCtx.globalAlpha = 0.6 + score * 0.4;
+    radarCtx.fillStyle = '#FF6B35';
+    radarCtx.shadowColor = '#FF6B35';
+    radarCtx.shadowBlur = score > 0.3 ? 8 : 2;
+    radarCtx.beginPath();
+    radarCtx.arc(x, y, 2.5, 0, Math.PI * 2);
+    radarCtx.fill();
+    radarCtx.restore();
+  });
+}
+
 let activeGesture = null;
 let gestureReadingTimer = 0;
 let chiScanActive = false;
@@ -868,6 +985,7 @@ function render() {
   updateUI();
   checkChiScan();
   drawChiScan();
+  drawEmotionRadar();
 
   requestAnimationFrame(render);
 }
