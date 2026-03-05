@@ -1,6 +1,14 @@
 import { getSupabase, getAuthedSupabase } from '../lib/supabase'
 import { checkDailyLimit, getSentTodayCount } from '../lib/rate-limiter'
 
+const TRANSIENT_ERRORS = new Set([
+  'send_btn_not_found',
+  'no_response',
+  'connect_not_available',
+  'note_quota_reached',
+  'linkedin_error',
+])
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
@@ -673,6 +681,7 @@ async function processNextQueueItem(): Promise<void> {
     await supabase.from('connection_queue').update({
       status: 'sent',
       sent_at: sentAt,
+      debug_info: (result as any).trace ?? null,
     }).eq('id', item.id)
 
     await supabase.from('usage_logs').insert({
@@ -700,27 +709,38 @@ async function processNextQueueItem(): Promise<void> {
       lastSentName: (item.contacts as any)?.name ?? '',
       nextScheduledAt,
     })
-  } else if (result.error === 'no_response') {
-    // Content script not ready — requeue with 5min delay
-    await supabase.from('connection_queue').update({
-      scheduled_at: new Date(Date.now() + 5 * 60000).toISOString(),
-    }).eq('id', item.id)
   } else {
-    await supabase.from('connection_queue').update({
-      status: 'failed',
-      error: result.error ?? 'unknown',
-    }).eq('id', item.id)
-    // Schedule next item with human-like delay even after failures
-    const failDelayMinutes = 8 + Math.random() * 12 // 8–20 min
-    const nextFailAt = new Date(Date.now() + failDelayMinutes * 60000).toISOString()
-    const { data: nextFailItem } = await supabase
-      .from('connection_queue').select('id').eq('user_id', session.user.id)
-      .eq('status', 'pending').order('created_at', { ascending: true }).limit(1).single()
-    if (nextFailItem) {
-      await supabase.from('connection_queue').update({ scheduled_at: nextFailAt }).eq('id', nextFailItem.id)
+    const isTransient = TRANSIENT_ERRORS.has(result.error ?? '')
+    const currentRetry: number = (item as any).retry_count ?? 0
+
+    if (isTransient && currentRetry < 3) {
+      // Transient failure — requeue with short delay, keep status pending
+      const retryDelay = (3 + Math.random() * 2) * 60000 // 3-5 min
+      await supabase.from('connection_queue').update({
+        retry_count: currentRetry + 1,
+        scheduled_at: new Date(Date.now() + retryDelay).toISOString(),
+        debug_info: (result as any).trace ?? null,
+      }).eq('id', item.id)
+      console.log(`[IHN] Transient failure (attempt ${currentRetry + 1}/3): ${result.error}`)
+    } else {
+      // Permanent failure or retry limit reached
+      await supabase.from('connection_queue').update({
+        status: 'failed',
+        error: result.error ?? 'unknown',
+        debug_info: (result as any).trace ?? null,
+      }).eq('id', item.id)
+      // Schedule next item with human-like delay even after failures
+      const failDelayMinutes = 8 + Math.random() * 12
+      const nextFailAt = new Date(Date.now() + failDelayMinutes * 60000).toISOString()
+      const { data: nextFailItem } = await supabase
+        .from('connection_queue').select('id').eq('user_id', session.user.id)
+        .eq('status', 'pending').order('created_at', { ascending: true }).limit(1).single()
+      if (nextFailItem) {
+        await supabase.from('connection_queue').update({ scheduled_at: nextFailAt }).eq('id', nextFailItem.id)
+      }
+      const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
+      await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) })
     }
-    const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
-    await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) })
   }
 
   await chrome.tabs.remove(tabId).catch(() => {})
