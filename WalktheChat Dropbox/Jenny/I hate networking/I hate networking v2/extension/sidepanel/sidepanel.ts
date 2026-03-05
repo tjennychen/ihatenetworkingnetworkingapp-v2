@@ -25,6 +25,15 @@ let authMode: 'signup' | 'signin' = 'signup'
 const MAX_NOTE = 300
 
 let expandedEvents = new Set<string>()
+
+let expandedMonths = new Set<string>()
+
+function monthLabel(yyyymm: string): string {
+  const [y, m] = yyyymm.split('-').map(Number)
+  const d = new Date(y, m - 1, 1)
+  return d.toLocaleString('default', { month: 'long', year: 'numeric' })
+}
+
 type DraftState =
   | 'closed'
   | { stage: 'pick' }
@@ -184,9 +193,12 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
 
   const { hosts, guests, totalGuests } = resp
 
+  const badNames = new Set(['linkedin', 'sign in', 'log in', 'login', 'join linkedin'])
+  const isGoodName = (n: string) => !!n && !badNames.has(n.toLowerCase())
+
   const needFetch = [
-    ...hosts.filter((h: any) => !h.linkedin_name && h.linkedin_url),
-    ...guests.filter((g: any) => !g.linkedin_name && g.linkedin_url),
+    ...hosts.filter((h: any) => (!h.linkedin_name || !isGoodName(h.linkedin_name)) && h.linkedin_url),
+    ...guests.filter((g: any) => (!g.linkedin_name || !isGoodName(g.linkedin_name)) && g.linkedin_url),
   ]
 
   if (needFetch.length > 0) {
@@ -201,18 +213,20 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
       )) ?? []
     : []
 
-  const badNames = new Set(['linkedin', 'sign in', 'log in', 'login', 'join linkedin'])
   const fetchedMap = new Map(
     fetchedNames
-      .filter(f => f.linkedin_name && !badNames.has(f.linkedin_name.toLowerCase()))
+      .filter(f => isGoodName(f.linkedin_name))
       .map(f => [f.id, f.linkedin_name])
   )
   const nameMap = new Map<string, string>()
-  for (const g of [...guests, ...hosts]) nameMap.set(g.id, g.linkedin_name || g.name || '')
+  for (const g of [...guests, ...hosts]) {
+    const name = isGoodName(g.linkedin_name) ? g.linkedin_name : (g.name || '')
+    nameMap.set(g.id, name)
+  }
   for (const [id, name] of fetchedMap) nameMap.set(id, name)
 
   const hostMentions = hosts
-    .map((h: any) => fetchedMap.get(h.id) || h.linkedin_name || h.name || '')
+    .map((h: any) => fetchedMap.get(h.id) || (isGoodName(h.linkedin_name) ? h.linkedin_name : '') || h.name || '')
     .filter(Boolean)
     .map(n => `@${n}`)
     .join(' ')
@@ -223,7 +237,7 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
     : `Thanks everyone for organizing the ${shortName} event!`
 
   const confirmedLinkedinIds = new Set([
-    ...guests.filter((g: any) => g.linkedin_name).map((g: any) => g.id),
+    ...guests.filter((g: any) => isGoodName(g.linkedin_name)).map((g: any) => g.id),
     ...fetchedMap.keys(),
   ])
   const guestNames = guests
