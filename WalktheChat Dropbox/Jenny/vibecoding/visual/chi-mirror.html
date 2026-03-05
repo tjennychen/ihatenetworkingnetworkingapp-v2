@@ -224,6 +224,14 @@ let handLandmarks = { left: null, right: null };
 let poseLandmarks = null;
 window.motionData = { x: 0.5, y: 0.5, intensity: 0 };
 let gestureShaderBoost = 0;
+
+// ── Emotion Detection State ───────────────────────────────────────────────────
+// Smoothed scores (lerped, used for rendering)
+const emotionScores = { anger: 0, joy: 0, worry: 0, grief: 0, fear: 0 };
+// Raw target scores (updated every 500ms from face-api)
+const emotionTargets = { anger: 0, joy: 0, worry: 0, grief: 0, fear: 0 };
+let lastEmotionDetect = 0;
+
 let prevHandCentroid = null;
 
 // Audio / Five Elements state
@@ -668,6 +676,35 @@ Promise.all([
   if (el) el.textContent = 'emotion scan unavailable';
 });
 
+async function runEmotionDetection() {
+  if (!faceApiReady) return;
+  const now = Date.now();
+  if (now - lastEmotionDetect < 500) return;
+  lastEmotionDetect = now;
+
+  try {
+    const result = await faceapi
+      .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.3 }))
+      .withFaceExpressions();
+
+    if (!result) {
+      // No face — decay targets toward zero
+      for (const k in emotionTargets) emotionTargets[k] *= 0.8;
+      return;
+    }
+
+    const e = result.expressions;
+    // Map face-api 7 expressions → 5 TCM emotions
+    emotionTargets.anger = e.angry;
+    emotionTargets.joy   = e.happy;
+    emotionTargets.grief = (e.sad + e.disgusted) / 2;
+    emotionTargets.fear  = e.fearful;
+    emotionTargets.worry = (e.surprised + e.neutral) / 2;
+  } catch (err) {
+    // Silently ignore — detection errors are transient
+  }
+}
+
 let prevNoseX = null, prevNoseY = null;
 let yangScore = 50;
 let stillFrames = 0;
@@ -779,6 +816,13 @@ const STILL_THRESHOLD = 180;
 
 function render() {
   drawGL();
+  // Smooth emotion scores toward targets
+  const EMOTION_LERP = 0.12;
+  for (const k in emotionScores) {
+    emotionScores[k] = emotionScores[k] * (1 - EMOTION_LERP) + emotionTargets[k] * EMOTION_LERP;
+  }
+  // Trigger async detection (non-blocking)
+  runEmotionDetection();
   updateElements();
 
   // Fade trail
