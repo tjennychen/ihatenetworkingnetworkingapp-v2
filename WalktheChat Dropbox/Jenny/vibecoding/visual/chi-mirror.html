@@ -762,6 +762,48 @@ const GESTURE_READINGS = {
   namaste:     'Shen is clear — heart and mind united',
 };
 
+// ── TCM Emotion Content (from 黄帝内经 + classical sources) ──────────────────
+const TCM_EMOTION_DATA = {
+  anger: {
+    zh: '怒', organ: 'Liver 肝',
+    qi:   '怒则气上 — qi rises like a kettle lid blown off',
+    body: 'Watch: chest tight, sighing, red eyes, headache',
+    care: 'Care for 肝 Liver — massage your ribs, breathe out tension',
+  },
+  joy: {
+    zh: '喜', organ: 'Heart 心',
+    qi:   '喜则气缓 — qi scatters like a balloon releasing air',
+    body: 'Watch: insomnia, restlessness, scattered focus',
+    care: 'Care for 心 Heart — rest, slow your breath, be still',
+  },
+  worry: {
+    zh: '思', organ: 'Spleen 脾',
+    qi:   '思则气结 — qi knots like a tangled rope',
+    body: 'Watch: bloating, poor appetite, digestive discomfort',
+    care: 'Care for 脾 Spleen — rub abdomen clockwise, walk slowly',
+  },
+  grief: {
+    zh: '悲', organ: 'Lung 肺',
+    qi:   '悲则气消 — qi drains like a leaking balloon',
+    body: 'Watch: shallow breath, dry skin, low energy',
+    care: 'Care for 肺 Lung — tap chest, breathe deeply, let go',
+  },
+  fear: {
+    zh: '恐', organ: 'Kidney 肾',
+    qi:   '恐则气下 — qi sinks like a sudden drop',
+    body: 'Watch: weak knees, lower back ache, fatigue',
+    care: 'Care for 肾 Kidney — warm your lower back, rub your ears',
+  },
+};
+
+const NEIJING_QUOTES = [
+  '怒则气上，伤肝 — Anger rises, strains the Liver',
+  '喜则气缓，伤心 — Joy scatters, strains the Heart',
+  '思则气结，伤脾 — Worry knots, strains the Spleen',
+  '悲则气消，伤肺 — Grief drains, strains the Lung',
+  '恐则气下，伤肾 — Fear sinks, strains the Kidney',
+];
+
 let lastElementForUI = null;
 let lastReadingIdx = 0;
 
@@ -776,6 +818,41 @@ function updateUI() {
   document.getElementById('element-badge').style.borderColor = cfg.color;
   lastReadingIdx = (lastReadingIdx + 1) % cfg.readings.length;
   document.getElementById('reading-text').textContent = cfg.readings[lastReadingIdx];
+}
+
+let lastDominantEmotion = null;
+
+function updateEmotionPanel() {
+  let dominant = null;
+  let maxScore = 0.08;
+  for (const k in emotionScores) {
+    if (emotionScores[k] > maxScore) { maxScore = emotionScores[k]; dominant = k; }
+  }
+
+  const domEl   = document.getElementById('emotion-dominant');
+  const bodyEl  = document.getElementById('emotion-body');
+  const careEl  = document.getElementById('emotion-care');
+  const quoteEl = document.getElementById('emotion-quote');
+
+  if (!domEl) return;
+
+  if (!dominant) {
+    domEl.textContent  = '— balanced —';
+    bodyEl.textContent = '';
+    careEl.textContent = '';
+    return;
+  }
+
+  const data = TCM_EMOTION_DATA[dominant];
+  domEl.textContent = `${data.zh} ${dominant.toUpperCase()} — ${data.organ}`;
+
+  if (dominant !== lastDominantEmotion) {
+    lastDominantEmotion = dominant;
+    bodyEl.innerHTML = `<span style="opacity:0.5">qi:</span> ${data.qi}<br><span style="opacity:0.5">body:</span> ${data.body}`;
+    careEl.textContent = data.care;
+    const quoteIdx = ['anger','joy','worry','grief','fear'].indexOf(dominant);
+    if (quoteEl) quoteEl.textContent = NEIJING_QUOTES[quoteIdx] || '';
+  }
 }
 
 function checkChiScan() {
@@ -982,6 +1059,7 @@ function render() {
   checkChiScan();
   drawChiScan();
   drawEmotionRadar();
+  updateEmotionPanel();
 
   requestAnimationFrame(render);
 }
