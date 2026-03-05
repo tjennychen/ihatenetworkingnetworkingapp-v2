@@ -253,15 +253,22 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
 
   if (paywallDismissed) {
     await new Promise(r => setTimeout(r, 600))
-    // Paywall may have closed the Connect modal entirely — re-click if needed
-    const modalStillOpen = !!document.querySelector('[role="dialog"]') ||
-      !!((document.querySelector('#interop-outlet') as HTMLElement | null)?.shadowRoot?.childElementCount)
-    trace.set('modalAfterPaywall', modalStillOpen ? 'open' : 'closed')
-    if (!modalStillOpen) {
-      let retryBtn = findConnectButton()
-      if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
-      if (retryBtn) { nativeClick(retryBtn); await waitForModal(2000) }
+    // The Connect modal behind a dismissed paywall is in a broken state — clicking
+    // Send from it does nothing. Always close it and re-click Connect fresh.
+    const remainingDialog = document.querySelector<HTMLElement>('[role="dialog"]')
+    if (remainingDialog) {
+      remainingDialog.querySelector<HTMLButtonElement>('[aria-label="Dismiss"], [aria-label="Close"]')?.click()
+      await new Promise(r => setTimeout(r, 500))
     }
+    let retryBtn = findConnectButton()
+    if (!retryBtn) { await openMoreActionsIfNeeded(); retryBtn = findConnectButton() }
+    trace.set('paywallRetry', retryBtn ? 'found' : 'null')
+    if (!retryBtn) return { success: false, error: 'paywall_no_connect', trace: trace.toString() }
+    nativeClick(retryBtn)
+    await waitForModal(2000)
+    // If paywall fires again immediately, bail to avoid a loop
+    const paywallAgain = await dismissPremiumPaywall()
+    if (paywallAgain) return { success: false, error: 'paywall_loop', trace: trace.toString() }
   }
 
   const noteQuotaReached = await getNoteQuotaReached()

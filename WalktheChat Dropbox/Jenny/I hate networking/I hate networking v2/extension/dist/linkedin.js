@@ -204,19 +204,22 @@
     trace.set("paywall", paywallDismissed ? "yes" : "no");
     if (paywallDismissed) {
       await new Promise((r) => setTimeout(r, 600));
-      const modalStillOpen = !!document.querySelector('[role="dialog"]') || !!document.querySelector("#interop-outlet")?.shadowRoot?.childElementCount;
-      trace.set("modalAfterPaywall", modalStillOpen ? "open" : "closed");
-      if (!modalStillOpen) {
-        let retryBtn = findConnectButton();
-        if (!retryBtn) {
-          await openMoreActionsIfNeeded();
-          retryBtn = findConnectButton();
-        }
-        if (retryBtn) {
-          nativeClick(retryBtn);
-          await waitForModal(2e3);
-        }
+      const remainingDialog = document.querySelector('[role="dialog"]');
+      if (remainingDialog) {
+        remainingDialog.querySelector('[aria-label="Dismiss"], [aria-label="Close"]')?.click();
+        await new Promise((r) => setTimeout(r, 500));
       }
+      let retryBtn = findConnectButton();
+      if (!retryBtn) {
+        await openMoreActionsIfNeeded();
+        retryBtn = findConnectButton();
+      }
+      trace.set("paywallRetry", retryBtn ? "found" : "null");
+      if (!retryBtn) return { success: false, error: "paywall_no_connect", trace: trace.toString() };
+      nativeClick(retryBtn);
+      await waitForModal(2e3);
+      const paywallAgain = await dismissPremiumPaywall();
+      if (paywallAgain) return { success: false, error: "paywall_loop", trace: trace.toString() };
     }
     const noteQuotaReached = await getNoteQuotaReached();
     if (note && !noteQuotaReached) {
