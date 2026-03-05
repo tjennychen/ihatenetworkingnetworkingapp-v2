@@ -298,14 +298,22 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   return { success: true, trace: trace.toString() }
 }
 
+const BAD_NAMES = new Set(['linkedin', 'sign in', 'log in', 'login', 'join linkedin'])
+
 function extractNameFromHtml(html: string): string {
   // og:title is cleanest (just the name, no suffix)
   const ogMatch = html.match(/property="og:title"\s+content="([^"]+)"/)
     ?? html.match(/content="([^"]+)"\s+property="og:title"/)
-  if (ogMatch) return ogMatch[1].trim()
+  if (ogMatch) {
+    const name = ogMatch[1].trim()
+    if (!BAD_NAMES.has(name.toLowerCase())) return name
+  }
   // Fall back to <title> and strip " | LinkedIn" etc.
   const titleMatch = html.match(/<title>([^<]+)<\/title>/)
-  if (titleMatch) return titleMatch[1].replace(/\s*[|\-–]\s*.*$/i, '').trim()
+  if (titleMatch) {
+    const name = titleMatch[1].replace(/\s*[|\-–]\s*.*$/i, '').trim()
+    if (!BAD_NAMES.has(name.toLowerCase())) return name
+  }
   return ''
 }
 

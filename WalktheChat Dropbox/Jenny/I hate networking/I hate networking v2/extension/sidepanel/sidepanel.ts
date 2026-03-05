@@ -201,7 +201,12 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
       )) ?? []
     : []
 
-  const fetchedMap = new Map(fetchedNames.filter(f => f.linkedin_name).map(f => [f.id, f.linkedin_name]))
+  const badNames = new Set(['linkedin', 'sign in', 'log in', 'login', 'join linkedin'])
+  const fetchedMap = new Map(
+    fetchedNames
+      .filter(f => f.linkedin_name && !badNames.has(f.linkedin_name.toLowerCase()))
+      .map(f => [f.id, f.linkedin_name])
+  )
   const nameMap = new Map<string, string>()
   for (const g of [...guests, ...hosts]) nameMap.set(g.id, g.linkedin_name || g.name || '')
   for (const [id, name] of fetchedMap) nameMap.set(id, name)
@@ -292,7 +297,7 @@ async function renderDraftView(state: Extract<AppState, { type: 'campaign' }>): 
         <div style="margin-bottom:8px;">
           ${s.guestNames.map(n => `<div class="draft-name-row">${escHtml(n)}</div>`).join('')}
         </div>
-        ${s.totalGuests >= 15 ? `<button class="btn btn-secondary" id="btnDraftShuffle" style="margin-bottom:16px;">Shuffle (${s.totalGuests} total)</button>` : ''}
+        ${s.totalGuests > 15 ? `<button class="btn btn-secondary" id="btnDraftShuffle" style="margin-bottom:16px;">Shuffle (${s.totalGuests} total)</button>` : ''}
         <div style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px;">
           <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Tip: Tag attendees for more reach</div>
           <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0;">In the LinkedIn app: tap your photo → Tag people → search each name above</p>
@@ -487,8 +492,13 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   })
 
   // ── Wire scan CTA ──────────────────────────────────────────────────────────
-  document.getElementById('btnScanAnother')?.addEventListener('click', () => {
-    chrome.tabs.create({ url: 'https://lu.ma' })
+  document.getElementById('btnScanAnother')?.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    if (tab?.id) {
+      chrome.tabs.update(tab.id, { url: 'https://lu.ma' })
+    } else {
+      chrome.tabs.create({ url: 'https://lu.ma' })
+    }
   })
 
   // ── Wire event row expansion (direct DOM — instant, no re-fetch) ───────────
