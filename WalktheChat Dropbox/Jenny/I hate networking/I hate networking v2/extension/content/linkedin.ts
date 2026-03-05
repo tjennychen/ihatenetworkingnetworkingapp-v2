@@ -1,8 +1,14 @@
 // LinkedIn content script — Voyager API approach
-// Replaces brittle DOM clicking with LinkedIn's internal REST API.
+// Calls LinkedIn's internal REST API instead of clicking DOM buttons.
 // Same-origin context (content script on linkedin.com) means cookies and CSRF work naturally.
 
 const VOYAGER = 'https://www.linkedin.com/voyager/api'
+
+// Correct invite endpoint as of 2026 (normInvitations is deprecated/dead)
+const INVITE_URL =
+  `${VOYAGER}/voyagerRelationshipsDashMemberRelationships` +
+  `?action=verifyQuotaAndCreateV2` +
+  `&decorationId=com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2`
 
 // JSESSIONID doubles as the CSRF token — LinkedIn sets it without HttpOnly so JS can read it
 function getCsrfToken(): string {
@@ -20,37 +26,46 @@ function voyagerHeaders(csrf: string): Record<string, string> {
   }
 }
 
-// ── Profile ID extraction ─────────────────────────────────────────────────────
+// ── Profile URN extraction ────────────────────────────────────────────────────
 //
-// LinkedIn's profile pages hydrate data into <code> elements as JSON blobs.
-// We scan for the profile's entityUrn there first (zero extra requests).
-// Fall back to a Voyager profileView call if the page JSON doesn't have it.
+// LinkedIn no longer injects data into <code> elements on profile pages.
+// Instead, scan the page HTML near the profile's publicIdentifier (vanity name)
+// to find the matching fsd_profile entityUrn.
 
-function getProfileIdFromPage(): string | null {
-  const codeEls = Array.from(document.querySelectorAll('code'))
-  for (const el of codeEls) {
-    const text = el.textContent ?? ''
-    // fsd_profile (newer dash API format)
-    let m = text.match(/"entityUrn":"urn:li:fsd_profile:([A-Za-z0-9_-]+)"/)
-    if (m) return m[1]
-    // fs_miniProfile (older format — same base64 value, interchangeable)
-    m = text.match(/"entityUrn":"urn:li:fs_miniProfile:([A-Za-z0-9_-]+)"/)
+function getProfileUrnFromPage(vanityName: string): string | null {
+  const html = document.documentElement.innerHTML
+
+  // Primary: find the URN within ~400 chars of the publicIdentifier to avoid
+  // matching recommendation authors or "People Also Viewed" entries
+  const pubIdx = html.indexOf(`"publicIdentifier":"${vanityName}"`)
+  if (pubIdx !== -1) {
+    const slice = html.slice(Math.max(0, pubIdx - 400), pubIdx + 400)
+    const m = slice.match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/)
     if (m) return m[1]
   }
-  return null
+
+  // Fallback: first fsd_profile URN anywhere on the page
+  // (usually the profile being viewed, not a sidebar recommendation)
+  const m = html.match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/)
+  return m ? m[1] : null
 }
 
-async function fetchProfileId(vanityName: string, headers: Record<string, string>): Promise<string | null> {
+// API fallback: dash profiles endpoint returns fsd_profile entityUrn directly
+async function fetchProfileUrn(vanityName: string, headers: Record<string, string>): Promise<string | null> {
   try {
     const resp = await fetch(
-      `${VOYAGER}/identity/profiles/${encodeURIComponent(vanityName)}/profileView`,
+      `${VOYAGER}/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(vanityName)}`,
       { headers, credentials: 'include' }
     )
     if (!resp.ok) return null
     const data = await resp.json()
-    const miniUrn: string = data?.profile?.miniProfile?.entityUrn ?? ''
-    const m = miniUrn.match(/urn:li:(?:fsd_profile|fs_miniProfile):([A-Za-z0-9_-]+)/)
-    return m ? m[1] : null
+    // entityUrn is in data.data or data.elements[0] depending on API version
+    const urn: string =
+      data?.data?.entityUrn ??
+      data?.elements?.[0]?.entityUrn ??
+      (data?.included ?? [])[0]?.entityUrn ??
+      ''
+    return urn.startsWith('urn:li:fsd_profile:') ? urn : null
   } catch {
     return null
   }
@@ -60,21 +75,22 @@ async function fetchProfileId(vanityName: string, headers: Record<string, string
 
 async function parseInviteError(resp: Response): Promise<string> {
   let body: Record<string, unknown> = {}
-  try { body = await resp.json() } catch { /* non-JSON */ }
+  try { body = await resp.json() } catch { /* non-JSON body */ }
 
-  const msg = String(body?.message ?? body?.exceptionClass ?? '').toUpperCase()
+  const msg = String(body?.message ?? body?.code ?? '').toUpperCase()
 
   if (resp.status === 429) return 'weekly_limit_reached'
   if (resp.status === 403) return 'not_logged_in'
 
+  if (msg.includes('CANT_RESEND_YET') || msg.includes('DUPLICATE') ||
+      (msg.includes('ALREADY') && msg.includes('INVIT'))) return 'already_pending'
   if (msg.includes('FIRST_DEGREE') || msg.includes('ALREADY_CONNECTED')) return 'already_connected'
-  if (msg.includes('DUPLICATE') || msg.includes('ALREADY') && msg.includes('INVIT')) return 'already_pending'
   if (msg.includes('QUOTA') || msg.includes('LIMIT')) return 'weekly_limit_reached'
 
   return `api_error_${resp.status}:${msg.slice(0, 60)}`
 }
 
-// ── DOM helpers (kept for pre-flight checks and name verification only) ───────
+// ── DOM helpers (pre-flight checks and name verification only) ────────────────
 
 function getMain(): Element {
   return document.querySelector('main') ?? document.body
@@ -120,21 +136,22 @@ function setNoteQuotaReached(): Promise<void> {
 // ── Core invite call ──────────────────────────────────────────────────────────
 
 async function postInvite(
-  profileId: string,
+  profileUrn: string,
   note: string,
   headers: Record<string, string>
 ): Promise<{ success: boolean; error?: string }> {
   const payload: Record<string, unknown> = {
-    emberEntityName: 'growth/invitation',
     invitee: {
-      'com.linkedin.voyager.growth.invitation.InviteeProfile': { profileId },
+      inviteeUnion: {
+        memberProfile: profileUrn,  // full "urn:li:fsd_profile:..." string
+      },
     },
   }
-  if (note) payload.message = note
+  if (note) payload.customMessage = note
 
   let resp: Response
   try {
-    resp = await fetch(`${VOYAGER}/growth/normInvitations`, {
+    resp = await fetch(INVITE_URL, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -144,7 +161,6 @@ async function postInvite(
     return { success: false, error: `fetch_failed: ${String(e)}` }
   }
 
-  // 201 Created = success (also accept other 2xx in case LinkedIn varies)
   if (resp.ok) return { success: true }
 
   return { success: false, error: await parseInviteError(resp) }
@@ -169,31 +185,31 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   const headers = voyagerHeaders(csrf)
   const vanityName = window.location.pathname.split('/').filter(Boolean)[1] ?? ''
 
-  // Quick DOM pre-flight: bail early if already pending or already connected
+  // Quick DOM pre-flight: bail early if already pending
   const main = getMain()
   if (findButtonByText('Pending', main) || findButtonByText('Withdraw', main)) {
     return { success: false, error: 'already_pending' }
   }
 
-  // Get profile ID (try page JSON first, then API)
-  let profileId = getProfileIdFromPage()
-  if (!profileId) {
-    profileId = await fetchProfileId(vanityName, headers)
+  // Get profile URN (try page HTML first, then API)
+  let profileUrn = getProfileUrnFromPage(vanityName)
+  if (!profileUrn) {
+    profileUrn = await fetchProfileUrn(vanityName, headers)
   }
-  if (!profileId) {
+  if (!profileUrn) {
     return { success: false, error: 'no_profile_urn' }
   }
 
-  // Determine effective note (skip if quota reached)
+  // Skip note if quota previously reached
   const noteQuotaReached = await getNoteQuotaReached()
   const effectiveNote = note && !noteQuotaReached ? note : ''
 
-  const result = await postInvite(profileId, effectiveNote, headers)
+  const result = await postInvite(profileUrn, effectiveNote, headers)
 
-  // If note caused a quota error, retry without note and remember for future
-  if (!result.success && effectiveNote && result.error?.includes('already_pending')) {
+  // If invite with note failed, retry without (note might be hitting quota or format issue)
+  if (!result.success && effectiveNote) {
     await setNoteQuotaReached()
-    return postInvite(profileId, '', headers)
+    return postInvite(profileUrn, '', headers)
   }
 
   return result

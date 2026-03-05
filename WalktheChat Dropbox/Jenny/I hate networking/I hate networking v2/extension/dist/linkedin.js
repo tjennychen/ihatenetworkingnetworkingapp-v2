@@ -2,6 +2,7 @@
 (() => {
   // content/linkedin.ts
   var VOYAGER = "https://www.linkedin.com/voyager/api";
+  var INVITE_URL = `${VOYAGER}/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreateV2&decorationId=com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2`;
   function getCsrfToken() {
     const m = document.cookie.match(/JSESSIONID=([^;]+)/);
     return m ? decodeURIComponent(m[1]) : "";
@@ -15,28 +16,27 @@
       "x-li-lang": "en_US"
     };
   }
-  function getProfileIdFromPage() {
-    const codeEls = Array.from(document.querySelectorAll("code"));
-    for (const el of codeEls) {
-      const text = el.textContent ?? "";
-      let m = text.match(/"entityUrn":"urn:li:fsd_profile:([A-Za-z0-9_-]+)"/);
-      if (m) return m[1];
-      m = text.match(/"entityUrn":"urn:li:fs_miniProfile:([A-Za-z0-9_-]+)"/);
-      if (m) return m[1];
+  function getProfileUrnFromPage(vanityName) {
+    const html = document.documentElement.innerHTML;
+    const pubIdx = html.indexOf(`"publicIdentifier":"${vanityName}"`);
+    if (pubIdx !== -1) {
+      const slice = html.slice(Math.max(0, pubIdx - 400), pubIdx + 400);
+      const m2 = slice.match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/);
+      if (m2) return m2[1];
     }
-    return null;
+    const m = html.match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/);
+    return m ? m[1] : null;
   }
-  async function fetchProfileId(vanityName, headers) {
+  async function fetchProfileUrn(vanityName, headers) {
     try {
       const resp = await fetch(
-        `${VOYAGER}/identity/profiles/${encodeURIComponent(vanityName)}/profileView`,
+        `${VOYAGER}/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(vanityName)}`,
         { headers, credentials: "include" }
       );
       if (!resp.ok) return null;
       const data = await resp.json();
-      const miniUrn = data?.profile?.miniProfile?.entityUrn ?? "";
-      const m = miniUrn.match(/urn:li:(?:fsd_profile|fs_miniProfile):([A-Za-z0-9_-]+)/);
-      return m ? m[1] : null;
+      const urn = data?.data?.entityUrn ?? data?.elements?.[0]?.entityUrn ?? (data?.included ?? [])[0]?.entityUrn ?? "";
+      return urn.startsWith("urn:li:fsd_profile:") ? urn : null;
     } catch {
       return null;
     }
@@ -47,11 +47,11 @@
       body = await resp.json();
     } catch {
     }
-    const msg = String(body?.message ?? body?.exceptionClass ?? "").toUpperCase();
+    const msg = String(body?.message ?? body?.code ?? "").toUpperCase();
     if (resp.status === 429) return "weekly_limit_reached";
     if (resp.status === 403) return "not_logged_in";
+    if (msg.includes("CANT_RESEND_YET") || msg.includes("DUPLICATE") || msg.includes("ALREADY") && msg.includes("INVIT")) return "already_pending";
     if (msg.includes("FIRST_DEGREE") || msg.includes("ALREADY_CONNECTED")) return "already_connected";
-    if (msg.includes("DUPLICATE") || msg.includes("ALREADY") && msg.includes("INVIT")) return "already_pending";
     if (msg.includes("QUOTA") || msg.includes("LIMIT")) return "weekly_limit_reached";
     return `api_error_${resp.status}:${msg.slice(0, 60)}`;
   }
@@ -83,17 +83,19 @@
   function setNoteQuotaReached() {
     return new Promise((resolve) => chrome.storage.local.set({ noteQuotaReached: true }, resolve));
   }
-  async function postInvite(profileId, note, headers) {
+  async function postInvite(profileUrn, note, headers) {
     const payload = {
-      emberEntityName: "growth/invitation",
       invitee: {
-        "com.linkedin.voyager.growth.invitation.InviteeProfile": { profileId }
+        inviteeUnion: {
+          memberProfile: profileUrn
+          // full "urn:li:fsd_profile:..." string
+        }
       }
     };
-    if (note) payload.message = note;
+    if (note) payload.customMessage = note;
     let resp;
     try {
-      resp = await fetch(`${VOYAGER}/growth/normInvitations`, {
+      resp = await fetch(INVITE_URL, {
         method: "POST",
         headers,
         credentials: "include",
@@ -121,19 +123,19 @@
     if (findButtonByText("Pending", main) || findButtonByText("Withdraw", main)) {
       return { success: false, error: "already_pending" };
     }
-    let profileId = getProfileIdFromPage();
-    if (!profileId) {
-      profileId = await fetchProfileId(vanityName, headers);
+    let profileUrn = getProfileUrnFromPage(vanityName);
+    if (!profileUrn) {
+      profileUrn = await fetchProfileUrn(vanityName, headers);
     }
-    if (!profileId) {
+    if (!profileUrn) {
       return { success: false, error: "no_profile_urn" };
     }
     const noteQuotaReached = await getNoteQuotaReached();
     const effectiveNote = note && !noteQuotaReached ? note : "";
-    const result = await postInvite(profileId, effectiveNote, headers);
-    if (!result.success && effectiveNote && result.error?.includes("already_pending")) {
+    const result = await postInvite(profileUrn, effectiveNote, headers);
+    if (!result.success && effectiveNote) {
       await setNoteQuotaReached();
-      return postInvite(profileId, "", headers);
+      return postInvite(profileUrn, "", headers);
     }
     return result;
   }
