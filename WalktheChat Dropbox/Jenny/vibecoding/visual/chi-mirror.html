@@ -834,9 +834,11 @@ function updateEmotionPanel() {
   if (!domEl) return;
 
   if (!dominant) {
+    lastDominantEmotion = null;
     domEl.textContent  = '— balanced —';
     bodyEl.textContent = '';
     careEl.textContent = '';
+    if (quoteEl) quoteEl.textContent = '';
     return;
   }
 
