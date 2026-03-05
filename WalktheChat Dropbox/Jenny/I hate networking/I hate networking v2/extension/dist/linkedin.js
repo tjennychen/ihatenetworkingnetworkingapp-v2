@@ -257,7 +257,8 @@
       'button[aria-label="Send without a note"], button[aria-label="Send now"], button.artdeco-button--primary'
     ) ?? null;
     trace.set("shadowBtn", shadowSendBtn ? "found" : "null");
-    const sendBtn = shadowSendBtn ?? findButtonByText("Send") ?? findButtonByText("Send without a note") ?? document.querySelector('[aria-label="Send now"]') ?? document.querySelector('[data-control-name="send_invite"]');
+    const openDialog = document.querySelector('[role="dialog"]');
+    const sendBtn = shadowSendBtn ?? (openDialog ? findButtonByText("Send without a note", openDialog) : null) ?? (openDialog ? findButtonByText("Send", openDialog) : null) ?? document.querySelector('[aria-label="Send now"]') ?? document.querySelector('[data-control-name="send_invite"]');
     trace.set("regularBtn", sendBtn ? "found" : "null");
     if (!sendBtn) {
       return { success: false, error: "send_btn_not_found", trace: trace.toString() };
@@ -267,10 +268,23 @@
       return { success: false, error: "weekly_limit_reached", trace: trace.toString() };
     }
     nativeClick(sendBtn);
-    await new Promise((r) => setTimeout(r, 500));
-    const bodyText = document.body.innerText;
-    if (bodyText.includes("weekly invitation limit") || bodyText.includes("reached the weekly")) {
-      return { success: false, error: "weekly_limit_reached", trace: trace.toString() };
+    let modalClosed = false;
+    const verifyDeadline = Date.now() + 3e3;
+    while (Date.now() < verifyDeadline) {
+      await new Promise((r) => setTimeout(r, 300));
+      const bodyText = document.body.innerText;
+      if (bodyText.includes("weekly invitation limit") || bodyText.includes("reached the weekly")) {
+        return { success: false, error: "weekly_limit_reached", trace: trace.toString() };
+      }
+      const stillOpen = !!document.querySelector('[role="dialog"]') || !!document.querySelector("#interop-outlet")?.shadowRoot?.childElementCount;
+      if (!stillOpen) {
+        modalClosed = true;
+        break;
+      }
+    }
+    trace.set("modalClosed", modalClosed ? "yes" : "no");
+    if (!modalClosed) {
+      return { success: false, error: "send_unverified", trace: trace.toString() };
     }
     return { success: true, trace: trace.toString() };
   }

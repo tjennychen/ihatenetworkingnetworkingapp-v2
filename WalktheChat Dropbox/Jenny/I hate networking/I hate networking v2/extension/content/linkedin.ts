@@ -313,10 +313,13 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   ) ?? null
   trace.set('shadowBtn', shadowSendBtn ? 'found' : 'null')
 
+  // Scope regular-DOM search to the open dialog only — avoids matching unrelated
+  // "Send" buttons elsewhere on the page (e.g. message compose, InMail)
+  const openDialog = document.querySelector<Element>('[role="dialog"]')
   const sendBtn =
     shadowSendBtn ??
-    findButtonByText('Send') ??
-    findButtonByText('Send without a note') ??
+    (openDialog ? findButtonByText('Send without a note', openDialog) : null) ??
+    (openDialog ? findButtonByText('Send', openDialog) : null) ??
     document.querySelector<HTMLButtonElement>('[aria-label="Send now"]') ??
     document.querySelector<HTMLButtonElement>('[data-control-name="send_invite"]')
 
@@ -333,12 +336,25 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
   }
 
   nativeClick(sendBtn)
-  await new Promise(r => setTimeout(r, 500))
 
-  // Text-based weekly limit check — won't break when LinkedIn changes class names
-  const bodyText = document.body.innerText
-  if (bodyText.includes('weekly invitation limit') || bodyText.includes('reached the weekly')) {
-    return { success: false, error: 'weekly_limit_reached', trace: trace.toString() }
+  // Verify send by polling until modal closes (LinkedIn closes it on success).
+  // Also check for weekly limit text on each tick.
+  let modalClosed = false
+  const verifyDeadline = Date.now() + 3000
+  while (Date.now() < verifyDeadline) {
+    await new Promise(r => setTimeout(r, 300))
+    const bodyText = document.body.innerText
+    if (bodyText.includes('weekly invitation limit') || bodyText.includes('reached the weekly')) {
+      return { success: false, error: 'weekly_limit_reached', trace: trace.toString() }
+    }
+    const stillOpen = !!document.querySelector('[role="dialog"]') ||
+      !!((document.querySelector('#interop-outlet') as HTMLElement | null)?.shadowRoot?.childElementCount)
+    if (!stillOpen) { modalClosed = true; break }
+  }
+  trace.set('modalClosed', modalClosed ? 'yes' : 'no')
+
+  if (!modalClosed) {
+    return { success: false, error: 'send_unverified', trace: trace.toString() }
   }
 
   return { success: true, trace: trace.toString() }
