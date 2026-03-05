@@ -267,9 +267,10 @@
     return `Next connection in ~${mins} min`;
   }
   async function renderCampaign(state) {
-    const [progressResp, storageData] = await Promise.all([
+    const [progressResp, storageData, tabCtx] = await Promise.all([
       new Promise((r) => chrome.runtime.sendMessage({ type: "GET_PROGRESS_DATA" }, r)),
-      chrome.storage.local.get(["nextScheduledAt"])
+      chrome.storage.local.get(["nextScheduledAt"]),
+      resolveTabContext()
     ]);
     const events = progressResp?.events ?? [];
     const nextAt = storageData.nextScheduledAt ?? null;
@@ -370,11 +371,12 @@
       <button class="btn btn-secondary" id="btnDraftPost">\u270D Draft a LinkedIn post</button>
     </div>
   `;
-    const scanCta = `
-    <div class="section">
-      <button class="btn btn-secondary" id="btnScanAnother">+ Scan another event</button>
-    </div>
-  `;
+    const onEventPage = tabCtx.kind === "luma-event";
+    const scanCta = onEventPage ? `<div class="section">
+        <button class="btn btn-primary" id="btnScanAnother">\u26A1 Scan this event</button>
+       </div>` : `<div class="section">
+        <button class="btn btn-secondary" id="btnScanAnother">+ Scan another event</button>
+       </div>`;
     root.innerHTML = `
     <div class="compact-header">
       <div class="compact-brand">
@@ -384,6 +386,8 @@
       ${statusHtml}
     </div>
 
+    ${scanCta}
+
     <div class="section">
       ${statsHtml}
       ${progressHtml}
@@ -392,7 +396,6 @@
 
     ${eventsListHtml}
     ${draftSectionHtml}
-    ${scanCta}
 
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin:8px 16px 0;">Closing this panel won't stop your campaign.</p>
 
@@ -404,13 +407,12 @@
     document.getElementById("btnResume")?.addEventListener("click", () => {
       chrome.runtime.sendMessage({ type: "RESUME_CAMPAIGN" }, () => render());
     });
-    document.getElementById("btnScanAnother")?.addEventListener("click", async () => {
-      const ctx = await resolveTabContext();
-      if (ctx.kind === "luma-event") {
+    document.getElementById("btnScanAnother")?.addEventListener("click", () => {
+      if (tabCtx.kind === "luma-event") {
         scanState = { type: "idle" };
-        startScan(ctx);
+        startScan(tabCtx);
       } else {
-        const tabId = ctx.tabId;
+        const tabId = tabCtx.tabId;
         if (tabId) {
           chrome.tabs.update(tabId, { url: "https://lu.ma/events", active: true });
         } else {

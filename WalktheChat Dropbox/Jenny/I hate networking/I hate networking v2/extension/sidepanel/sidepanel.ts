@@ -326,10 +326,11 @@ function nextConnectionLabel(nextAt: string | null): string {
 }
 
 async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): Promise<void> {
-  // Fetch full progress data
-  const [progressResp, storageData] = await Promise.all([
+  // Fetch full progress data and resolve tab context in parallel
+  const [progressResp, storageData, tabCtx] = await Promise.all([
     new Promise<any>(r => chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, r)),
     chrome.storage.local.get(['nextScheduledAt']),
+    resolveTabContext(),
   ])
 
   const events: any[] = progressResp?.events ?? []
@@ -447,12 +448,15 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
     </div>
   `
 
-  // ── Scan CTA ───────────────────────────────────────────────────────────────
-  const scanCta = `
-    <div class="section">
-      <button class="btn btn-secondary" id="btnScanAnother">+ Scan another event</button>
-    </div>
-  `
+  // ── Scan CTA — context-aware ────────────────────────────────────────────────
+  const onEventPage = tabCtx.kind === 'luma-event'
+  const scanCta = onEventPage
+    ? `<div class="section">
+        <button class="btn btn-primary" id="btnScanAnother">⚡ Scan this event</button>
+       </div>`
+    : `<div class="section">
+        <button class="btn btn-secondary" id="btnScanAnother">+ Scan another event</button>
+       </div>`
 
   root.innerHTML = `
     <div class="compact-header">
@@ -463,6 +467,8 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
       ${statusHtml}
     </div>
 
+    ${scanCta}
+
     <div class="section">
       ${statsHtml}
       ${progressHtml}
@@ -471,7 +477,6 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
 
     ${eventsListHtml}
     ${draftSectionHtml}
-    ${scanCta}
 
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin:8px 16px 0;">Closing this panel won't stop your campaign.</p>
 
@@ -487,15 +492,12 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   })
 
   // ── Wire scan CTA ──────────────────────────────────────────────────────────
-  document.getElementById('btnScanAnother')?.addEventListener('click', async () => {
-    const ctx = await resolveTabContext()
-    if (ctx.kind === 'luma-event') {
-      // Already on an event page — reset scan state and scan it
+  document.getElementById('btnScanAnother')?.addEventListener('click', () => {
+    if (tabCtx.kind === 'luma-event') {
       scanState = { type: 'idle' }
-      startScan(ctx)
+      startScan(tabCtx)
     } else {
-      // Not on an event page — navigate current tab to lu.ma/events
-      const tabId = (ctx as any).tabId
+      const tabId = (tabCtx as any).tabId
       if (tabId) {
         chrome.tabs.update(tabId, { url: 'https://lu.ma/events', active: true })
       } else {
