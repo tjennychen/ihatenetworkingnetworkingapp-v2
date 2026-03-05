@@ -11664,7 +11664,7 @@ ${suffix}`;
       return true;
     }
     if (msg.type === "SIGN_OUT") {
-      chrome.storage.local.remove("session", () => sendResponse({ success: true }));
+      chrome.storage.local.remove(["session", "queuePending"], () => sendResponse({ success: true }));
       return true;
     }
     if (msg.type === "LAUNCH_CAMPAIGN") {

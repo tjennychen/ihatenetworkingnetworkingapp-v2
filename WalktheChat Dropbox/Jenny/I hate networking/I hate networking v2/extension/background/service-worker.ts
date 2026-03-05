@@ -124,7 +124,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'SIGN_OUT') {
-    chrome.storage.local.remove('session', () => sendResponse({ success: true }))
+    // Keep campaignPaused — user's pause state should survive sign out/in
+    chrome.storage.local.remove(['session', 'queuePending'], () => sendResponse({ success: true }))
     return true
   }
 
