@@ -587,9 +587,9 @@ async function launchCampaign(data: {
 }
 
 async function processNextQueueItem(): Promise<void> {
-  // Only send during daytime hours (8am–9pm local) to look natural
+  // Only send during daytime hours (6am–11pm local) to look natural
   const hour = new Date().getHours()
-  if (hour < 8 || hour >= 21) return
+  if (hour < 6 || hour >= 23) return
 
   const { campaignPaused } = await chrome.storage.local.get('campaignPaused')
   if (campaignPaused) return
@@ -646,7 +646,24 @@ async function processNextQueueItem(): Promise<void> {
   const firstName = (item.contacts as any)?.name?.split(' ')[0] || ''
   const resolvedNote = (item.note || '').replace(/\[first name\]/gi, firstName)
 
-  const result = await sendViaLinkedInRelay(vanityFromUrl, resolvedNote)
+  // chrome.cookies.get CAN read HttpOnly cookies — document.cookie in content scripts cannot.
+  // JSESSIONID is HttpOnly, so getCsrfToken() in the content script returns '' and every
+  // Voyager API call fails CSRF validation. Read it here and pass it explicitly.
+  const jsessionCookie = await new Promise<chrome.cookies.Cookie | null>(resolve =>
+    chrome.cookies.get({ url: 'https://www.linkedin.com', name: 'JSESSIONID' }, c => resolve(c ?? null))
+  )
+  // LinkedIn stores JSESSIONID as "ajax:..." with literal surrounding double-quotes.
+  // The csrf-token header must be the value WITHOUT those quotes.
+  const csrfToken = jsessionCookie ? decodeURIComponent(jsessionCookie.value).replace(/^"|"$/g, '') : ''
+  if (!csrfToken) {
+    await supabase.from('connection_queue').update({
+      scheduled_at: new Date(Date.now() + 10 * 60000).toISOString(),
+    }).eq('id', item.id)
+    console.log('[IHN] No JSESSIONID cookie — not logged into LinkedIn, deferring')
+    return
+  }
+
+  const result = await sendViaLinkedInRelay(vanityFromUrl, resolvedNote, csrfToken)
   console.log('[IHN] Result:', result)
 
   if (result.success) {
@@ -681,8 +698,8 @@ async function processNextQueueItem(): Promise<void> {
       lastSentName: (item.contacts as any)?.name ?? '',
       nextScheduledAt,
     })
-  } else if (result.error === 'no_linkedin_session') {
-    // User not logged into LinkedIn — defer, don't fail permanently
+  } else if (result.error === 'no_linkedin_session' || result.error === 'no_csrf_token') {
+    // Not logged into LinkedIn — defer, don't fail permanently
     await supabase.from('connection_queue').update({
       scheduled_at: new Date(Date.now() + 10 * 60000).toISOString(),
     }).eq('id', item.id)
@@ -708,42 +725,51 @@ async function processNextQueueItem(): Promise<void> {
 
 // ── LinkedIn relay approach ───────────────────────────────────────────────────
 //
-// Reuse any existing LinkedIn tab as a relay for the Voyager API call.
-// The content script runs in same-origin context (cookies work naturally).
-// If no LinkedIn tab is open, open the feed page (fast load, no profile needed).
-// The CONNECT message now carries vanityName — content script calls the API
-// for that profile without needing to be on that profile's page.
+// Prefer an existing LinkedIn tab as relay (already loaded, content script ready).
+// If none exists, open linkedin.com/feed silently as a background tab.
+// The content script fetches target profile HTML (same-origin) + calls Voyager API.
+// No DOM clicking needed — single HTTP call.
+
+async function waitForContentScript(tabId: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const response = await new Promise<any>(resolve => {
+      chrome.tabs.sendMessage(tabId, { type: 'GET_LINKEDIN_NAME' }, r => {
+        void chrome.runtime.lastError // suppress "no receiving end" warning
+        resolve(r ?? null)
+      })
+    })
+    if (response != null) return true
+    await new Promise(r => setTimeout(r, 500))
+  }
+  return false
+}
 
 async function sendViaLinkedInRelay(
   vanityName: string,
-  note: string
+  note: string,
+  csrfToken: string
 ): Promise<{ success: boolean; error?: string }> {
-  const existingWindows = await chrome.windows.getAll({ windowTypes: ['normal'] })
-  if (existingWindows.length === 0) return { success: false, error: 'no_chrome_window' }
-  const windowId = existingWindows.find(w => w.focused)?.id ?? existingWindows[0].id
+  // Always open a fresh feed tab as relay — guarantees a live content script context.
+  // Existing tabs may have invalidated content script contexts after extension reloads.
+  const windows = await chrome.windows.getAll({ windowTypes: ['normal'] })
+  if (windows.length === 0) return { success: false, error: 'no_chrome_window' }
+  const windowId = windows.find(w => w.focused)?.id ?? windows[0].id
 
-  // Open the profile page as a silent background tab.
-  // Content script extracts the fsd_profile URN directly from the page HTML
-  // (server-rendered, available on load) then calls the Voyager invite API.
-  // No DOM clicking — much faster than before.
-  const profileUrl = `https://www.linkedin.com/in/${encodeURIComponent(vanityName)}/`
-  const tab = await chrome.tabs.create({ url: profileUrl, active: false, windowId })
+  const tab = await chrome.tabs.create({ url: 'https://www.linkedin.com/feed/', active: false, windowId })
   const tabId = tab.id!
 
-  await new Promise<void>(resolve => {
-    const timeout = setTimeout(resolve, 15000)
-    chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-      if (tid === tabId && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener)
-        clearTimeout(timeout)
-        setTimeout(resolve, 1000) // brief buffer for content script init
-      }
-    })
-  })
+  const ready = await waitForContentScript(tabId, 12000)
+  if (!ready) {
+    await chrome.tabs.remove(tabId).catch(() => {})
+    return { success: false, error: 'no_linkedin_session' }
+  }
 
+  // 30s timeout — content script calls memberIdentity API for URN + Voyager invite POST
   const result: { success: boolean; error?: string } = await new Promise(resolve => {
-    const timeout = setTimeout(() => resolve({ success: false, error: 'no_response' }), 15000)
-    chrome.tabs.sendMessage(tabId, { type: 'CONNECT', vanityName, note }, response => {
+    const timeout = setTimeout(() => resolve({ success: false, error: 'no_response' }), 30000)
+    chrome.tabs.sendMessage(tabId, { type: 'CONNECT', vanityName, note, csrfToken }, response => {
+      void chrome.runtime.lastError
       clearTimeout(timeout)
       resolve(response ?? { success: false, error: 'no_response' })
     })

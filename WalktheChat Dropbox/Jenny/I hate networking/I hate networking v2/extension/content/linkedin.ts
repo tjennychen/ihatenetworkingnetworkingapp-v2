@@ -63,9 +63,33 @@ function getProfileUrnFromPage(vanityName: string): string | null {
   return m ? m[1] : null
 }
 
-// Fetch the profile page HTML and extract the URN from it.
-// Same-origin fetch from content script — no CORS, no API restrictions.
-// LinkedIn embeds fsd_profile entityUrns in the page HTML near the publicIdentifier.
+// Look up profile URN via Voyager memberIdentity API.
+// More reliable than HTML parsing — LinkedIn's profile HTML is JS-rendered so raw
+// HTTP fetch() doesn't contain the embedded URN data.
+async function fetchProfileUrnViaApi(vanityName: string, csrf: string): Promise<string | null> {
+  try {
+    const resp = await fetch(
+      `${VOYAGER}/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(vanityName)}`,
+      {
+        credentials: 'include',
+        headers: {
+          accept: 'application/vnd.linkedin.normalized+json+2.1',
+          'csrf-token': csrf,
+          'x-restli-protocol-version': '2.0.0',
+          'x-li-lang': 'en_US',
+        },
+      }
+    )
+    if (!resp.ok) return null
+    const m = JSON.stringify(await resp.json()).match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/)
+    return m ? m[1] : null
+  } catch {
+    return null
+  }
+}
+
+// Fallback: fetch the profile page HTML and extract the URN.
+// Works when the content script is already on the profile page (DOM has JS-rendered data).
 async function fetchProfileUrnFromHtml(vanityName: string): Promise<string | null> {
   try {
     const resp = await fetch(`https://www.linkedin.com/in/${encodeURIComponent(vanityName)}/`, {
@@ -73,7 +97,6 @@ async function fetchProfileUrnFromHtml(vanityName: string): Promise<string | nul
     })
     if (!resp.ok) return null
     const html = await resp.text()
-    // Same extraction logic as getProfileUrnFromPage
     const pubIdx = html.indexOf(`"publicIdentifier":"${vanityName}"`)
     if (pubIdx !== -1) {
       const slice = html.slice(Math.max(0, pubIdx - 400), pubIdx + 400)
@@ -187,23 +210,38 @@ async function postInvite(
 // vanityName comes from the CONNECT message — the content script doesn't need
 // to be on the target profile page. Any LinkedIn tab works as a relay.
 
-async function sendConnection(vanityName: string, note?: string): Promise<{ success: boolean; error?: string }> {
+async function sendConnection(vanityName: string, note?: string, csrfOverride?: string): Promise<{ success: boolean; error?: string }> {
   if (!vanityName) return { success: false, error: 'no_vanity_name' }
 
-  const csrf = getCsrfToken()
+  // Prefer the csrf passed from service worker (read via chrome.cookies, bypasses HttpOnly).
+  // document.cookie cannot read HttpOnly cookies, so getCsrfToken() returns '' if LinkedIn
+  // has set JSESSIONID as HttpOnly — which causes silent CSRF failures on all Voyager calls.
+  const csrf = csrfOverride || getCsrfToken()
   if (!csrf) return { success: false, error: 'no_csrf_token' }
 
   const headers = voyagerHeaders(csrf)
 
-  // Get profile URN: try current page HTML first (free if already on the profile),
-  // then fall back to fetching the profile page HTML directly (same-origin, no 403)
+  // Get profile URN with diagnostic logging
   let profileUrn = getProfileUrnFromPage(vanityName)
+  let urnSource = 'page'
+  if (!profileUrn) {
+    profileUrn = await fetchProfileUrnViaApi(vanityName, csrf)
+    urnSource = 'api'
+  }
   if (!profileUrn) {
     profileUrn = await fetchProfileUrnFromHtml(vanityName)
+    urnSource = 'html'
   }
   if (!profileUrn) {
-    return { success: false, error: 'no_profile_urn' }
+    const html = document.documentElement.innerHTML
+    return {
+      success: false,
+      error: 'no_profile_urn',
+      // Diagnostic: tells us what LinkedIn served
+      debug: `url=${location.href} htmlLen=${html.length} hasPublicId=${html.includes('"publicIdentifier":"' + vanityName + '"')} hasFsd=${/urn:li:fsd_profile:/.test(html)}`,
+    } as any
   }
+  console.log('[IHN] URN found via', urnSource, profileUrn)
 
   // Skip note if quota previously reached
   const noteQuotaReached = await getNoteQuotaReached()
@@ -235,7 +273,7 @@ function extractNameFromHtml(html: string): string {
 
 if (typeof chrome !== 'undefined' && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'CONNECT') {
-    sendConnection(msg.vanityName || '', msg.note || '').then(result => sendResponse(result))
+    sendConnection(msg.vanityName || '', msg.note || '', msg.csrfToken || '').then(result => sendResponse(result))
     return true
   }
   if (msg.type === 'GET_LINKEDIN_NAME') {

@@ -40,6 +40,27 @@
     const m = html.match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/);
     return m ? m[1] : null;
   }
+  async function fetchProfileUrnViaApi(vanityName, csrf) {
+    try {
+      const resp = await fetch(
+        `${VOYAGER}/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(vanityName)}`,
+        {
+          credentials: "include",
+          headers: {
+            accept: "application/vnd.linkedin.normalized+json+2.1",
+            "csrf-token": csrf,
+            "x-restli-protocol-version": "2.0.0",
+            "x-li-lang": "en_US"
+          }
+        }
+      );
+      if (!resp.ok) return null;
+      const m = JSON.stringify(await resp.json()).match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/);
+      return m ? m[1] : null;
+    } catch {
+      return null;
+    }
+  }
   async function fetchProfileUrnFromHtml(vanityName) {
     try {
       const resp = await fetch(`https://www.linkedin.com/in/${encodeURIComponent(vanityName)}/`, {
@@ -106,18 +127,31 @@
     if (resp.ok) return { success: true };
     return { success: false, error: await parseInviteError(resp) };
   }
-  async function sendConnection(vanityName, note) {
+  async function sendConnection(vanityName, note, csrfOverride) {
     if (!vanityName) return { success: false, error: "no_vanity_name" };
-    const csrf = getCsrfToken();
+    const csrf = csrfOverride || getCsrfToken();
     if (!csrf) return { success: false, error: "no_csrf_token" };
     const headers = voyagerHeaders(csrf);
     let profileUrn = getProfileUrnFromPage(vanityName);
+    let urnSource = "page";
+    if (!profileUrn) {
+      profileUrn = await fetchProfileUrnViaApi(vanityName, csrf);
+      urnSource = "api";
+    }
     if (!profileUrn) {
       profileUrn = await fetchProfileUrnFromHtml(vanityName);
+      urnSource = "html";
     }
     if (!profileUrn) {
-      return { success: false, error: "no_profile_urn" };
+      const html = document.documentElement.innerHTML;
+      return {
+        success: false,
+        error: "no_profile_urn",
+        // Diagnostic: tells us what LinkedIn served
+        debug: `url=${location.href} htmlLen=${html.length} hasPublicId=${html.includes('"publicIdentifier":"' + vanityName + '"')} hasFsd=${/urn:li:fsd_profile:/.test(html)}`
+      };
     }
+    console.log("[IHN] URN found via", urnSource, profileUrn);
     const noteQuotaReached = await getNoteQuotaReached();
     const effectiveNote = note && !noteQuotaReached ? note : "";
     const result = await postInvite(profileUrn, effectiveNote, headers);
@@ -136,7 +170,7 @@
   }
   if (typeof chrome !== "undefined" && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "CONNECT") {
-      sendConnection(msg.vanityName || "", msg.note || "").then((result) => sendResponse(result));
+      sendConnection(msg.vanityName || "", msg.note || "", msg.csrfToken || "").then((result) => sendResponse(result));
       return true;
     }
     if (msg.type === "GET_LINKEDIN_NAME") {

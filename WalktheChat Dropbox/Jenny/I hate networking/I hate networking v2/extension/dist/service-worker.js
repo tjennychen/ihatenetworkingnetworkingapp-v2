@@ -11995,7 +11995,7 @@ ${suffix}`;
   }
   async function processNextQueueItem() {
     const hour = (/* @__PURE__ */ new Date()).getHours();
-    if (hour < 8 || hour >= 21) return;
+    if (hour < 6 || hour >= 23) return;
     const { campaignPaused } = await chrome.storage.local.get("campaignPaused");
     if (campaignPaused) return;
     const session = await getSession();
@@ -12040,7 +12040,18 @@ ${suffix}`;
     }
     const firstName = item.contacts?.name?.split(" ")[0] || "";
     const resolvedNote = (item.note || "").replace(/\[first name\]/gi, firstName);
-    const result = await sendViaLinkedInRelay(vanityFromUrl, resolvedNote);
+    const jsessionCookie = await new Promise(
+      (resolve) => chrome.cookies.get({ url: "https://www.linkedin.com", name: "JSESSIONID" }, (c) => resolve(c ?? null))
+    );
+    const csrfToken = jsessionCookie ? decodeURIComponent(jsessionCookie.value).replace(/^"|"$/g, "") : "";
+    if (!csrfToken) {
+      await supabase.from("connection_queue").update({
+        scheduled_at: new Date(Date.now() + 10 * 6e4).toISOString()
+      }).eq("id", item.id);
+      console.log("[IHN] No JSESSIONID cookie \u2014 not logged into LinkedIn, deferring");
+      return;
+    }
+    const result = await sendViaLinkedInRelay(vanityFromUrl, resolvedNote, csrfToken);
     console.log("[IHN] Result:", result);
     if (result.success) {
       const sentAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -12065,7 +12076,7 @@ ${suffix}`;
         lastSentName: item.contacts?.name ?? "",
         nextScheduledAt
       });
-    } else if (result.error === "no_linkedin_session") {
+    } else if (result.error === "no_linkedin_session" || result.error === "no_csrf_token") {
       await supabase.from("connection_queue").update({
         scheduled_at: new Date(Date.now() + 10 * 6e4).toISOString()
       }).eq("id", item.id);
@@ -12084,26 +12095,36 @@ ${suffix}`;
       await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) });
     }
   }
-  async function sendViaLinkedInRelay(vanityName, note) {
-    const existingWindows = await chrome.windows.getAll({ windowTypes: ["normal"] });
-    if (existingWindows.length === 0) return { success: false, error: "no_chrome_window" };
-    const windowId = existingWindows.find((w) => w.focused)?.id ?? existingWindows[0].id;
-    const profileUrl = `https://www.linkedin.com/in/${encodeURIComponent(vanityName)}/`;
-    const tab = await chrome.tabs.create({ url: profileUrl, active: false, windowId });
-    const tabId = tab.id;
-    await new Promise((resolve) => {
-      const timeout = setTimeout(resolve, 15e3);
-      chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-        if (tid === tabId && info.status === "complete") {
-          chrome.tabs.onUpdated.removeListener(listener);
-          clearTimeout(timeout);
-          setTimeout(resolve, 1e3);
-        }
+  async function waitForContentScript(tabId, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const response = await new Promise((resolve) => {
+        chrome.tabs.sendMessage(tabId, { type: "GET_LINKEDIN_NAME" }, (r) => {
+          void chrome.runtime.lastError;
+          resolve(r ?? null);
+        });
       });
-    });
+      if (response != null) return true;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return false;
+  }
+  async function sendViaLinkedInRelay(vanityName, note, csrfToken) {
+    const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+    if (windows.length === 0) return { success: false, error: "no_chrome_window" };
+    const windowId = windows.find((w) => w.focused)?.id ?? windows[0].id;
+    const tab = await chrome.tabs.create({ url: "https://www.linkedin.com/feed/", active: false, windowId });
+    const tabId = tab.id;
+    const ready = await waitForContentScript(tabId, 12e3);
+    if (!ready) {
+      await chrome.tabs.remove(tabId).catch(() => {
+      });
+      return { success: false, error: "no_linkedin_session" };
+    }
     const result = await new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve({ success: false, error: "no_response" }), 15e3);
-      chrome.tabs.sendMessage(tabId, { type: "CONNECT", vanityName, note }, (response) => {
+      const timeout = setTimeout(() => resolve({ success: false, error: "no_response" }), 3e4);
+      chrome.tabs.sendMessage(tabId, { type: "CONNECT", vanityName, note, csrfToken }, (response) => {
+        void chrome.runtime.lastError;
         clearTimeout(timeout);
         resolve(response ?? { success: false, error: "no_response" });
       });
