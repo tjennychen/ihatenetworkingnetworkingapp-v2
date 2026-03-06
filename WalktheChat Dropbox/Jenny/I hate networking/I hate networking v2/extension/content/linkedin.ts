@@ -63,22 +63,25 @@ function getProfileUrnFromPage(vanityName: string): string | null {
   return m ? m[1] : null
 }
 
-// API fallback: dash profiles endpoint returns fsd_profile entityUrn directly
-async function fetchProfileUrn(vanityName: string, headers: Record<string, string>): Promise<string | null> {
+// Fetch the profile page HTML and extract the URN from it.
+// Same-origin fetch from content script — no CORS, no API restrictions.
+// LinkedIn embeds fsd_profile entityUrns in the page HTML near the publicIdentifier.
+async function fetchProfileUrnFromHtml(vanityName: string): Promise<string | null> {
   try {
-    const resp = await fetch(
-      `${VOYAGER}/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(vanityName)}`,
-      { headers, credentials: 'include' }
-    )
+    const resp = await fetch(`https://www.linkedin.com/in/${encodeURIComponent(vanityName)}/`, {
+      credentials: 'include',
+    })
     if (!resp.ok) return null
-    const data = await resp.json()
-    // entityUrn is in data.data or data.elements[0] depending on API version
-    const urn: string =
-      data?.data?.entityUrn ??
-      data?.elements?.[0]?.entityUrn ??
-      (data?.included ?? [])[0]?.entityUrn ??
-      ''
-    return urn.startsWith('urn:li:fsd_profile:') ? urn : null
+    const html = await resp.text()
+    // Same extraction logic as getProfileUrnFromPage
+    const pubIdx = html.indexOf(`"publicIdentifier":"${vanityName}"`)
+    if (pubIdx !== -1) {
+      const slice = html.slice(Math.max(0, pubIdx - 400), pubIdx + 400)
+      const m = slice.match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/)
+      if (m) return m[1]
+    }
+    const m = html.match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/)
+    return m ? m[1] : null
   } catch {
     return null
   }
@@ -192,10 +195,11 @@ async function sendConnection(vanityName: string, note?: string): Promise<{ succ
 
   const headers = voyagerHeaders(csrf)
 
-  // Get profile URN (try current page HTML if we happen to be on the right profile, then API)
+  // Get profile URN: try current page HTML first (free if already on the profile),
+  // then fall back to fetching the profile page HTML directly (same-origin, no 403)
   let profileUrn = getProfileUrnFromPage(vanityName)
   if (!profileUrn) {
-    profileUrn = await fetchProfileUrn(vanityName, headers)
+    profileUrn = await fetchProfileUrnFromHtml(vanityName)
   }
   if (!profileUrn) {
     return { success: false, error: 'no_profile_urn' }

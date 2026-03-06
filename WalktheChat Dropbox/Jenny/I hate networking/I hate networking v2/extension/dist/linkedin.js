@@ -40,16 +40,21 @@
     const m = html.match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/);
     return m ? m[1] : null;
   }
-  async function fetchProfileUrn(vanityName, headers) {
+  async function fetchProfileUrnFromHtml(vanityName) {
     try {
-      const resp = await fetch(
-        `${VOYAGER}/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(vanityName)}`,
-        { headers, credentials: "include" }
-      );
+      const resp = await fetch(`https://www.linkedin.com/in/${encodeURIComponent(vanityName)}/`, {
+        credentials: "include"
+      });
       if (!resp.ok) return null;
-      const data = await resp.json();
-      const urn = data?.data?.entityUrn ?? data?.elements?.[0]?.entityUrn ?? (data?.included ?? [])[0]?.entityUrn ?? "";
-      return urn.startsWith("urn:li:fsd_profile:") ? urn : null;
+      const html = await resp.text();
+      const pubIdx = html.indexOf(`"publicIdentifier":"${vanityName}"`);
+      if (pubIdx !== -1) {
+        const slice = html.slice(Math.max(0, pubIdx - 400), pubIdx + 400);
+        const m2 = slice.match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/);
+        if (m2) return m2[1];
+      }
+      const m = html.match(/"entityUrn":"(urn:li:fsd_profile:[A-Za-z0-9_-]+)"/);
+      return m ? m[1] : null;
     } catch {
       return null;
     }
@@ -108,7 +113,7 @@
     const headers = voyagerHeaders(csrf);
     let profileUrn = getProfileUrnFromPage(vanityName);
     if (!profileUrn) {
-      profileUrn = await fetchProfileUrn(vanityName, headers);
+      profileUrn = await fetchProfileUrnFromHtml(vanityName);
     }
     if (!profileUrn) {
       return { success: false, error: "no_profile_urn" };
