@@ -718,33 +718,28 @@ async function sendViaLinkedInRelay(
   vanityName: string,
   note: string
 ): Promise<{ success: boolean; error?: string }> {
-  // Find any open LinkedIn tab to use as a relay (same-origin = cookies work)
-  const linkedinTabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })
-  let tabId: number
-  let openedTab = false
+  const existingWindows = await chrome.windows.getAll({ windowTypes: ['normal'] })
+  if (existingWindows.length === 0) return { success: false, error: 'no_chrome_window' }
+  const windowId = existingWindows.find(w => w.focused)?.id ?? existingWindows[0].id
 
-  if (linkedinTabs.length > 0) {
-    tabId = linkedinTabs[0].id!
-  } else {
-    // No LinkedIn tab open — open the feed (fast, no profile navigation needed)
-    const existingWindows = await chrome.windows.getAll({ windowTypes: ['normal'] })
-    if (existingWindows.length === 0) return { success: false, error: 'no_chrome_window' }
-    const windowId = existingWindows.find(w => w.focused)?.id ?? existingWindows[0].id
-    const tab = await chrome.tabs.create({ url: 'https://www.linkedin.com/feed/', active: false, windowId })
-    tabId = tab.id!
-    openedTab = true
-    // Wait for page load
-    await new Promise<void>(resolve => {
-      const timeout = setTimeout(resolve, 10000)
-      chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-        if (tid === tabId && info.status === 'complete') {
-          chrome.tabs.onUpdated.removeListener(listener)
-          clearTimeout(timeout)
-          setTimeout(resolve, 1000) // brief buffer for content script init
-        }
-      })
+  // Open the profile page as a silent background tab.
+  // Content script extracts the fsd_profile URN directly from the page HTML
+  // (server-rendered, available on load) then calls the Voyager invite API.
+  // No DOM clicking — much faster than before.
+  const profileUrl = `https://www.linkedin.com/in/${encodeURIComponent(vanityName)}/`
+  const tab = await chrome.tabs.create({ url: profileUrl, active: false, windowId })
+  const tabId = tab.id!
+
+  await new Promise<void>(resolve => {
+    const timeout = setTimeout(resolve, 15000)
+    chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+      if (tid === tabId && info.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener)
+        clearTimeout(timeout)
+        setTimeout(resolve, 1000) // brief buffer for content script init
+      }
     })
-  }
+  })
 
   const result: { success: boolean; error?: string } = await new Promise(resolve => {
     const timeout = setTimeout(() => resolve({ success: false, error: 'no_response' }), 15000)
@@ -754,6 +749,6 @@ async function sendViaLinkedInRelay(
     })
   })
 
-  if (openedTab) await chrome.tabs.remove(tabId).catch(() => {})
+  await chrome.tabs.remove(tabId).catch(() => {})
   return result
 }

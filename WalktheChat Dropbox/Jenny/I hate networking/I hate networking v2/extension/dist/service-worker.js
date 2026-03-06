@@ -12085,29 +12085,22 @@ ${suffix}`;
     }
   }
   async function sendViaLinkedInRelay(vanityName, note) {
-    const linkedinTabs = await chrome.tabs.query({ url: "https://www.linkedin.com/*" });
-    let tabId;
-    let openedTab = false;
-    if (linkedinTabs.length > 0) {
-      tabId = linkedinTabs[0].id;
-    } else {
-      const existingWindows = await chrome.windows.getAll({ windowTypes: ["normal"] });
-      if (existingWindows.length === 0) return { success: false, error: "no_chrome_window" };
-      const windowId = existingWindows.find((w) => w.focused)?.id ?? existingWindows[0].id;
-      const tab = await chrome.tabs.create({ url: "https://www.linkedin.com/feed/", active: false, windowId });
-      tabId = tab.id;
-      openedTab = true;
-      await new Promise((resolve) => {
-        const timeout = setTimeout(resolve, 1e4);
-        chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-          if (tid === tabId && info.status === "complete") {
-            chrome.tabs.onUpdated.removeListener(listener);
-            clearTimeout(timeout);
-            setTimeout(resolve, 1e3);
-          }
-        });
+    const existingWindows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+    if (existingWindows.length === 0) return { success: false, error: "no_chrome_window" };
+    const windowId = existingWindows.find((w) => w.focused)?.id ?? existingWindows[0].id;
+    const profileUrl = `https://www.linkedin.com/in/${encodeURIComponent(vanityName)}/`;
+    const tab = await chrome.tabs.create({ url: profileUrl, active: false, windowId });
+    const tabId = tab.id;
+    await new Promise((resolve) => {
+      const timeout = setTimeout(resolve, 15e3);
+      chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+        if (tid === tabId && info.status === "complete") {
+          chrome.tabs.onUpdated.removeListener(listener);
+          clearTimeout(timeout);
+          setTimeout(resolve, 1e3);
+        }
       });
-    }
+    });
     const result = await new Promise((resolve) => {
       const timeout = setTimeout(() => resolve({ success: false, error: "no_response" }), 15e3);
       chrome.tabs.sendMessage(tabId, { type: "CONNECT", vanityName, note }, (response) => {
@@ -12115,7 +12108,7 @@ ${suffix}`;
         resolve(response ?? { success: false, error: "no_response" });
       });
     });
-    if (openedTab) await chrome.tabs.remove(tabId).catch(() => {
+    await chrome.tabs.remove(tabId).catch(() => {
     });
     return result;
   }
