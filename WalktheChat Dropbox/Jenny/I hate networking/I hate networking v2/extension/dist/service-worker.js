@@ -12038,35 +12038,9 @@ ${suffix}`;
       await supabase.from("connection_queue").update({ status: "failed", error: "invalid_linkedin_url" }).eq("id", item.id);
       return;
     }
-    const existingWindows = await chrome.windows.getAll({ windowTypes: ["normal"] });
-    if (existingWindows.length === 0) {
-      console.log("[IHN] No Chrome window open, deferring until user has Chrome open");
-      return;
-    }
-    const windowId = existingWindows.find((w) => w.focused)?.id ?? existingWindows[0].id;
-    const fullUrl = linkedinUrl.replace("https://linkedin.com/", "https://www.linkedin.com/");
-    const connTab = await chrome.tabs.create({ url: fullUrl, active: false, windowId });
-    const tabId = connTab.id;
-    await new Promise((resolve) => {
-      const timeout = setTimeout(resolve, 15e3);
-      chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-        if (tid === tabId && info.status === "complete") {
-          chrome.tabs.onUpdated.removeListener(listener);
-          clearTimeout(timeout);
-          setTimeout(resolve, 2500);
-        }
-      });
-    });
-    const result = await new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve({ success: false, error: "no_response" }), 2e4);
-      const firstName = item.contacts?.name?.split(" ")[0] || "";
-      const resolvedNote = (item.note || "").replace(/\[first name\]/gi, firstName);
-      const expectedName = item.contacts?.name || "";
-      chrome.tabs.sendMessage(tabId, { type: "CONNECT", note: resolvedNote, expectedName }, (response) => {
-        clearTimeout(timeout);
-        resolve(response ?? { success: false, error: "no_response" });
-      });
-    });
+    const firstName = item.contacts?.name?.split(" ")[0] || "";
+    const resolvedNote = (item.note || "").replace(/\[first name\]/gi, firstName);
+    const result = await sendViaVoyagerDirect(vanityFromUrl, resolvedNote);
     console.log("[IHN] Result:", result);
     if (result.success) {
       const sentAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -12091,9 +12065,9 @@ ${suffix}`;
         lastSentName: item.contacts?.name ?? "",
         nextScheduledAt
       });
-    } else if (result.error === "no_response") {
+    } else if (result.error === "no_linkedin_session") {
       await supabase.from("connection_queue").update({
-        scheduled_at: new Date(Date.now() + 5 * 6e4).toISOString()
+        scheduled_at: new Date(Date.now() + 10 * 6e4).toISOString()
       }).eq("id", item.id);
     } else {
       await supabase.from("connection_queue").update({
@@ -12109,7 +12083,77 @@ ${suffix}`;
       const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
       await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) });
     }
-    await chrome.tabs.remove(tabId).catch(() => {
-    });
+  }
+  var VOYAGER_SW = "https://www.linkedin.com/voyager/api";
+  var INVITE_URL_SW = `${VOYAGER_SW}/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreateV2&decorationId=com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2`;
+  async function sendViaVoyagerDirect(vanityName, note) {
+    const jsessionid = await chrome.cookies.get({ url: "https://www.linkedin.com", name: "JSESSIONID" });
+    if (!jsessionid?.value) {
+      return { success: false, error: "no_linkedin_session" };
+    }
+    const csrf = jsessionid.value;
+    const headers = {
+      accept: "application/vnd.linkedin.normalized+json+2.1",
+      "content-type": "application/json; charset=UTF-8",
+      "csrf-token": csrf,
+      "x-restli-protocol-version": "2.0.0",
+      "x-li-lang": "en_US",
+      "x-li-page-instance": "urn:li:page:d_flagship3_profile_view_base;" + Math.random().toString(36).slice(2),
+      "x-li-track": JSON.stringify({
+        clientVersion: "1.13.3655",
+        mpVersion: "1.13.3655",
+        osName: "web",
+        timezoneOffset: 0,
+        timezone: "America/Los_Angeles",
+        mpName: "voyager-web",
+        displayDensity: 2,
+        displayWidth: 1440,
+        displayHeight: 900
+      })
+    };
+    let profileUrn = null;
+    try {
+      const profResp = await fetch(
+        `${VOYAGER_SW}/identity/profiles/${encodeURIComponent(vanityName)}/profileView`,
+        { headers, credentials: "include" }
+      );
+      if (profResp.ok) {
+        const data = await profResp.json();
+        const miniUrn = data?.profile?.miniProfile?.entityUrn ?? "";
+        const m = miniUrn.match(/urn:li:(?:fsd_profile|fs_miniProfile):([A-Za-z0-9_-]+)/);
+        if (m) profileUrn = `urn:li:fsd_profile:${m[1]}`;
+      } else {
+        return { success: false, error: `profile_fetch_${profResp.status}` };
+      }
+    } catch (e) {
+      return { success: false, error: `profile_fetch_failed:${String(e)}` };
+    }
+    if (!profileUrn) return { success: false, error: "no_profile_urn" };
+    const payload = {
+      invitee: { inviteeUnion: { memberProfile: profileUrn } }
+    };
+    if (note) payload.customMessage = note;
+    try {
+      const invResp = await fetch(INVITE_URL_SW, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify(payload)
+      });
+      if (invResp.ok) return { success: true };
+      let body = {};
+      try {
+        body = await invResp.json();
+      } catch {
+      }
+      const msg = String(body?.message ?? body?.code ?? "").toUpperCase();
+      if (invResp.status === 429 || msg.includes("QUOTA") || msg.includes("LIMIT")) return { success: false, error: "weekly_limit_reached" };
+      if (msg.includes("FIRST_DEGREE") || msg.includes("ALREADY_CONNECTED")) return { success: false, error: "already_connected" };
+      if (msg.includes("CANT_RESEND_YET") || msg.includes("DUPLICATE")) return { success: false, error: "already_pending" };
+      if (invResp.status === 403) return { success: false, error: `forbidden:${msg.slice(0, 60) || "no_body"}` };
+      return { success: false, error: `api_${invResp.status}:${msg.slice(0, 60)}` };
+    } catch (e) {
+      return { success: false, error: `invite_failed:${String(e)}` };
+    }
   }
 })();
