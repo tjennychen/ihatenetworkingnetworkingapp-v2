@@ -226,7 +226,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })),
       }))
 
-      sendResponse({ chartData, events: eventsWithQueue })
+      sendResponse({ chartData, dailyCounts: dayCounts, events: eventsWithQueue })
     })
     return true
   }
@@ -558,17 +558,24 @@ async function launchCampaign(data: {
   )
 
   // Stagger initial scheduled_at so items don't all fire at once.
-  // Item 0 = now, item 1 = now+20min, item 2 = now+40min, etc.
-  const STAGGER_MINUTES = 20
-  const queueItems = contacts
-    .filter((c: any) => !alreadyDone.has(c.id))
-    .map((c: any, i: number) => ({
+  // Default: 15-25 min random gap. If < 2h until 11pm cutoff, compress to fit.
+  const newItems = contacts.filter((c: any) => !alreadyDone.has(c.id))
+  const hour = new Date().getHours()
+  const hoursUntil11 = Math.max(0, 23 - hour)
+  const baseGapMin = hoursUntil11 < 2 && newItems.length > 1
+    ? Math.max(5, (hoursUntil11 * 60) / newItems.length)
+    : 15
+  let cumulativeMs = 0
+  const queueItems = newItems.map((c: any, i: number) => {
+    if (i > 0) cumulativeMs += (baseGapMin + Math.random() * 10) * 60000 // +0-10 min jitter
+    return {
       user_id: session.user.id,
       contact_id: c.id,
       status: 'pending',
       note: data.note || '',
-      scheduled_at: new Date(Date.now() + i * STAGGER_MINUTES * 60000).toISOString(),
-    }))
+      scheduled_at: new Date(Date.now() + cumulativeMs).toISOString(),
+    }
+  })
 
   if (queueItems.length > 0) {
     await supabase.from('connection_queue').upsert(queueItems, { onConflict: 'contact_id' })
@@ -680,8 +687,12 @@ async function processNextQueueItem(): Promise<void> {
       action: 'connection_sent',
     })
 
-    // Schedule next item with 15–30 min random delay (only on success)
-    const delayMinutes = 15 + Math.random() * 15
+    // Schedule next item: 15-30 min normally, compressed if < 2h until 11pm cutoff
+    const nowHour = new Date().getHours()
+    const hrsLeft = Math.max(0, 23 - nowHour)
+    const minGap = hrsLeft < 2 ? 8 : 15
+    const maxGap = hrsLeft < 2 ? 15 : 30
+    const delayMinutes = minGap + Math.random() * (maxGap - minGap)
     const nextScheduledAt = new Date(Date.now() + delayMinutes * 60000).toISOString()
     // SELECT the specific next item first, then update by ID — .order().limit() on UPDATE
     // in PostgREST updates ALL matching rows, not just the first one

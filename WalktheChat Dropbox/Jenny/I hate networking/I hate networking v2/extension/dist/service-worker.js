@@ -11735,7 +11735,7 @@ ${suffix}`;
             connection_queue: queueByContact.has(c.id) ? [queueByContact.get(c.id)] : []
           }))
         }));
-        sendResponse({ chartData, events: eventsWithQueue });
+        sendResponse({ chartData, dailyCounts: dayCounts, events: eventsWithQueue });
       });
       return true;
     }
@@ -11976,14 +11976,21 @@ ${suffix}`;
     const alreadyDone = new Set(
       (existing ?? []).filter((q) => q.status === "sent" || q.status === "accepted").map((q) => q.contact_id)
     );
-    const STAGGER_MINUTES = 20;
-    const queueItems = contacts.filter((c) => !alreadyDone.has(c.id)).map((c, i) => ({
-      user_id: session.user.id,
-      contact_id: c.id,
-      status: "pending",
-      note: data.note || "",
-      scheduled_at: new Date(Date.now() + i * STAGGER_MINUTES * 6e4).toISOString()
-    }));
+    const newItems = contacts.filter((c) => !alreadyDone.has(c.id));
+    const hour = (/* @__PURE__ */ new Date()).getHours();
+    const hoursUntil11 = Math.max(0, 23 - hour);
+    const baseGapMin = hoursUntil11 < 2 && newItems.length > 1 ? Math.max(5, hoursUntil11 * 60 / newItems.length) : 15;
+    let cumulativeMs = 0;
+    const queueItems = newItems.map((c, i) => {
+      if (i > 0) cumulativeMs += (baseGapMin + Math.random() * 10) * 6e4;
+      return {
+        user_id: session.user.id,
+        contact_id: c.id,
+        status: "pending",
+        note: data.note || "",
+        scheduled_at: new Date(Date.now() + cumulativeMs).toISOString()
+      };
+    });
     if (queueItems.length > 0) {
       await supabase.from("connection_queue").upsert(queueItems, { onConflict: "contact_id" });
     }
@@ -12063,7 +12070,11 @@ ${suffix}`;
         user_id: session.user.id,
         action: "connection_sent"
       });
-      const delayMinutes = 15 + Math.random() * 15;
+      const nowHour = (/* @__PURE__ */ new Date()).getHours();
+      const hrsLeft = Math.max(0, 23 - nowHour);
+      const minGap = hrsLeft < 2 ? 8 : 15;
+      const maxGap = hrsLeft < 2 ? 15 : 30;
+      const delayMinutes = minGap + Math.random() * (maxGap - minGap);
       const nextScheduledAt = new Date(Date.now() + delayMinutes * 6e4).toISOString();
       const { data: nextItem } = await supabase.from("connection_queue").select("id").eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1).single();
       if (nextItem) {
