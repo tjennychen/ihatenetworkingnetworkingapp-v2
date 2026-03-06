@@ -10603,7 +10603,7 @@ ${suffix}`;
       try {
         await this._acquireLock(0, async () => {
           try {
-            const now = Date.now();
+            const now2 = Date.now();
             try {
               return await this._useSession(async (result) => {
                 const { data: { session } } = result;
@@ -10611,7 +10611,7 @@ ${suffix}`;
                   this._debug("#_autoRefreshTokenTick()", "no session");
                   return;
                 }
-                const expiresInTicks = Math.floor((session.expires_at * 1e3 - now) / AUTO_REFRESH_TICK_DURATION_MS);
+                const expiresInTicks = Math.floor((session.expires_at * 1e3 - now2) / AUTO_REFRESH_TICK_DURATION_MS);
                 this._debug("#_autoRefreshTokenTick()", `access token expires in ${expiresInTicks} ticks, a tick lasts ${AUTO_REFRESH_TICK_DURATION_MS}ms, refresh threshold is ${AUTO_REFRESH_TICK_THRESHOLD} ticks`);
                 if (expiresInTicks <= AUTO_REFRESH_TICK_THRESHOLD) {
                   await this._callRefreshToken(session.refresh_token);
@@ -11095,9 +11095,9 @@ ${suffix}`;
       if (jwk) {
         return jwk;
       }
-      const now = Date.now();
+      const now2 = Date.now();
       jwk = this.jwks.keys.find((key) => key.kid === kid);
-      if (jwk && this.jwks_cached_at + JWKS_TTL > now) {
+      if (jwk && this.jwks_cached_at + JWKS_TTL > now2) {
         return jwk;
       }
       const { data, error } = await _request(this.fetch, "GET", `${this.url}/.well-known/jwks.json`, {
@@ -11110,7 +11110,7 @@ ${suffix}`;
         return null;
       }
       this.jwks = data;
-      this.jwks_cached_at = now;
+      this.jwks_cached_at = now2;
       jwk = data.keys.find((key) => key.kid === kid);
       if (!jwk) {
         return null;
@@ -11976,13 +11976,13 @@ ${suffix}`;
     const alreadyDone = new Set(
       (existing ?? []).filter((q) => q.status === "sent" || q.status === "accepted").map((q) => q.contact_id)
     );
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const queueItems = contacts.filter((c) => !alreadyDone.has(c.id)).map((c) => ({
+    const STAGGER_MINUTES = 20;
+    const queueItems = contacts.filter((c) => !alreadyDone.has(c.id)).map((c, i) => ({
       user_id: session.user.id,
       contact_id: c.id,
       status: "pending",
       note: data.note || "",
-      scheduled_at: now
+      scheduled_at: new Date(Date.now() + i * STAGGER_MINUTES * 6e4).toISOString()
     }));
     if (queueItems.length > 0) {
       await supabase.from("connection_queue").upsert(queueItems, { onConflict: "contact_id" });

@@ -557,15 +557,17 @@ async function launchCampaign(data: {
       .map((q: any) => q.contact_id)
   )
 
-  const now = new Date().toISOString()
+  // Stagger initial scheduled_at so items don't all fire at once.
+  // Item 0 = now, item 1 = now+20min, item 2 = now+40min, etc.
+  const STAGGER_MINUTES = 20
   const queueItems = contacts
     .filter((c: any) => !alreadyDone.has(c.id))
-    .map((c: any) => ({
+    .map((c: any, i: number) => ({
       user_id: session.user.id,
       contact_id: c.id,
       status: 'pending',
       note: data.note || '',
-      scheduled_at: now,
+      scheduled_at: new Date(Date.now() + i * STAGGER_MINUTES * 60000).toISOString(),
     }))
 
   if (queueItems.length > 0) {
