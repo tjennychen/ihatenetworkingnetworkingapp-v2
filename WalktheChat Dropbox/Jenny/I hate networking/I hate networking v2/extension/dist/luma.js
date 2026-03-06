@@ -200,12 +200,12 @@
       chrome.runtime.sendMessage({ type: "SCAN_PROGRESS", phase: "enriching", done, total: allProfileUrls.length, currentName: contacts[contacts.length - 1].name });
     }
     chrome.runtime.sendMessage({ type: "SCAN_PROGRESS", phase: "saving", done, total: allProfileUrls.length });
-    const saveResult = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({
-        type: "START_ENRICHMENT",
-        data: { tabId: 0, lumaUrl, eventName, contacts }
-      }, resolve);
-    });
+    const saveResult = await Promise.race([
+      new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: "START_ENRICHMENT", data: { tabId: 0, lumaUrl, eventName, contacts } }, resolve);
+      }),
+      new Promise((resolve) => setTimeout(() => resolve({ eventId: "", found: 0, total: contacts.length }), 15e3))
+    ]);
     chrome.runtime.sendMessage({ type: "SCAN_COMPLETE", ...saveResult, contacts });
   }
   if (typeof chrome !== "undefined" && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

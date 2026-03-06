@@ -846,6 +846,28 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
         </div>
       </div>`).join('')
 
+    if (s.total === 0) {
+      root.innerHTML = `
+        <div class="compact-header">
+          <div class="compact-brand">
+            <img src="../icons/icon48.png" class="compact-logo" alt="">
+            <span class="compact-name">I Hate Networking</span>
+          </div>
+        </div>
+        <div class="section" style="text-align:center;padding:32px 20px;">
+          <div style="font-size:15px;font-weight:600;color:#374151;margin-bottom:8px;">No attendees found</div>
+          <p style="font-size:13px;color:#9ca3af;line-height:1.5;margin:0 0 20px;">The guest list may be hidden on this event. Try scrolling down on the event page to load the Guests section first, then scan again.</p>
+          <button class="btn btn-secondary" id="btnTryAgain">Try again</button>
+        </div>
+        <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      `
+      document.getElementById('btnTryAgain')?.addEventListener('click', () => {
+        scanState = { type: 'idle' }
+        render()
+      })
+      return
+    }
+
     root.innerHTML = `
       <div class="compact-header">
         <div class="compact-brand">

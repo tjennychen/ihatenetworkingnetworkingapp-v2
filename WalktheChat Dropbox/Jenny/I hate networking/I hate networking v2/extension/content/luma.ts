@@ -243,12 +243,12 @@ async function runScan(): Promise<void> {
 
   chrome.runtime.sendMessage({ type: 'SCAN_PROGRESS', phase: 'saving', done, total: allProfileUrls.length })
 
-  const saveResult: { eventId: string; found: number; total: number } = await new Promise(resolve => {
-    chrome.runtime.sendMessage({
-      type: 'START_ENRICHMENT',
-      data: { tabId: 0, lumaUrl, eventName, contacts }
-    }, resolve)
-  })
+  const saveResult: { eventId: string; found: number; total: number } = await Promise.race([
+    new Promise<any>(resolve => {
+      chrome.runtime.sendMessage({ type: 'START_ENRICHMENT', data: { tabId: 0, lumaUrl, eventName, contacts } }, resolve)
+    }),
+    new Promise<any>(resolve => setTimeout(() => resolve({ eventId: '', found: 0, total: contacts.length }), 15000)),
+  ])
 
   chrome.runtime.sendMessage({ type: 'SCAN_COMPLETE', ...saveResult, contacts })
 }
