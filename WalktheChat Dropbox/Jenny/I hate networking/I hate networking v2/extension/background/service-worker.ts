@@ -589,7 +589,7 @@ async function launchCampaign(data: {
 
   // Store pending count so badge + popup can read without extra queries
   const totalPending = queueItems.length
-  await chrome.storage.local.set({ queuePending: totalPending, nextScheduledAt: now })
+  await chrome.storage.local.set({ queuePending: totalPending, nextScheduledAt: new Date().toISOString() })
   updateBadge()
 
   return { queued: contacts.length, eventId }
