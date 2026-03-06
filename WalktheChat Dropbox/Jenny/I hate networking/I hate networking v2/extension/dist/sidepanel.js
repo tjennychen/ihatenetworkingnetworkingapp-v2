@@ -131,7 +131,7 @@
         <div class="step-num">3</div>
         <div class="step-text">
           <div class="step-title">LinkedIn connections send automatically</div>
-          <div class="step-desc">35/day max \xB7 business hours only \xB7 keeps your account safe</div>
+          <div class="step-desc">25/day max \xB7 business hours only \xB7 keeps your account safe</div>
         </div>
       </div>
     </div>
@@ -793,11 +793,24 @@
         <div class="launched-icon">\u{1F389}</div>
         <div class="launched-title">Campaign launched!</div>
         <div class="launched-sub">${s.queued} connection request${s.queued === 1 ? "" : "s"} queued</div>
-        <div class="launched-note">We'll send them slowly during business hours \u2014 35/day max \u2014 to keep your account safe.</div>
+        <div class="launched-note">Sending 1 every 15\u201330 min during business hours \u2014 25/day max \u2014 to keep your account safe.</div>
+        <button class="btn btn-primary" id="btnDraftLaunched" style="margin-bottom:8px;">\u270D Draft a LinkedIn post</button>
         <button class="btn btn-secondary" id="btnDone">Done</button>
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `;
+      document.getElementById("btnDraftLaunched")?.addEventListener("click", async () => {
+        draftViewOpen = true;
+        draftState = "closed";
+        scanState = { type: "idle" };
+        const appState = await resolveAppState();
+        if (appState.type === "campaign") {
+          startDraftFetch(s.eventId, s.eventName, appState);
+        } else {
+          draftState = { stage: "pick" };
+          render();
+        }
+      });
       document.getElementById("btnDone").addEventListener("click", () => {
         scanState = { type: "idle" };
         render();

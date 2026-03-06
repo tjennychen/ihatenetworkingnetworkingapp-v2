@@ -179,7 +179,7 @@ function renderLanding(ctx: TabContext): void {
         <div class="step-num">3</div>
         <div class="step-text">
           <div class="step-title">LinkedIn connections send automatically</div>
-          <div class="step-desc">35/day max · business hours only · keeps your account safe</div>
+          <div class="step-desc">25/day max · business hours only · keeps your account safe</div>
         </div>
       </div>
     </div>
@@ -915,11 +915,25 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
         <div class="launched-icon">🎉</div>
         <div class="launched-title">Campaign launched!</div>
         <div class="launched-sub">${s.queued} connection request${s.queued === 1 ? '' : 's'} queued</div>
-        <div class="launched-note">We'll send them slowly during business hours — 35/day max — to keep your account safe.</div>
+        <div class="launched-note">Sending 1 every 15–30 min during business hours — 25/day max — to keep your account safe.</div>
+        <button class="btn btn-primary" id="btnDraftLaunched" style="margin-bottom:8px;">✍ Draft a LinkedIn post</button>
         <button class="btn btn-secondary" id="btnDone">Done</button>
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `
+    document.getElementById('btnDraftLaunched')?.addEventListener('click', async () => {
+      draftViewOpen = true
+      draftState = 'closed'
+      scanState = { type: 'idle' }
+      // Resolve campaign state then go straight to this event's draft
+      const appState = await resolveAppState()
+      if (appState.type === 'campaign') {
+        startDraftFetch(s.eventId, s.eventName, appState)
+      } else {
+        draftState = { stage: 'pick' }
+        render()
+      }
+    })
     document.getElementById('btnDone')!.addEventListener('click', () => {
       scanState = { type: 'idle' }
       render()
