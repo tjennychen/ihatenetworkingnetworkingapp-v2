@@ -118,12 +118,13 @@ function namesMatch(pageName: string, expectedName: string): boolean {
   const normalize = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '').trim()
   const page = normalize(pageName)
   const pageWords = page.split(/\s+/)
-  const parts = normalize(expectedName).split(/\s+/).filter(Boolean)
-  return parts.every(part =>
-    page.includes(part) ||
-    // LinkedIn abbreviates last names to "F." for privacy — accept single-letter match
-    pageWords.some(w => w.length === 1 && part.startsWith(w))
-  )
+  // Only check the first name — the URL is the real authoritative identifier.
+  // Checking all words breaks for: middle initials, abbreviated last names,
+  // nicknames, stage names, etc.
+  const firstName = normalize(expectedName).split(/\s+/)[0]
+  if (!firstName) return true
+  return page.includes(firstName) ||
+    pageWords.some(w => w.length === 1 && firstName.startsWith(w))
 }
 
 function findButtonByText(text: string, root: Element = document.body): HTMLButtonElement | null {

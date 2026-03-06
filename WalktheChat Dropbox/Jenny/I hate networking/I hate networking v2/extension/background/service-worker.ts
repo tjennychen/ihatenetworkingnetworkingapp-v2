@@ -632,6 +632,17 @@ async function processNextQueueItem(): Promise<void> {
     return
   }
 
+  // Validate the LinkedIn URL before opening a tab — catch corrupted data early
+  const vanityFromUrl = (() => {
+    try { return new URL(linkedinUrl.replace('https://linkedin.com/', 'https://www.linkedin.com/')).pathname.split('/').filter(Boolean)[1] ?? '' }
+    catch { return '' }
+  })()
+  const invalidVanity = !vanityFromUrl || vanityFromUrl.toLowerCase() === 'none' || vanityFromUrl.includes(' ')
+  if (invalidVanity) {
+    await supabase.from('connection_queue').update({ status: 'failed', error: 'invalid_linkedin_url' }).eq('id', item.id)
+    return
+  }
+
   // Require an existing Chrome window — prevents popping open a new visible window
   const existingWindows = await chrome.windows.getAll({ windowTypes: ['normal'] })
   if (existingWindows.length === 0) {

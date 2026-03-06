@@ -11548,7 +11548,7 @@ ${suffix}`;
   }
 
   // lib/rate-limiter.ts
-  var DAILY_LIMIT = 20;
+  var DAILY_LIMIT = 25;
   function checkDailyLimit(sentToday) {
     const remaining = Math.max(0, DAILY_LIMIT - sentToday);
     return { canSend: sentToday < DAILY_LIMIT, remaining };
@@ -12024,6 +12024,18 @@ ${suffix}`;
     const linkedinUrl = item.contacts?.linkedin_url;
     if (!linkedinUrl) {
       await supabase.from("connection_queue").update({ status: "failed", error: "no_linkedin_url" }).eq("id", item.id);
+      return;
+    }
+    const vanityFromUrl = (() => {
+      try {
+        return new URL(linkedinUrl.replace("https://linkedin.com/", "https://www.linkedin.com/")).pathname.split("/").filter(Boolean)[1] ?? "";
+      } catch {
+        return "";
+      }
+    })();
+    const invalidVanity = !vanityFromUrl || vanityFromUrl.toLowerCase() === "none" || vanityFromUrl.includes(" ");
+    if (invalidVanity) {
+      await supabase.from("connection_queue").update({ status: "failed", error: "invalid_linkedin_url" }).eq("id", item.id);
       return;
     }
     const existingWindows = await chrome.windows.getAll({ windowTypes: ["normal"] });

@@ -79,11 +79,9 @@
     const normalize = (s) => s.toLowerCase().replace(/[^a-z\s]/g, "").trim();
     const page = normalize(pageName);
     const pageWords = page.split(/\s+/);
-    const parts = normalize(expectedName).split(/\s+/).filter(Boolean);
-    return parts.every(
-      (part) => page.includes(part) || // LinkedIn abbreviates last names to "F." for privacy — accept single-letter match
-      pageWords.some((w) => w.length === 1 && part.startsWith(w))
-    );
+    const firstName = normalize(expectedName).split(/\s+/)[0];
+    if (!firstName) return true;
+    return page.includes(firstName) || pageWords.some((w) => w.length === 1 && firstName.startsWith(w));
   }
   function findButtonByText(text, root = document.body) {
     const lower = text.toLowerCase();
