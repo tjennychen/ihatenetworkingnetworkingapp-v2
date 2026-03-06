@@ -643,13 +643,10 @@ async function processNextQueueItem(): Promise<void> {
     return
   }
 
-  // ── Hey Reach approach: call Voyager API directly from service worker ─────────
-  // No tab opening. Service worker reads LinkedIn session cookies via chrome.cookies
-  // and makes the API call itself — same-session, no DOM, no timing issues.
   const firstName = (item.contacts as any)?.name?.split(' ')[0] || ''
   const resolvedNote = (item.note || '').replace(/\[first name\]/gi, firstName)
 
-  const result = await sendViaVoyagerDirect(vanityFromUrl, resolvedNote)
+  const result = await sendViaLinkedInRelay(vanityFromUrl, resolvedNote)
   console.log('[IHN] Result:', result)
 
   if (result.success) {
@@ -709,92 +706,54 @@ async function processNextQueueItem(): Promise<void> {
 
 }
 
-// ── Voyager API — direct service worker call (Hey Reach approach) ─────────────
+// ── LinkedIn relay approach ───────────────────────────────────────────────────
 //
-// Chrome extension service workers with host_permissions for linkedin.com can
-// make credentialed fetches to LinkedIn — cookies are included automatically.
-// JSESSIONID is read via chrome.cookies for the csrf-token header.
-// No tab, no content script, no timing issues.
+// Reuse any existing LinkedIn tab as a relay for the Voyager API call.
+// The content script runs in same-origin context (cookies work naturally).
+// If no LinkedIn tab is open, open the feed page (fast load, no profile needed).
+// The CONNECT message now carries vanityName — content script calls the API
+// for that profile without needing to be on that profile's page.
 
-const VOYAGER_SW = 'https://www.linkedin.com/voyager/api'
-const INVITE_URL_SW =
-  `${VOYAGER_SW}/voyagerRelationshipsDashMemberRelationships` +
-  `?action=verifyQuotaAndCreateV2` +
-  `&decorationId=com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2`
-
-async function sendViaVoyagerDirect(
+async function sendViaLinkedInRelay(
   vanityName: string,
   note: string
 ): Promise<{ success: boolean; error?: string }> {
-  // Read LinkedIn session cookie for CSRF token
-  const jsessionid = await chrome.cookies.get({ url: 'https://www.linkedin.com', name: 'JSESSIONID' })
-  if (!jsessionid?.value) {
-    return { success: false, error: 'no_linkedin_session' }
-  }
-  const csrf = jsessionid.value
+  // Find any open LinkedIn tab to use as a relay (same-origin = cookies work)
+  const linkedinTabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })
+  let tabId: number
+  let openedTab = false
 
-  const headers: Record<string, string> = {
-    accept: 'application/vnd.linkedin.normalized+json+2.1',
-    'content-type': 'application/json; charset=UTF-8',
-    'csrf-token': csrf,
-    'x-restli-protocol-version': '2.0.0',
-    'x-li-lang': 'en_US',
-    'x-li-page-instance': 'urn:li:page:d_flagship3_profile_view_base;' + Math.random().toString(36).slice(2),
-    'x-li-track': JSON.stringify({
-      clientVersion: '1.13.3655', mpVersion: '1.13.3655', osName: 'web',
-      timezoneOffset: 0, timezone: 'America/Los_Angeles',
-      mpName: 'voyager-web', displayDensity: 2, displayWidth: 1440, displayHeight: 900,
-    }),
-  }
-
-  // Step 1: Get the fsd_profile URN from the profile API
-  let profileUrn: string | null = null
-  try {
-    const profResp = await fetch(
-      `${VOYAGER_SW}/identity/profiles/${encodeURIComponent(vanityName)}/profileView`,
-      { headers, credentials: 'include' }
-    )
-    if (profResp.ok) {
-      const data = await profResp.json()
-      const miniUrn: string = data?.profile?.miniProfile?.entityUrn ?? ''
-      const m = miniUrn.match(/urn:li:(?:fsd_profile|fs_miniProfile):([A-Za-z0-9_-]+)/)
-      if (m) profileUrn = `urn:li:fsd_profile:${m[1]}`
-    } else {
-      return { success: false, error: `profile_fetch_${profResp.status}` }
-    }
-  } catch (e) {
-    return { success: false, error: `profile_fetch_failed:${String(e)}` }
-  }
-
-  if (!profileUrn) return { success: false, error: 'no_profile_urn' }
-
-  // Step 2: Send the connection request
-  const payload: Record<string, unknown> = {
-    invitee: { inviteeUnion: { memberProfile: profileUrn } },
-  }
-  if (note) payload.customMessage = note
-
-  try {
-    const invResp = await fetch(INVITE_URL_SW, {
-      method: 'POST',
-      headers,
-      credentials: 'include',
-      body: JSON.stringify(payload),
+  if (linkedinTabs.length > 0) {
+    tabId = linkedinTabs[0].id!
+  } else {
+    // No LinkedIn tab open — open the feed (fast, no profile navigation needed)
+    const existingWindows = await chrome.windows.getAll({ windowTypes: ['normal'] })
+    if (existingWindows.length === 0) return { success: false, error: 'no_chrome_window' }
+    const windowId = existingWindows.find(w => w.focused)?.id ?? existingWindows[0].id
+    const tab = await chrome.tabs.create({ url: 'https://www.linkedin.com/feed/', active: false, windowId })
+    tabId = tab.id!
+    openedTab = true
+    // Wait for page load
+    await new Promise<void>(resolve => {
+      const timeout = setTimeout(resolve, 10000)
+      chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+        if (tid === tabId && info.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener)
+          clearTimeout(timeout)
+          setTimeout(resolve, 1000) // brief buffer for content script init
+        }
+      })
     })
-    if (invResp.ok) return { success: true }
-
-    // Parse error
-    let body: any = {}
-    try { body = await invResp.json() } catch { /* non-JSON */ }
-    const msg = String(body?.message ?? body?.code ?? '').toUpperCase()
-
-    if (invResp.status === 429 || msg.includes('QUOTA') || msg.includes('LIMIT')) return { success: false, error: 'weekly_limit_reached' }
-    if (msg.includes('FIRST_DEGREE') || msg.includes('ALREADY_CONNECTED')) return { success: false, error: 'already_connected' }
-    if (msg.includes('CANT_RESEND_YET') || msg.includes('DUPLICATE')) return { success: false, error: 'already_pending' }
-    if (invResp.status === 403) return { success: false, error: `forbidden:${msg.slice(0, 60) || 'no_body'}` }
-
-    return { success: false, error: `api_${invResp.status}:${msg.slice(0, 60)}` }
-  } catch (e) {
-    return { success: false, error: `invite_failed:${String(e)}` }
   }
+
+  const result: { success: boolean; error?: string } = await new Promise(resolve => {
+    const timeout = setTimeout(() => resolve({ success: false, error: 'no_response' }), 15000)
+    chrome.tabs.sendMessage(tabId, { type: 'CONNECT', vanityName, note }, response => {
+      clearTimeout(timeout)
+      resolve(response ?? { success: false, error: 'no_response' })
+    })
+  })
+
+  if (openedTab) await chrome.tabs.remove(tabId).catch(() => {})
+  return result
 }

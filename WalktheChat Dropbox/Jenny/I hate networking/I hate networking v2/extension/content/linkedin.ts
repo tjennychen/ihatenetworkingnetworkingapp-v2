@@ -181,31 +181,18 @@ async function postInvite(
 }
 
 // ── Main entrypoint ───────────────────────────────────────────────────────────
+// vanityName comes from the CONNECT message — the content script doesn't need
+// to be on the target profile page. Any LinkedIn tab works as a relay.
 
-async function sendConnection(note?: string, expectedName?: string): Promise<{ success: boolean; error?: string }> {
-  if (!window.location.pathname.startsWith('/in/')) {
-    return { success: false, error: 'Not a profile page' }
-  }
-
-  // Name verification (DOM — fast, no extra request)
-  const pageName = getProfileName()
-  if (!namesMatch(pageName, expectedName ?? '')) {
-    return { success: false, error: `wrong_profile: expected "${expectedName}", got "${pageName}"` }
-  }
+async function sendConnection(vanityName: string, note?: string): Promise<{ success: boolean; error?: string }> {
+  if (!vanityName) return { success: false, error: 'no_vanity_name' }
 
   const csrf = getCsrfToken()
   if (!csrf) return { success: false, error: 'no_csrf_token' }
 
   const headers = voyagerHeaders(csrf)
-  const vanityName = window.location.pathname.split('/').filter(Boolean)[1] ?? ''
 
-  // Quick DOM pre-flight: bail early if already pending
-  const main = getMain()
-  if (findButtonByText('Pending', main) || findButtonByText('Withdraw', main)) {
-    return { success: false, error: 'already_pending' }
-  }
-
-  // Get profile URN (try page HTML first, then API)
+  // Get profile URN (try current page HTML if we happen to be on the right profile, then API)
   let profileUrn = getProfileUrnFromPage(vanityName)
   if (!profileUrn) {
     profileUrn = await fetchProfileUrn(vanityName, headers)
@@ -220,7 +207,7 @@ async function sendConnection(note?: string, expectedName?: string): Promise<{ s
 
   const result = await postInvite(profileUrn, effectiveNote, headers)
 
-  // If invite with note failed, retry without (note might be hitting quota or format issue)
+  // If invite with note failed, retry without
   if (!result.success && effectiveNote) {
     await setNoteQuotaReached()
     return postInvite(profileUrn, '', headers)
@@ -244,7 +231,7 @@ function extractNameFromHtml(html: string): string {
 
 if (typeof chrome !== 'undefined' && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'CONNECT') {
-    sendConnection(msg.note || '', msg.expectedName || '').then(result => sendResponse(result))
+    sendConnection(msg.vanityName || '', msg.note || '').then(result => sendResponse(result))
     return true
   }
   if (msg.type === 'GET_LINKEDIN_NAME') {

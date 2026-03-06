@@ -22,7 +22,7 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.linkedin.com/in/*"],
+      "matches": ["https://www.linkedin.com/*"],
       "js": ["dist/linkedin.js"],
       "run_at": "document_idle"
     }

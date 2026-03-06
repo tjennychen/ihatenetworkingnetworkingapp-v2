@@ -68,25 +68,8 @@
     if (msg.includes("QUOTA") || msg.includes("LIMIT")) return "weekly_limit_reached";
     return `api_error_${resp.status}:${msg.slice(0, 60)}`;
   }
-  function getMain() {
-    return document.querySelector("main") ?? document.body;
-  }
   function getProfileName() {
     return document.querySelector("h1")?.textContent?.trim() ?? "";
-  }
-  function namesMatch(pageName, expectedName) {
-    if (!expectedName) return true;
-    const normalize = (s) => s.toLowerCase().replace(/[^a-z\s]/g, "").trim();
-    const page = normalize(pageName);
-    const pageWords = page.split(/\s+/);
-    const firstName = normalize(expectedName).split(/\s+/)[0];
-    if (!firstName) return true;
-    return page.includes(firstName) || pageWords.some((w) => w.length === 1 && firstName.startsWith(w));
-  }
-  function findButtonByText(text, root = document.body) {
-    const lower = text.toLowerCase();
-    const buttons = Array.from(root.querySelectorAll("button"));
-    return buttons.find((b) => b.textContent?.trim() === text) ?? buttons.find((b) => b.textContent?.trim().toLowerCase().includes(lower)) ?? null;
   }
   function getNoteQuotaReached() {
     return new Promise((resolve) => chrome.storage.local.get("noteQuotaReached", (r) => resolve(!!r.noteQuotaReached)));
@@ -118,22 +101,11 @@
     if (resp.ok) return { success: true };
     return { success: false, error: await parseInviteError(resp) };
   }
-  async function sendConnection(note, expectedName) {
-    if (!window.location.pathname.startsWith("/in/")) {
-      return { success: false, error: "Not a profile page" };
-    }
-    const pageName = getProfileName();
-    if (!namesMatch(pageName, expectedName ?? "")) {
-      return { success: false, error: `wrong_profile: expected "${expectedName}", got "${pageName}"` };
-    }
+  async function sendConnection(vanityName, note) {
+    if (!vanityName) return { success: false, error: "no_vanity_name" };
     const csrf = getCsrfToken();
     if (!csrf) return { success: false, error: "no_csrf_token" };
     const headers = voyagerHeaders(csrf);
-    const vanityName = window.location.pathname.split("/").filter(Boolean)[1] ?? "";
-    const main = getMain();
-    if (findButtonByText("Pending", main) || findButtonByText("Withdraw", main)) {
-      return { success: false, error: "already_pending" };
-    }
     let profileUrn = getProfileUrnFromPage(vanityName);
     if (!profileUrn) {
       profileUrn = await fetchProfileUrn(vanityName, headers);
@@ -159,7 +131,7 @@
   }
   if (typeof chrome !== "undefined" && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "CONNECT") {
-      sendConnection(msg.note || "", msg.expectedName || "").then((result) => sendResponse(result));
+      sendConnection(msg.vanityName || "", msg.note || "").then((result) => sendResponse(result));
       return true;
     }
     if (msg.type === "GET_LINKEDIN_NAME") {
