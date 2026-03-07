@@ -98,6 +98,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === 'SIGN_OUT') {
+    chrome.storage.local.remove(['session', 'queuePending', 'campaignPaused', 'nextScheduledAt'], () => sendResponse({ success: true }))
+    return true
+  }
+
   if (msg.type === 'SIGN_UP') {
     const { email, password } = msg.data
     const supabase = getSupabase()

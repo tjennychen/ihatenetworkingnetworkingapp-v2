@@ -108,6 +108,16 @@ async function resolveTabContext(): Promise<TabContext> {
   return { kind: 'luma-event', tabId, eventName }
 }
 
+async function hasSession(): Promise<boolean> {
+  const { session } = await chrome.storage.local.get('session')
+  return !!session
+}
+
+async function signOut(): Promise<void> {
+  await new Promise(r => chrome.runtime.sendMessage({ type: 'SIGN_OUT' }, r))
+  render()
+}
+
 async function resolveAppState(): Promise<AppState> {
   const [ctx, storage] = await Promise.all([
     resolveTabContext(),
@@ -211,9 +221,10 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
 
   const { hosts, guests, totalGuests } = resp
 
+  const isBadName = (n: string) => !n || /^(LinkedIn|Log In|Sign In|Sign Up)$/i.test(n.trim())
   const needFetch = [
-    ...hosts.filter((h: any) => !h.linkedin_name && h.linkedin_url),
-    ...guests.filter((g: any) => !g.linkedin_name && g.linkedin_url),
+    ...hosts.filter((h: any) => (!h.linkedin_name || isBadName(h.linkedin_name)) && h.linkedin_url),
+    ...guests.filter((g: any) => (!g.linkedin_name || isBadName(g.linkedin_name)) && g.linkedin_url),
   ]
 
   if (needFetch.length > 0) {
@@ -223,18 +234,21 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
   }
 
   const fetchedNames: { id: string; linkedin_name: string }[] = needFetch.length > 0
-    ? (await new Promise<any>(resolve =>
-        chrome.runtime.sendMessage({ type: 'GET_LINKEDIN_NAMES', contacts: needFetch.map((c: any) => ({ id: c.id, linkedin_url: c.linkedin_url })) }, resolve)
-      )) ?? []
+    ? (await Promise.race([
+        new Promise<any>(resolve =>
+          chrome.runtime.sendMessage({ type: 'GET_LINKEDIN_NAMES', contacts: needFetch.map((c: any) => ({ id: c.id, linkedin_url: c.linkedin_url })) }, resolve)
+        ),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 30000))
+      ])) ?? []
     : []
 
-  const fetchedMap = new Map(fetchedNames.filter(f => f.linkedin_name).map(f => [f.id, f.linkedin_name]))
+  const fetchedMap = new Map(fetchedNames.filter(f => f.linkedin_name && !isBadName(f.linkedin_name)).map(f => [f.id, f.linkedin_name]))
   const nameMap = new Map<string, string>()
-  for (const g of [...guests, ...hosts]) nameMap.set(g.id, g.linkedin_name || g.name || '')
+  for (const g of [...guests, ...hosts]) nameMap.set(g.id, (!isBadName(g.linkedin_name) && g.linkedin_name) || g.name || '')
   for (const [id, name] of fetchedMap) nameMap.set(id, name)
 
   const hostMentions = hosts
-    .map((h: any) => fetchedMap.get(h.id) || h.linkedin_name || h.name || '')
+    .map((h: any) => fetchedMap.get(h.id) || (!isBadName(h.linkedin_name) && h.linkedin_name) || h.name || '')
     .filter(Boolean)
     .map(n => `@${n}`)
     .join(' ')
@@ -567,7 +581,7 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
 
     ${isRunning ? `<div class="chrome-warning">⚠ Keep Chrome open — connections send in background</div>` : ''}
 
-    <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+    <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> · <button class="signout-btn" id="btnSignOut">Sign out</button></div>
   `
 
   // ── Wire pause / resume ────────────────────────────────────────────────────
@@ -690,6 +704,8 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
       renderDraftView(state)
     }
   })
+
+  document.getElementById('btnSignOut')?.addEventListener('click', () => signOut())
 }
 
 // ── Auth gate ─────────────────────────────────────────────────────────────────
