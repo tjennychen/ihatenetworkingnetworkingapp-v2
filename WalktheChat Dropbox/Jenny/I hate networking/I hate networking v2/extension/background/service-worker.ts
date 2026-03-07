@@ -360,6 +360,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         results = await new Promise<{ id: string; linkedin_name: string }[]>((resolve) => {
           const timeout = setTimeout(() => resolve([]), 120000)
           chrome.tabs.sendMessage(relayTabId!, { type: 'FETCH_LINKEDIN_PROFILES', contacts }, (response) => {
+            void chrome.runtime.lastError
             clearTimeout(timeout)
             resolve(response ?? [])
           })
@@ -368,9 +369,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       if (openedTabId) chrome.tabs.remove(openedTabId).catch(() => {})
 
-      // Persist names to Supabase
+      // Persist names to Supabase (skip generic/invalid names)
       for (const r of results) {
-        if (r.linkedin_name) {
+        if (r.linkedin_name && !/^(LinkedIn|Log In|Sign In|Sign Up)$/i.test(r.linkedin_name.trim())) {
           await supabase.from('contacts').update({ linkedin_name: r.linkedin_name }).eq('id', r.id)
         }
       }
@@ -694,14 +695,14 @@ async function processNextQueueItem(): Promise<void> {
     const maxGap = hrsLeft < 2 ? 15 : 30
     const delayMinutes = minGap + Math.random() * (maxGap - minGap)
     const nextScheduledAt = new Date(Date.now() + delayMinutes * 60000).toISOString()
-    // SELECT the specific next item first, then update by ID — .order().limit() on UPDATE
-    // in PostgREST updates ALL matching rows, not just the first one
-    const { data: nextItem } = await supabase
-      .from('connection_queue').select('id').eq('user_id', session.user.id)
-      .eq('status', 'pending').order('created_at', { ascending: true }).limit(1).single()
-    if (nextItem) {
-      await supabase.from('connection_queue').update({ scheduled_at: nextScheduledAt }).eq('id', nextItem.id)
-    }
+    // Push ALL past-due pending items to the future in one query.
+    // If we only update the single "next" item, all other past-due items (same old timestamp)
+    // still fire every 30-second alarm tick — causing rapid-fire sends.
+    await supabase.from('connection_queue')
+      .update({ scheduled_at: nextScheduledAt })
+      .eq('user_id', session.user.id)
+      .eq('status', 'pending')
+      .lte('scheduled_at', new Date().toISOString())
 
     // Update storage so badge + popup reflect new state
     const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
@@ -721,15 +722,14 @@ async function processNextQueueItem(): Promise<void> {
       status: 'failed',
       error: result.error ?? 'unknown',
     }).eq('id', item.id)
-    // Schedule next item with human-like delay even after failures
+    // Push ALL past-due pending items forward (same logic as success path)
     const failDelayMinutes = 8 + Math.random() * 12 // 8–20 min
     const nextFailAt = new Date(Date.now() + failDelayMinutes * 60000).toISOString()
-    const { data: nextFailItem } = await supabase
-      .from('connection_queue').select('id').eq('user_id', session.user.id)
-      .eq('status', 'pending').order('created_at', { ascending: true }).limit(1).single()
-    if (nextFailItem) {
-      await supabase.from('connection_queue').update({ scheduled_at: nextFailAt }).eq('id', nextFailItem.id)
-    }
+    await supabase.from('connection_queue')
+      .update({ scheduled_at: nextFailAt })
+      .eq('user_id', session.user.id)
+      .eq('status', 'pending')
+      .lte('scheduled_at', new Date().toISOString())
     const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
     await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) })
   }

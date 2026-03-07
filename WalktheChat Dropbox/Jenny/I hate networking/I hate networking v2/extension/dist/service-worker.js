@@ -11853,6 +11853,7 @@ ${suffix}`;
           results = await new Promise((resolve) => {
             const timeout = setTimeout(() => resolve([]), 12e4);
             chrome.tabs.sendMessage(relayTabId, { type: "FETCH_LINKEDIN_PROFILES", contacts }, (response) => {
+              void chrome.runtime.lastError;
               clearTimeout(timeout);
               resolve(response ?? []);
             });
@@ -11861,7 +11862,7 @@ ${suffix}`;
         if (openedTabId) chrome.tabs.remove(openedTabId).catch(() => {
         });
         for (const r of results) {
-          if (r.linkedin_name) {
+          if (r.linkedin_name && !/^(LinkedIn|Log In|Sign In|Sign Up)$/i.test(r.linkedin_name.trim())) {
             await supabase.from("contacts").update({ linkedin_name: r.linkedin_name }).eq("id", r.id);
           }
         }
@@ -12076,10 +12077,7 @@ ${suffix}`;
       const maxGap = hrsLeft < 2 ? 15 : 30;
       const delayMinutes = minGap + Math.random() * (maxGap - minGap);
       const nextScheduledAt = new Date(Date.now() + delayMinutes * 6e4).toISOString();
-      const { data: nextItem } = await supabase.from("connection_queue").select("id").eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1).single();
-      if (nextItem) {
-        await supabase.from("connection_queue").update({ scheduled_at: nextScheduledAt }).eq("id", nextItem.id);
-      }
+      await supabase.from("connection_queue").update({ scheduled_at: nextScheduledAt }).eq("user_id", session.user.id).eq("status", "pending").lte("scheduled_at", (/* @__PURE__ */ new Date()).toISOString());
       const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
       await chrome.storage.local.set({
         queuePending: Math.max(0, (storedPending ?? 1) - 1),
@@ -12098,10 +12096,7 @@ ${suffix}`;
       }).eq("id", item.id);
       const failDelayMinutes = 8 + Math.random() * 12;
       const nextFailAt = new Date(Date.now() + failDelayMinutes * 6e4).toISOString();
-      const { data: nextFailItem } = await supabase.from("connection_queue").select("id").eq("user_id", session.user.id).eq("status", "pending").order("created_at", { ascending: true }).limit(1).single();
-      if (nextFailItem) {
-        await supabase.from("connection_queue").update({ scheduled_at: nextFailAt }).eq("id", nextFailItem.id);
-      }
+      await supabase.from("connection_queue").update({ scheduled_at: nextFailAt }).eq("user_id", session.user.id).eq("status", "pending").lte("scheduled_at", (/* @__PURE__ */ new Date()).toISOString());
       const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
       await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) });
     }
