@@ -103,6 +103,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === 'RESET_PASSWORD') {
+    const { email } = msg.data
+    const supabase = getSupabase()
+    supabase.auth.resetPasswordForEmail(email)
+      .then(({ error }) => {
+        if (error) { sendResponse({ success: false, error: error.message }); return }
+        sendResponse({ success: true })
+      })
+      .catch(err => sendResponse({ success: false, error: err?.message ?? 'Reset failed' }))
+    return true
+  }
+
   if (msg.type === 'SIGN_UP') {
     const { email, password } = msg.data
     const supabase = getSupabase()
@@ -117,6 +129,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       })
       .catch(err => sendResponse({ success: false, error: err?.message ?? 'Sign up failed' }))
+    return true
+  }
+
+  if (msg.type === 'LOG_SCAN') {
+    getSession().then(async (session) => {
+      if (!session) { sendResponse({ ok: false }); return }
+      const supabase = getAuthedSupabase(session.access_token)
+      const d = msg.data
+      await supabase.from('scan_log').insert({
+        user_id: session.user.id,
+        event_url: d.eventUrl || '',
+        event_name: d.eventName || '',
+        button_found: !!d.buttonClicked,
+        modal_found: !!d.modalFound,
+        api_guests: d.apiGuestsCount ?? 0,
+        dom_guests: d.domGuestsCount ?? 0,
+        total_contacts: d.totalContacts ?? 0,
+        linkedin_count: d.linkedInCount ?? 0,
+        error_type: d.errorType || '',
+        debug_details: {
+          buttonTexts: d.buttonTexts || [],
+          preClickLinks: d.preClickLinks ?? 0,
+          apiHadSocial: !!d.apiHadSocial,
+        },
+      })
+      sendResponse({ ok: true })
+    })
     return true
   }
 
@@ -250,7 +289,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'RESUME_CAMPAIGN') {
-    chrome.storage.local.set({ campaignPaused: false }).then(() => updateBadge())
+    chrome.storage.local.set({ campaignPaused: false, pauseReason: '', consecutiveFailures: 0 }).then(() => updateBadge())
     sendResponse({ ok: true })
     return true
   }
@@ -316,7 +355,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .eq('user_id', session.user.id)
       if (!contacts) { sendResponse(null); return }
       const hosts = contacts.filter((c: any) => c.is_host)
-      const guests = contacts.filter((c: any) => !c.is_host && c.linkedin_url)
+      const guests = contacts.filter((c: any) => !c.is_host)
       // Random sample of up to 15 guests
       const shuffled = [...guests].sort(() => Math.random() - 0.5)
       const sample = shuffled.slice(0, 15)
@@ -606,8 +645,9 @@ async function processNextQueueItem(): Promise<void> {
   const hour = new Date().getHours()
   if (hour < 6 || hour >= 23) return
 
-  const { campaignPaused } = await chrome.storage.local.get('campaignPaused')
+  const { campaignPaused, consecutiveFailures: prevFailures } = await chrome.storage.local.get(['campaignPaused', 'consecutiveFailures'])
   if (campaignPaused) return
+  const consecutiveFailures: number = prevFailures ?? 0
 
   const session = await getSession()
   if (!session) { console.log('[IHN] processNextQueueItem: no session'); return }
@@ -716,6 +756,7 @@ async function processNextQueueItem(): Promise<void> {
       lastSentAt: sentAt,
       lastSentName: (item.contacts as any)?.name ?? '',
       nextScheduledAt,
+      consecutiveFailures: 0,
     })
   } else if (result.error === 'no_linkedin_session' || result.error === 'no_csrf_token') {
     // Not logged into LinkedIn — defer, don't fail permanently
@@ -735,8 +776,17 @@ async function processNextQueueItem(): Promise<void> {
       .eq('user_id', session.user.id)
       .eq('status', 'pending')
       .lte('scheduled_at', new Date().toISOString())
+    const newFailCount = consecutiveFailures + 1
     const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
-    await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) })
+    await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1), consecutiveFailures: newFailCount })
+
+    if (newFailCount >= 5) {
+      await chrome.storage.local.set({
+        campaignPaused: true,
+        pauseReason: `Auto-paused: ${newFailCount} connections failed in a row (${result.error ?? 'unknown'})`,
+      })
+      updateBadge()
+    }
   }
 
 }

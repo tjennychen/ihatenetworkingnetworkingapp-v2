@@ -11643,6 +11643,18 @@ ${suffix}`;
       chrome.storage.local.remove(["session", "queuePending", "campaignPaused", "nextScheduledAt"], () => sendResponse({ success: true }));
       return true;
     }
+    if (msg.type === "RESET_PASSWORD") {
+      const { email } = msg.data;
+      const supabase = getSupabase();
+      supabase.auth.resetPasswordForEmail(email).then(({ error }) => {
+        if (error) {
+          sendResponse({ success: false, error: error.message });
+          return;
+        }
+        sendResponse({ success: true });
+      }).catch((err) => sendResponse({ success: false, error: err?.message ?? "Reset failed" }));
+      return true;
+    }
     if (msg.type === "SIGN_UP") {
       const { email, password } = msg.data;
       const supabase = getSupabase();
@@ -11658,6 +11670,35 @@ ${suffix}`;
           sendResponse({ success: true, sessionReady: false });
         }
       }).catch((err) => sendResponse({ success: false, error: err?.message ?? "Sign up failed" }));
+      return true;
+    }
+    if (msg.type === "LOG_SCAN") {
+      getSession().then(async (session) => {
+        if (!session) {
+          sendResponse({ ok: false });
+          return;
+        }
+        const supabase = getAuthedSupabase(session.access_token);
+        const d = msg.data;
+        await supabase.from("scan_log").insert({
+          user_id: session.user.id,
+          event_url: d.eventUrl || "",
+          event_name: d.eventName || "",
+          button_found: !!d.buttonClicked,
+          modal_found: !!d.modalFound,
+          api_guests: d.apiGuestsCount ?? 0,
+          dom_guests: d.domGuestsCount ?? 0,
+          total_contacts: d.totalContacts ?? 0,
+          linkedin_count: d.linkedInCount ?? 0,
+          error_type: d.errorType || "",
+          debug_details: {
+            buttonTexts: d.buttonTexts || [],
+            preClickLinks: d.preClickLinks ?? 0,
+            apiHadSocial: !!d.apiHadSocial
+          }
+        });
+        sendResponse({ ok: true });
+      });
       return true;
     }
     if (msg.type === "LAUNCH_CAMPAIGN") {
@@ -11755,7 +11796,7 @@ ${suffix}`;
       return true;
     }
     if (msg.type === "RESUME_CAMPAIGN") {
-      chrome.storage.local.set({ campaignPaused: false }).then(() => updateBadge());
+      chrome.storage.local.set({ campaignPaused: false, pauseReason: "", consecutiveFailures: 0 }).then(() => updateBadge());
       sendResponse({ ok: true });
       return true;
     }
@@ -11814,7 +11855,7 @@ ${suffix}`;
           return;
         }
         const hosts = contacts.filter((c) => c.is_host);
-        const guests = contacts.filter((c) => !c.is_host && c.linkedin_url);
+        const guests = contacts.filter((c) => !c.is_host);
         const shuffled = [...guests].sort(() => Math.random() - 0.5);
         const sample = shuffled.slice(0, 15);
         sendResponse({ hosts, guests: sample, totalGuests: guests.length });
@@ -12008,8 +12049,9 @@ ${suffix}`;
   async function processNextQueueItem() {
     const hour = (/* @__PURE__ */ new Date()).getHours();
     if (hour < 6 || hour >= 23) return;
-    const { campaignPaused } = await chrome.storage.local.get("campaignPaused");
+    const { campaignPaused, consecutiveFailures: prevFailures } = await chrome.storage.local.get(["campaignPaused", "consecutiveFailures"]);
     if (campaignPaused) return;
+    const consecutiveFailures = prevFailures ?? 0;
     const session = await getSession();
     if (!session) {
       console.log("[IHN] processNextQueueItem: no session");
@@ -12087,7 +12129,8 @@ ${suffix}`;
         queuePending: Math.max(0, (storedPending ?? 1) - 1),
         lastSentAt: sentAt,
         lastSentName: item.contacts?.name ?? "",
-        nextScheduledAt
+        nextScheduledAt,
+        consecutiveFailures: 0
       });
     } else if (result.error === "no_linkedin_session" || result.error === "no_csrf_token") {
       await supabase.from("connection_queue").update({
@@ -12101,8 +12144,16 @@ ${suffix}`;
       const failDelayMinutes = 8 + Math.random() * 12;
       const nextFailAt = new Date(Date.now() + failDelayMinutes * 6e4).toISOString();
       await supabase.from("connection_queue").update({ scheduled_at: nextFailAt }).eq("user_id", session.user.id).eq("status", "pending").lte("scheduled_at", (/* @__PURE__ */ new Date()).toISOString());
+      const newFailCount = consecutiveFailures + 1;
       const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
-      await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1) });
+      await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1), consecutiveFailures: newFailCount });
+      if (newFailCount >= 5) {
+        await chrome.storage.local.set({
+          campaignPaused: true,
+          pauseReason: `Auto-paused: ${newFailCount} connections failed in a row (${result.error ?? "unknown"})`
+        });
+        updateBadge();
+      }
     }
   }
   async function waitForContentScript(tabId, timeoutMs) {

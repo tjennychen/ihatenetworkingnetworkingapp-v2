@@ -16,7 +16,7 @@ type ScanState =
   | { type: 'idle' }
   | { type: 'already_scanned'; count: number; linkedInCount: number; eventId: string; eventName: string }
   | { type: 'scanning'; phase: string; done: number; total: number; currentName: string; startTime: number }
-  | { type: 'results'; found: number; total: number; eventId: string; eventName: string; contacts: any[] }
+  | { type: 'results'; found: number; total: number; eventId: string; eventName: string; contacts: any[]; scanDebug?: any }
   | { type: 'launched'; queued: number; eventId: string }
 
 let scanState: ScanState = { type: 'idle' }
@@ -81,7 +81,7 @@ function isLumaEventPath(pathname: string): boolean {
 function defaultNote(eventName: string): string {
   const label = eventName.split('·')[0].trim()
   return label ? `I saw you at the ${label} event, I'd like to stay in touch!`
-               : "I saw you at the event, I'd like to stay in touch!"
+               : "I saw you at the hackathon, I'd like to stay in touch!"
 }
 
 function etaString(done: number, total: number, startTime: number): string {
@@ -248,7 +248,7 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
   for (const [id, name] of fetchedMap) nameMap.set(id, name)
 
   const hostMentions = hosts
-    .map((h: any) => fetchedMap.get(h.id) || (!isBadName(h.linkedin_name) && h.linkedin_name) || h.name || '')
+    .map((h: any) => fetchedMap.get(h.id) || (!isBadName(h.linkedin_name) && h.linkedin_name) || (!isBadName(h.name) && h.name) || '')
     .filter(Boolean)
     .map(n => `@${n}`)
     .join(' ')
@@ -367,16 +367,27 @@ function nextConnectionLabel(nextAt: string | null): string {
 }
 
 function renderDailyChart(dailyCounts: Record<string, number>): string {
-  const days = Object.keys(dailyCounts).sort().slice(-14)
-  if (days.length === 0) return ''
-  const maxCount = Math.max(...days.map(d => dailyCounts[d]), 1)
-  const barHtml = days.map(d => {
-    const count = dailyCounts[d]
-    const h = Math.round((count / maxCount) * 44)
-    const label = new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    return `<div class="chart-col"><div class="chart-bar" style="height:${h}px" title="${label}: ${count}"></div><div class="chart-day">${new Date(d + 'T12:00:00').getDate()}</div></div>`
+  const rawDays = Object.keys(dailyCounts).sort().slice(-14)
+  if (rawDays.length === 0) return ''
+  // Ensure at least 3 days shown — pad earlier days with 0
+  const last = rawDays.length > 0 ? rawDays[rawDays.length - 1] : new Date().toISOString().slice(0, 10)
+  const minDays = 3
+  const days: string[] = []
+  for (let i = Math.max(rawDays.length, minDays) - 1; i >= 0; i--) {
+    const d = new Date(last + 'T12:00:00')
+    d.setDate(d.getDate() - i)
+    days.push(d.toISOString().slice(0, 10))
+  }
+  // Merge: use actual counts where available, 0 otherwise
+  const merged = days.map(d => ({ date: d, count: dailyCounts[d] ?? 0 }))
+  const maxCount = Math.max(...merged.map(m => m.count), 1)
+  const barHtml = merged.map(m => {
+    const h = Math.round((m.count / maxCount) * 44)
+    const dt = new Date(m.date + 'T12:00:00')
+    const label = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return `<div class="chart-col"><div class="chart-bar" style="height:${h}px" title="${label}: ${m.count}"></div><div class="chart-day">${label}</div></div>`
   }).join('')
-  const total = days.reduce((s, d) => s + dailyCounts[d], 0)
+  const total = merged.reduce((s, m) => s + m.count, 0)
   return `
     <div class="section">
       <div class="feed-header"><span class="feed-title">Sent per day</span><span style="font-size:11px;color:#6b7280;">${total} total</span></div>
@@ -389,7 +400,7 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   // Fetch full progress data and resolve tab context in parallel
   const [progressResp, storageData, tabCtx] = await Promise.all([
     new Promise<any>(r => chrome.runtime.sendMessage({ type: 'GET_PROGRESS_DATA' }, r)),
-    chrome.storage.local.get(['nextScheduledAt']),
+    chrome.storage.local.get(['nextScheduledAt', 'pauseReason']),
     resolveTabContext(),
   ])
 
@@ -412,11 +423,15 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
   const pct = total > 0 ? Math.round((sent / total) * 100) : 0
   const isRunning = state.pending > 0 && !state.paused
 
+  const pauseReason: string = storageData.pauseReason ?? ''
   const statusHtml = isRunning
     ? `<span class="status-pill pill-running"><span class="dot"></span>Running</span>`
     : state.paused
     ? `<span class="status-pill pill-paused"><span class="dot"></span>Paused</span>`
     : `<span class="status-pill pill-done"><span class="dot"></span>Done</span>`
+  const pauseReasonHtml = state.paused && pauseReason
+    ? `<div style="font-size:12px;color:#ef4444;padding:4px 16px 0;line-height:1.4;">${escHtml(pauseReason)}</div>`
+    : ''
 
   const statsHtml = `
     <div class="stats-row" style="margin:0 16px;">
@@ -565,6 +580,7 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
       </div>
       ${statusHtml}
     </div>
+    ${pauseReasonHtml}
 
     ${scanCta}
 
@@ -713,13 +729,14 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
 function renderAuthGate(): string {
   return `
     <div class="auth-gate" id="authGate">
-      <div class="auth-label">${authMode === 'signup' ? 'Create an account' : 'Sign in'} to launch</div>
+      <div class="auth-label">${authMode === 'signup' ? 'Create an account' : 'Sign in'} to auto connect leads on LinkedIn</div>
       <input id="authEmail" type="email" placeholder="Email" autocomplete="email">
       <input id="authPassword" type="password" placeholder="Password" autocomplete="current-password">
       <div class="auth-error" id="authError"></div>
       <button class="btn btn-primary" id="btnAuthSubmit" style="margin-top:4px;">
-        ${authMode === 'signup' ? 'Create account' : 'Sign in'}
+        ${authMode === 'signup' ? 'Send automated LinkedIn connections' : 'Sign in'}
       </button>
+      ${authMode === 'signin' ? '<div style="text-align:center;margin-top:4px;"><button class="auth-toggle-btn" id="btnForgotPw" style="font-size:12px;">Forgot password?</button></div>' : ''}
       <div class="auth-toggle">
         ${authMode === 'signup'
           ? 'Already have an account? <button class="auth-toggle-btn" id="btnToggleAuth">Sign in</button>'
@@ -729,22 +746,71 @@ function renderAuthGate(): string {
   `
 }
 
+function showAuthError(msg: string): void {
+  const el = document.getElementById('authError')
+  if (el) el.textContent = msg
+}
+
+function setAuthLoading(loading: boolean): void {
+  const btn = document.getElementById('btnAuthSubmit') as HTMLButtonElement | null
+  if (!btn) return
+  btn.disabled = loading
+  if (loading) {
+    btn.dataset.label = btn.textContent ?? ''
+    btn.textContent = 'Loading…'
+  } else {
+    btn.textContent = btn.dataset.label ?? ''
+  }
+}
+
 function wireAuthGate(): void {
   document.getElementById('btnToggleAuth')?.addEventListener('click', () => {
     authMode = authMode === 'signup' ? 'signin' : 'signup'
     render()
   })
+  document.getElementById('btnForgotPw')?.addEventListener('click', async () => {
+    const email = (document.getElementById('authEmail') as HTMLInputElement)?.value?.trim() ?? ''
+    if (!email) { showAuthError('Enter your email first'); return }
+    showAuthError('')
+    const btn = document.getElementById('btnForgotPw') as HTMLButtonElement | null
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…' }
+    try {
+      const result: { success: boolean; error?: string } | undefined = await new Promise(r => chrome.runtime.sendMessage({ type: 'RESET_PASSWORD', data: { email } }, r))
+      if (result?.success) {
+        const gate = document.getElementById('authGate')
+        if (gate) gate.innerHTML = `<div style="text-align:center;padding:24px 0;"><div style="font-size:24px;margin-bottom:12px;">✉️</div><div style="font-size:14px;font-weight:600;margin-bottom:8px;">Check your email</div><div style="font-size:13px;color:#6b7280;">We sent a password reset link to <strong>${escHtml(email)}</strong>.</div></div>`
+      } else {
+        showAuthError(result?.error ?? 'Could not send reset email')
+        if (btn) { btn.disabled = false; btn.textContent = 'Forgot password?' }
+      }
+    } catch {
+      showAuthError('Something went wrong. Try again.')
+      if (btn) { btn.disabled = false; btn.textContent = 'Forgot password?' }
+    }
+  })
   document.getElementById('btnAuthSubmit')?.addEventListener('click', async () => {
-    const email = (document.getElementById('authEmail') as HTMLInputElement)?.value ?? ''
+    const email = (document.getElementById('authEmail') as HTMLInputElement)?.value?.trim() ?? ''
     const password = (document.getElementById('authPassword') as HTMLInputElement)?.value ?? ''
-    const errEl = document.getElementById('authError')
-    if (errEl) errEl.textContent = ''
-    const type = authMode === 'signup' ? 'SIGN_UP' : 'SIGN_IN'
-    const result: { success: boolean; error?: string } = await new Promise(r => chrome.runtime.sendMessage({ type, data: { email, password } }, r))
-    if (!result.success) {
-      if (errEl) errEl.textContent = result.error ?? 'Error'
-    } else {
-      render()
+    showAuthError('')
+    if (!email || !password) { showAuthError('Enter your email and password'); return }
+    if (authMode === 'signup' && password.length < 6) { showAuthError('Password must be at least 6 characters'); return }
+    setAuthLoading(true)
+    try {
+      const type = authMode === 'signup' ? 'SIGN_UP' : 'SIGN_IN'
+      const result: { success: boolean; sessionReady?: boolean; error?: string } | undefined = await new Promise(r => chrome.runtime.sendMessage({ type, data: { email, password } }, r))
+      if (!result) { showAuthError('Something went wrong. Try again.'); setAuthLoading(false); return }
+      if (!result.success) {
+        showAuthError(result.error ?? 'Something went wrong')
+        setAuthLoading(false)
+      } else if (type === 'SIGN_UP' && !result.sessionReady) {
+        const gate = document.getElementById('authGate')
+        if (gate) gate.innerHTML = `<div style="text-align:center;padding:24px 0;"><div style="font-size:24px;margin-bottom:12px;">✉️</div><div style="font-size:14px;font-weight:600;margin-bottom:8px;">Check your email</div><div style="font-size:13px;color:#6b7280;">We sent a confirmation link to <strong>${escHtml(email)}</strong>. Click it to activate your account, then come back here.</div></div>`
+      } else {
+        render()
+      }
+    } catch {
+      showAuthError('Something went wrong. Try again.')
+      setAuthLoading(false)
     }
   })
 }
@@ -863,6 +929,15 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
       </div>`).join('')
 
     if (s.total === 0) {
+      const d = s.scanDebug
+      let errorMsg = 'The guest list may be hidden on this event. Try scrolling down to load the Guests section first, then scan again.'
+      if (d && !d.buttonClicked) {
+        errorMsg = 'Could not find the guest list button. Luma may have changed their page layout. Try refreshing the page and scanning again.'
+      } else if (d && d.buttonClicked && !d.modalFound) {
+        errorMsg = 'Found the guest button but the attendee list did not load. Try scrolling down on the event page first, then scan again.'
+      } else if (d && d.buttonClicked && d.modalFound && d.apiGuestsCount === 0 && d.domGuestsCount === 0) {
+        errorMsg = 'Opened the guest list but could not read any attendees. Luma may have changed their page structure.'
+      }
       root.innerHTML = `
         <div class="compact-header">
           <div class="compact-brand">
@@ -872,7 +947,7 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
         </div>
         <div class="section" style="text-align:center;padding:32px 20px;">
           <div style="font-size:15px;font-weight:600;color:#374151;margin-bottom:8px;">No attendees found</div>
-          <p style="font-size:13px;color:#9ca3af;line-height:1.5;margin:0 0 20px;">The guest list may be hidden on this event. Try scrolling down on the event page to load the Guests section first, then scan again.</p>
+          <p style="font-size:13px;color:#9ca3af;line-height:1.5;margin:0 0 20px;">${errorMsg}</p>
           <button class="btn btn-secondary" id="btnTryAgain">Try again</button>
         </div>
         <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
@@ -880,6 +955,42 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
       document.getElementById('btnTryAgain')?.addEventListener('click', () => {
         scanState = { type: 'idle' }
         render()
+      })
+      return
+    }
+
+    if (s.found === 0 && s.total > 0) {
+      root.innerHTML = `
+        <div class="compact-header">
+          <div class="compact-brand">
+            <img src="../icons/icon48.png" class="compact-logo" alt="">
+            <span class="compact-name">I Hate Networking</span>
+          </div>
+        </div>
+        <div class="section" style="text-align:center;padding:32px 20px;">
+          <div style="font-size:15px;font-weight:600;color:#374151;margin-bottom:8px;">No LinkedIn profiles found</div>
+          <p style="font-size:13px;color:#9ca3af;line-height:1.5;margin:0 0 12px;">Found ${s.total} attendees but none had LinkedIn profiles linked on Luma.</p>
+          <a href="#" id="btnDownloadCsvEmpty" style="font-size:12px;color:#6b7280;text-decoration:underline;">Download CSV of attendees</a>
+          <div style="margin-top:16px;"><button class="btn btn-secondary" id="btnTryAgain2">Back</button></div>
+        </div>
+        <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
+      `
+      document.getElementById('btnTryAgain2')?.addEventListener('click', () => {
+        scanState = { type: 'idle' }
+        render()
+      })
+      document.getElementById('btnDownloadCsvEmpty')?.addEventListener('click', (e) => {
+        e.preventDefault()
+        const rows = [['Name', 'LinkedIn', 'Instagram', 'Twitter', 'Website', 'Luma Profile']]
+        for (const c of s.contacts) {
+          rows.push([c.name, c.linkedInUrl ?? '', c.instagramUrl ?? '', c.twitterUrl ?? '', c.websiteUrl ?? '', c.url])
+        }
+        const csv = rows.map(r => r.map(v => `"${(v || '').replace(/"/g, '""')}"`).join(',')).join('\n')
+        const blob = new Blob([csv], { type: 'text/csv' })
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `${s.eventName || 'attendees'}.csv`
+        a.click()
       })
       return
     }
@@ -892,8 +1003,9 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
         </div>
       </div>
       <div class="section">
-        <div class="results-count">Found ${s.found} on LinkedIn</div>
+        <div class="results-count">Found ${s.found} contacts</div>
         <div class="results-sub">out of ${s.total} attendees scanned</div>
+        <a href="#" id="btnDownloadCsv" style="font-size:12px;color:#6b7280;text-decoration:underline;display:inline-block;margin:6px 0 2px;">Download CSV</a>
         ${s.contacts.length > 0 ? `<div class="leads-list">${leadsHtml}</div>` : ''}
         <div class="field-label">Message <span class="char-count" id="charCount">(optional) ${noteValue.length}/${MAX_NOTE}</span></div>
         <textarea id="noteInput" maxlength="${MAX_NOTE}">${escHtml(noteValue)}</textarea>
@@ -914,6 +1026,19 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
       if (el) el.textContent = `(optional) ${noteValue.length}/${MAX_NOTE}`
     })
     document.getElementById('btnConnect')?.addEventListener('click', () => launchCampaign(s))
+    document.getElementById('btnDownloadCsv')?.addEventListener('click', () => {
+      const rows = [['Name', 'LinkedIn', 'Instagram', 'Twitter', 'Website', 'Luma Profile']]
+      for (const c of s.contacts) {
+        rows.push([c.name, c.linkedInUrl, c.instagramUrl ?? '', c.twitterUrl ?? '', c.websiteUrl ?? '', c.url])
+      }
+      const csv = rows.map(r => r.map(v => `"${(v || '').replace(/"/g, '""')}"`).join(',')).join('\n')
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${(s.eventName || 'contacts').replace(/[^a-z0-9]/gi, '_')}.csv`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    })
     wireAuthGate()
     return
   }
@@ -1026,6 +1151,20 @@ chrome.runtime.onMessage.addListener((msg) => {
       eventId: msg.eventId,
       eventName: (scanState as any).eventName ?? '',
       contacts: msg.contacts ?? [],
+      scanDebug: msg.scanDebug,
+    }
+    // Log scan diagnostics to Supabase for every scan
+    if (msg.scanDebug) {
+      chrome.runtime.sendMessage({
+        type: 'LOG_SCAN',
+        data: {
+          ...msg.scanDebug,
+          eventName: (scanState as any).eventName ?? '',
+          totalContacts: msg.total,
+          linkedInCount: msg.found,
+          errorType: msg.total === 0 ? 'no_contacts' : msg.found === 0 ? 'no_linkedin' : '',
+        },
+      })
     }
     resolveTabContext().then(ctx => {
       if (ctx.kind === 'luma-event') renderEventPage(ctx)
