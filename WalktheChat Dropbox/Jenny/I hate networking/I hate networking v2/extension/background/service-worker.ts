@@ -1,6 +1,29 @@
 import { getSupabase, getAuthedSupabase } from '../lib/supabase'
 import { checkDailyLimit, getSentTodayCount } from '../lib/rate-limiter'
 
+// Track the minimized LinkedIn relay window so we reuse it across operations
+let linkedinWindowId: number | null = null
+
+async function getOrCreateLinkedinWindow(url: string): Promise<{ tabId: number; windowId: number; opened: boolean }> {
+  // Reuse existing minimized window if still alive
+  if (linkedinWindowId !== null) {
+    try {
+      const win = await chrome.windows.get(linkedinWindowId)
+      if (win) {
+        const tab = await chrome.tabs.create({ url, active: false, windowId: linkedinWindowId })
+        return { tabId: tab.id!, windowId: linkedinWindowId, opened: true }
+      }
+    } catch { /* window was closed */ }
+    linkedinWindowId = null
+  }
+  // Create a minimized window — user won't see it
+  const win = await chrome.windows.create({ url, state: 'minimized', focused: false })
+  linkedinWindowId = win.id!
+  const tabId = win.tabs?.[0]?.id
+  if (!tabId) throw new Error('no tab in new window')
+  return { tabId, windowId: win.id!, opened: true }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
@@ -82,53 +105,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
-  if (msg.type === 'SIGN_IN') {
-    const { email, password } = msg.data
-    const supabase = getSupabase()
-    supabase.auth.signInWithPassword({ email, password })
-      .then(async ({ data, error }) => {
-        if (error || !data.session) {
-          sendResponse({ success: false, error: error?.message ?? 'Login failed' })
-          return
-        }
-        await chrome.storage.local.set({ session: data.session })
-        sendResponse({ success: true })
-      })
-      .catch(err => sendResponse({ success: false, error: err?.message ?? 'Login failed' }))
-    return true
-  }
-
   if (msg.type === 'SIGN_OUT') {
     chrome.storage.local.remove(['session', 'queuePending', 'campaignPaused', 'nextScheduledAt'], () => sendResponse({ success: true }))
-    return true
-  }
-
-  if (msg.type === 'RESET_PASSWORD') {
-    const { email } = msg.data
-    const supabase = getSupabase()
-    supabase.auth.resetPasswordForEmail(email)
-      .then(({ error }) => {
-        if (error) { sendResponse({ success: false, error: error.message }); return }
-        sendResponse({ success: true })
-      })
-      .catch(err => sendResponse({ success: false, error: err?.message ?? 'Reset failed' }))
-    return true
-  }
-
-  if (msg.type === 'SIGN_UP') {
-    const { email, password } = msg.data
-    const supabase = getSupabase()
-    supabase.auth.signUp({ email, password })
-      .then(async ({ data, error }) => {
-        if (error) { sendResponse({ success: false, error: error.message }); return }
-        if (data.session) {
-          await chrome.storage.local.set({ session: data.session })
-          sendResponse({ success: true, sessionReady: true })
-        } else {
-          sendResponse({ success: true, sessionReady: false })
-        }
-      })
-      .catch(err => sendResponse({ success: false, error: err?.message ?? 'Sign up failed' }))
     return true
   }
 
@@ -376,13 +354,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       let openedTabId: number | null = null
 
       if (!relayTabId) {
-        // Open one background tab for the first contact's profile and use it as relay for all
-        const existingWindows = await chrome.windows.getAll({ windowTypes: ['normal'] })
-        if (existingWindows.length > 0 && contacts.length > 0) {
-          const windowId = existingWindows.find(w => w.focused)?.id ?? existingWindows[0].id
+        // Open a minimized window for the first contact's profile and use it as relay for all
+        if (contacts.length > 0) {
           const firstUrl = contacts[0].linkedin_url.replace('https://linkedin.com/', 'https://www.linkedin.com/')
-          const tab = await chrome.tabs.create({ url: firstUrl, active: false, windowId })
-          openedTabId = tab.id!
+          const relay = await getOrCreateLinkedinWindow(firstUrl)
+          openedTabId = relay.tabId
           await new Promise<void>((resolve) => {
             const timeout = setTimeout(resolve, 15000)
             chrome.tabs.onUpdated.addListener(function listener(tid, info) {
@@ -818,14 +794,9 @@ async function sendViaLinkedInRelay(
   note: string,
   csrfToken: string
 ): Promise<{ success: boolean; error?: string }> {
-  // Always open a fresh feed tab as relay — guarantees a live content script context.
-  // Existing tabs may have invalidated content script contexts after extension reloads.
-  const windows = await chrome.windows.getAll({ windowTypes: ['normal'] })
-  if (windows.length === 0) return { success: false, error: 'no_chrome_window' }
-  const windowId = windows.find(w => w.focused)?.id ?? windows[0].id
-
-  const tab = await chrome.tabs.create({ url: 'https://www.linkedin.com/feed/', active: false, windowId })
-  const tabId = tab.id!
+  // Open in a minimized window — user won't see it
+  const relay = await getOrCreateLinkedinWindow('https://www.linkedin.com/feed/')
+  const tabId = relay.tabId
 
   const ready = await waitForContentScript(tabId, 12000)
   if (!ready) {

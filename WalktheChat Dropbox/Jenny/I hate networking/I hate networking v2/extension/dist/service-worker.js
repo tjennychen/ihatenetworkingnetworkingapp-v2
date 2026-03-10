@@ -11560,6 +11560,25 @@ ${suffix}`;
   }
 
   // background/service-worker.ts
+  var linkedinWindowId = null;
+  async function getOrCreateLinkedinWindow(url) {
+    if (linkedinWindowId !== null) {
+      try {
+        const win2 = await chrome.windows.get(linkedinWindowId);
+        if (win2) {
+          const tab = await chrome.tabs.create({ url, active: false, windowId: linkedinWindowId });
+          return { tabId: tab.id, windowId: linkedinWindowId, opened: true };
+        }
+      } catch {
+      }
+      linkedinWindowId = null;
+    }
+    const win = await chrome.windows.create({ url, state: "minimized", focused: false });
+    linkedinWindowId = win.id;
+    const tabId = win.tabs?.[0]?.id;
+    if (!tabId) throw new Error("no tab in new window");
+    return { tabId, windowId: win.id, opened: true };
+  }
   chrome.runtime.onInstalled.addListener(() => {
     chrome.alarms.create("checkQueue", { periodInMinutes: 0.5 });
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -11626,50 +11645,8 @@ ${suffix}`;
       });
       return true;
     }
-    if (msg.type === "SIGN_IN") {
-      const { email, password } = msg.data;
-      const supabase = getSupabase();
-      supabase.auth.signInWithPassword({ email, password }).then(async ({ data, error }) => {
-        if (error || !data.session) {
-          sendResponse({ success: false, error: error?.message ?? "Login failed" });
-          return;
-        }
-        await chrome.storage.local.set({ session: data.session });
-        sendResponse({ success: true });
-      }).catch((err) => sendResponse({ success: false, error: err?.message ?? "Login failed" }));
-      return true;
-    }
     if (msg.type === "SIGN_OUT") {
       chrome.storage.local.remove(["session", "queuePending", "campaignPaused", "nextScheduledAt"], () => sendResponse({ success: true }));
-      return true;
-    }
-    if (msg.type === "RESET_PASSWORD") {
-      const { email } = msg.data;
-      const supabase = getSupabase();
-      supabase.auth.resetPasswordForEmail(email).then(({ error }) => {
-        if (error) {
-          sendResponse({ success: false, error: error.message });
-          return;
-        }
-        sendResponse({ success: true });
-      }).catch((err) => sendResponse({ success: false, error: err?.message ?? "Reset failed" }));
-      return true;
-    }
-    if (msg.type === "SIGN_UP") {
-      const { email, password } = msg.data;
-      const supabase = getSupabase();
-      supabase.auth.signUp({ email, password }).then(async ({ data, error }) => {
-        if (error) {
-          sendResponse({ success: false, error: error.message });
-          return;
-        }
-        if (data.session) {
-          await chrome.storage.local.set({ session: data.session });
-          sendResponse({ success: true, sessionReady: true });
-        } else {
-          sendResponse({ success: true, sessionReady: false });
-        }
-      }).catch((err) => sendResponse({ success: false, error: err?.message ?? "Sign up failed" }));
       return true;
     }
     if (msg.type === "LOG_SCAN") {
@@ -11874,12 +11851,10 @@ ${suffix}`;
         let relayTabId = linkedinTabs[0]?.id ?? null;
         let openedTabId = null;
         if (!relayTabId) {
-          const existingWindows = await chrome.windows.getAll({ windowTypes: ["normal"] });
-          if (existingWindows.length > 0 && contacts.length > 0) {
-            const windowId = existingWindows.find((w) => w.focused)?.id ?? existingWindows[0].id;
+          if (contacts.length > 0) {
             const firstUrl = contacts[0].linkedin_url.replace("https://linkedin.com/", "https://www.linkedin.com/");
-            const tab = await chrome.tabs.create({ url: firstUrl, active: false, windowId });
-            openedTabId = tab.id;
+            const relay = await getOrCreateLinkedinWindow(firstUrl);
+            openedTabId = relay.tabId;
             await new Promise((resolve) => {
               const timeout = setTimeout(resolve, 15e3);
               chrome.tabs.onUpdated.addListener(function listener(tid, info) {
@@ -12171,11 +12146,8 @@ ${suffix}`;
     return false;
   }
   async function sendViaLinkedInRelay(vanityName, note, csrfToken) {
-    const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
-    if (windows.length === 0) return { success: false, error: "no_chrome_window" };
-    const windowId = windows.find((w) => w.focused)?.id ?? windows[0].id;
-    const tab = await chrome.tabs.create({ url: "https://www.linkedin.com/feed/", active: false, windowId });
-    const tabId = tab.id;
+    const relay = await getOrCreateLinkedinWindow("https://www.linkedin.com/feed/");
+    const tabId = relay.tabId;
     const ready = await waitForContentScript(tabId, 12e3);
     if (!ready) {
       await chrome.tabs.remove(tabId).catch(() => {

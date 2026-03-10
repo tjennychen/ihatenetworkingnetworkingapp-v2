@@ -3,8 +3,8 @@
   // sidepanel/sidepanel.ts
   var scanState = { type: "idle" };
   var noteValue = "";
-  var authMode = "signup";
   var MAX_NOTE = 300;
+  var DASHBOARD_LOGIN_URL = "https://ihatenetworking.space/login";
   var expandedEvents = /* @__PURE__ */ new Set();
   var exportMode = false;
   var exportSelected = /* @__PURE__ */ new Set();
@@ -256,15 +256,15 @@
         <button class="btn btn-secondary" id="btnCopyPost" style="margin-bottom:20px;width:auto;padding:6px 16px;">Copy</button>
 
         ${hasGuests ? `
+        <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 12px;margin-bottom:16px;">
+          <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Tip: Tag attendees for more reach</div>
+          <p style="font-size:13px;color:#6b7280;line-height:1.5;margin:0;">In the LinkedIn app: tap your photo \u2192 Tag people \u2192 search each name below</p>
+        </div>
         <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Guest names</div>
         <div style="margin-bottom:8px;">
           ${s.guestNames.map((n) => `<div class="draft-name-row">${escHtml(n)}</div>`).join("")}
         </div>
         ${s.totalGuests >= 15 ? `<button class="btn btn-secondary" id="btnDraftShuffle" style="margin-bottom:16px;">Shuffle (${s.totalGuests} total)</button>` : ""}
-        <div style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:8px;">
-          <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Tip: Tag attendees for more reach</div>
-          <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0;">In the LinkedIn app: tap your photo \u2192 Tag people \u2192 search each name above</p>
-        </div>
         ` : ""}
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
@@ -403,7 +403,7 @@
             <button class="export-cancel-btn" id="btnExportCancel">Cancel</button>
           </div>
           <div class="export-actions">
-            <button class="export-toggle-btn" id="btnToggleAll">${allSelected ? "Deselect all" : "Select all"}</button>
+            <button class="export-toggle-btn" id="btnToggleAll">${allSelected ? "Select all" : "Deselect all"}</button>
           </div>
           <div class="events-list">${rowsHtml2}</div>
           <button class="btn btn-primary" id="btnDownloadCsv" style="margin-top:10px;">Download CSV</button>
@@ -611,109 +611,19 @@
   function renderAuthGate() {
     return `
     <div class="auth-gate" id="authGate">
-      <div class="auth-label">${authMode === "signup" ? "Create an account" : "Sign in"} to auto connect leads on LinkedIn</div>
-      <input id="authEmail" type="email" placeholder="Email" autocomplete="email">
-      <input id="authPassword" type="password" placeholder="Password" autocomplete="current-password">
-      <div class="auth-error" id="authError"></div>
-      <button class="btn btn-primary" id="btnAuthSubmit" style="margin-top:4px;">
-        ${authMode === "signup" ? "Send automated LinkedIn connections" : "Sign in"}
+      <button class="btn btn-primary" id="btnAuthSignIn">
+        Sign in to auto-send LinkedIn connections
       </button>
-      ${authMode === "signin" ? '<div style="text-align:center;margin-top:4px;"><button class="auth-toggle-btn" id="btnForgotPw" style="font-size:12px;">Forgot password?</button></div>' : ""}
-      <div class="auth-toggle">
-        ${authMode === "signup" ? 'Already have an account? <button class="auth-toggle-btn" id="btnToggleAuth">Sign in</button>' : 'New here? <button class="auth-toggle-btn" id="btnToggleAuth">Create account</button>'}
-      </div>
     </div>
   `;
   }
-  function showAuthError(msg) {
-    const el = document.getElementById("authError");
-    if (el) el.textContent = msg;
-  }
-  function setAuthLoading(loading) {
-    const btn = document.getElementById("btnAuthSubmit");
-    if (!btn) return;
-    btn.disabled = loading;
-    if (loading) {
-      btn.dataset.label = btn.textContent ?? "";
-      btn.textContent = "Loading\u2026";
-    } else {
-      btn.textContent = btn.dataset.label ?? "";
-    }
-  }
   function wireAuthGate() {
-    document.getElementById("btnToggleAuth")?.addEventListener("click", () => {
-      authMode = authMode === "signup" ? "signin" : "signup";
-      render();
-    });
-    document.getElementById("btnForgotPw")?.addEventListener("click", async () => {
-      const email = document.getElementById("authEmail")?.value?.trim() ?? "";
-      if (!email) {
-        showAuthError("Enter your email first");
-        return;
-      }
-      showAuthError("");
-      const btn = document.getElementById("btnForgotPw");
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = "Sending\u2026";
-      }
-      try {
-        const result = await new Promise((r) => chrome.runtime.sendMessage({ type: "RESET_PASSWORD", data: { email } }, r));
-        if (result?.success) {
-          const gate = document.getElementById("authGate");
-          if (gate) gate.innerHTML = `<div style="text-align:center;padding:24px 0;"><div style="font-size:24px;margin-bottom:12px;">\u2709\uFE0F</div><div style="font-size:14px;font-weight:600;margin-bottom:8px;">Check your email</div><div style="font-size:13px;color:#6b7280;">We sent a password reset link to <strong>${escHtml(email)}</strong>.</div></div>`;
-        } else {
-          showAuthError(result?.error ?? "Could not send reset email");
-          if (btn) {
-            btn.disabled = false;
-            btn.textContent = "Forgot password?";
-          }
-        }
-      } catch {
-        showAuthError("Something went wrong. Try again.");
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = "Forgot password?";
-        }
-      }
-    });
-    document.getElementById("btnAuthSubmit")?.addEventListener("click", async () => {
-      const email = document.getElementById("authEmail")?.value?.trim() ?? "";
-      const password = document.getElementById("authPassword")?.value ?? "";
-      showAuthError("");
-      if (!email || !password) {
-        showAuthError("Enter your email and password");
-        return;
-      }
-      if (authMode === "signup" && password.length < 6) {
-        showAuthError("Password must be at least 6 characters");
-        return;
-      }
-      setAuthLoading(true);
-      try {
-        const type = authMode === "signup" ? "SIGN_UP" : "SIGN_IN";
-        const result = await new Promise((r) => chrome.runtime.sendMessage({ type, data: { email, password } }, r));
-        if (!result) {
-          showAuthError("Something went wrong. Try again.");
-          setAuthLoading(false);
-          return;
-        }
-        if (!result.success) {
-          showAuthError(result.error ?? "Something went wrong");
-          setAuthLoading(false);
-        } else if (type === "SIGN_UP" && !result.sessionReady) {
-          const gate = document.getElementById("authGate");
-          if (gate) gate.innerHTML = `<div style="text-align:center;padding:24px 0;"><div style="font-size:24px;margin-bottom:12px;">\u2709\uFE0F</div><div style="font-size:14px;font-weight:600;margin-bottom:8px;">Check your email</div><div style="font-size:13px;color:#6b7280;">We sent a confirmation link to <strong>${escHtml(email)}</strong>. Click it to activate your account, then come back here.</div></div>`;
-        } else {
-          render();
-        }
-      } catch {
-        showAuthError("Something went wrong. Try again.");
-        setAuthLoading(false);
-      }
+    document.getElementById("btnAuthSignIn")?.addEventListener("click", () => {
+      chrome.tabs.create({ url: DASHBOARD_LOGIN_URL });
     });
   }
   function startScan(ctx, hasCampaign = false) {
+    noteValue = "";
     scanState = { type: "scanning", phase: "starting", done: 0, total: 0, currentName: "", startTime: Date.now() };
     renderEventPage(ctx, hasCampaign);
     chrome.tabs.sendMessage(ctx.tabId, { type: "START_SCAN" });
