@@ -13,7 +13,11 @@ const brandHtml = `
 async function init() {
   const root = document.getElementById('root')!
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  const isLuma = (tab.url ?? '').includes('lu.ma') || (tab.url ?? '').includes('luma.com')
+  const tabUrl = tab.url ?? ''
+  const isLuma = tabUrl.includes('lu.ma') || tabUrl.includes('luma.com')
+  const nonEventPaths = ['', '/', '/home', '/calendar', '/events', '/discover', '/explore', '/settings', '/dashboard']
+  const lumaPath = (() => { try { return new URL(tabUrl).pathname } catch { return '' } })()
+  const isLumaEventPage = isLuma && !nonEventPaths.includes(lumaPath) && lumaPath.split('/').length === 2
 
   // Fetch data in parallel
   const [progressResp, pausedResp, statusResp] = await Promise.all([
@@ -58,20 +62,23 @@ async function init() {
       <div class="idle-wrap">
         <div class="idle-emoji">🤝</div>
         <div class="idle-title">No active campaign</div>
-        <div class="idle-sub">${isLuma ? 'Find attendees and connect on LinkedIn.' : 'Start from any Luma event page.'}</div>
-        ${isLuma
+        <div class="idle-sub">${isLumaEventPage ? 'Find attendees and connect on LinkedIn.' : 'Navigate to a specific event page on Luma first.'}</div>
+        ${isLumaEventPage
           ? `<button class="btn-primary" id="btnScan">Scan this event →</button>`
+          : isLuma
+          ? ``
           : `<button class="btn-secondary" id="btnLuma">Open Luma.com →</button>`
         }
+        <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
       </div>
     `
-    if (isLuma) {
+    if (isLumaEventPage) {
       root.querySelector('#btnScan')!.addEventListener('click', () => {
         chrome.tabs.sendMessage(tab.id!, { type: 'OPEN_PANEL' })
         window.close()
       })
     } else {
-      root.querySelector('#btnLuma')!.addEventListener('click', () => {
+      root.querySelector('#btnLuma')?.addEventListener('click', () => {
         chrome.tabs.create({ url: 'https://lu.ma' })
         window.close()
       })
@@ -95,10 +102,6 @@ async function init() {
     ? `Campaign is paused. <strong>Resume</strong> to continue sending.`
     : `Sending requests automatically. <strong>Keep Chrome open</strong> while it runs.`
 
-  const pauseBtnHtml = isDone ? '' : paused
-    ? `<button class="btn-resume" id="btnPause">${icons.play} Resume campaign</button>`
-    : `<button class="btn-pause" id="btnPause">${icons.pause} Pause campaign</button>`
-
   const recentHtml = recentSent.length > 0 ? `
     <div class="section">
       <div class="recent-title">Recently sent</div>
@@ -111,7 +114,7 @@ async function init() {
     </div>
   ` : ''
 
-  const scanBtnHtml = isLuma
+  const scanBtnHtml = isLumaEventPage
     ? `<div class="section"><button class="btn-secondary" id="btnScan">Scan another event →</button></div>`
     : ''
 
@@ -138,19 +141,13 @@ async function init() {
         <div class="stat-label">Skipped</div>
       </div>` : ''}
     </div>
-    ${pauseBtnHtml ? `<div class="section">${pauseBtnHtml}</div>` : ''}
     ${recentHtml}
     ${scanBtnHtml}
     ${isRunning ? `<div class="rate-note">${timingLine(lastSentName, lastSentAt, nextScheduledAt)}</div>` : ''}
+    <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
   `
 
-  root.querySelector('#btnPause')?.addEventListener('click', async () => {
-    const msg = paused ? 'RESUME_CAMPAIGN' : 'PAUSE_CAMPAIGN'
-    await new Promise<void>(r => chrome.runtime.sendMessage({ type: msg }, () => r()))
-    init() // re-render with new state
-  })
-
-  if (isLuma) {
+  if (isLumaEventPage) {
     root.querySelector('#btnScan')?.addEventListener('click', () => {
       chrome.tabs.sendMessage(tab.id!, { type: 'OPEN_PANEL' })
       window.close()
