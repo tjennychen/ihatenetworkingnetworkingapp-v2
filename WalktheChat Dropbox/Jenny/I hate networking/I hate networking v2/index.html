@@ -1,0 +1,1674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>I Hate Networking - Make real connections. Automate the rest.</title>
+  <meta name="description" content="Scan any Luma event page. Auto-connect on LinkedIn. Make real connections. Automate the rest. Free Chrome extension by Jenny Chen.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --zinc-950: #09090B;
+      --zinc-900: #18181B;
+      --zinc-800: #27272A;
+      --zinc-700: #3F3F46;
+      --zinc-600: #52525B;
+      --zinc-500: #71717A;
+      --zinc-400: #A1A1AA;
+      --zinc-300: #D4D4D8;
+      --zinc-200: #E4E4E7;
+      --zinc-100: #F4F4F5;
+      --white: #FFFFFF;
+      --black: #000000;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      color: var(--zinc-950);
+      background: var(--white);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* --- NAV --- */
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 60px;
+      background: var(--zinc-950);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .nav-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .nav-logo {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      object-fit: contain;
+    }
+
+    .nav-title {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--white);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+    }
+
+    .nav-links a {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--zinc-400);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--white); }
+
+    .nav-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 100px;
+      background: var(--zinc-800);
+      color: var(--white);
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+
+    .nav-cta:hover { background: var(--zinc-700); }
+
+    .nav-cta svg { width: 14px; height: 14px; }
+
+    .mobile-hamburger { display: none; }
+
+    .mobile-menu {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--zinc-950);
+      z-index: 99;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+    }
+    .mobile-menu.open { display: flex; }
+    .mobile-menu a {
+      color: var(--white);
+      text-decoration: none;
+      font-size: 20px;
+      font-weight: 500;
+    }
+    .mobile-menu .mobile-menu-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 28px;
+      background: var(--white);
+      color: var(--zinc-950);
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 16px;
+      text-decoration: none;
+      margin-top: 16px;
+    }
+    .mobile-menu .mobile-menu-cta svg { width: 16px; height: 16px; }
+    .mobile-menu-close {
+      position: absolute;
+      top: 16px;
+      right: 24px;
+      background: none;
+      border: none;
+      color: var(--white);
+      cursor: pointer;
+    }
+    .mobile-menu-close svg { width: 24px; height: 24px; }
+
+    /* --- HERO --- */
+    .hero {
+      background: var(--zinc-950);
+      padding: 40px 120px 120px;
+      display: flex;
+      align-items: center;
+      gap: 60px;
+    }
+
+    .hero-left {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .hero-title-block {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .hero-t1 {
+      font-family: 'Inter', sans-serif;
+      font-size: 24px;
+      color: var(--zinc-400);
+      line-height: 1.2;
+    }
+
+    .hero-t2 {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 900;
+      font-size: 96px;
+      color: var(--white);
+      letter-spacing: -4px;
+      line-height: 0.85;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 18px;
+      border-radius: 100px;
+      background: var(--zinc-800);
+      width: fit-content;
+    }
+
+    .hero-badge span {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 2.5px;
+      color: var(--zinc-500);
+    }
+
+    .hero-sub {
+      font-size: 18px;
+      color: var(--zinc-400);
+      line-height: 1.6;
+      max-width: 500px;
+    }
+
+    .hero-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 20px 40px;
+      border-radius: 100px;
+      background: var(--white);
+      color: var(--zinc-950);
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      width: fit-content;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .hero-cta:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 32px rgba(255,255,255,0.1);
+    }
+
+    .hero-cta svg { width: 20px; height: 20px; }
+
+    .trust-row {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .trust-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .trust-item svg {
+      width: 18px;
+      height: 18px;
+      color: var(--zinc-500);
+      flex-shrink: 0;
+    }
+
+    .trust-item span {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--zinc-500);
+    }
+
+    .trust-divider {
+      color: var(--zinc-600);
+      font-size: 16px;
+    }
+
+    .hero-right {
+      width: 320px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* --- PHONE MOCKUP --- */
+    .phone-mockup {
+      width: 280px;
+      border-radius: 32px;
+      background: var(--zinc-800);
+      padding: 6px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    }
+
+    .phone-screen {
+      border-radius: 26px;
+      background: var(--white);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    .screen-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .screen-header-logo {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      object-fit: contain;
+    }
+
+    .screen-header-text {
+      font-family: 'Outfit', sans-serif;
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--black);
+    }
+
+    .screen-big-number {
+      font-family: 'Outfit', sans-serif;
+      font-size: 26px;
+      font-weight: 900;
+      color: #16A34A;
+      line-height: 1;
+    }
+
+    .screen-small-text {
+      font-size: 12px;
+      color: var(--zinc-500);
+    }
+
+    .screen-link {
+      font-size: 12px;
+      color: #4F46E5;
+    }
+
+    .screen-contacts {
+      border: 1px solid var(--zinc-200);
+      border-radius: 12px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .screen-contact-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .contact-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 14px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--white);
+    }
+
+    .contact-name {
+      font-weight: 500;
+      color: var(--black);
+      font-size: 12px;
+    }
+
+    .contact-spacer {
+      flex: 1;
+    }
+
+    .contact-badge {
+      font-size: 9px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .badge-li { background: #DBEAFE; color: #3B82F6; }
+    .badge-ig { background: #FCE7F3; color: #EC4899; }
+    .badge-x { background: #FEF3C7; color: #D97706; }
+
+    .screen-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 10px;
+      background: #0A66C2;
+      color: var(--white);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .screen-msg-input {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--zinc-200);
+    }
+
+    .screen-msg-input span {
+      flex: 1;
+      font-size: 12px;
+      color: var(--zinc-400);
+    }
+
+    .screen-msg-input .msg-send {
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: var(--black);
+      color: var(--white);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* Screen 2 - Campaign dashboard */
+    .screen2-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .screen2-header-logo {
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
+      object-fit: contain;
+    }
+
+    .screen2-header-text {
+      font-family: 'Outfit', sans-serif;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--black);
+      flex: 1;
+    }
+
+    .screen2-header-icon {
+      color: var(--zinc-500);
+      width: 16px;
+      height: 16px;
+    }
+
+    .stats-row {
+      display: flex;
+      width: 100%;
+      border: 1px solid var(--zinc-200);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .stat-box {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 10px 0;
+    }
+
+    .stat-divider {
+      width: 1px;
+      background: var(--zinc-200);
+      align-self: stretch;
+    }
+
+    .stat-number {
+      font-family: 'Outfit', sans-serif;
+      font-size: 24px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .stat-number.green { color: #16A34A; }
+    .stat-number.dark { color: var(--black); }
+
+    .stat-label {
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      color: var(--zinc-500);
+    }
+
+    .progress-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: var(--zinc-200);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: #16A34A;
+      border-radius: 3px;
+      width: 38%;
+    }
+
+    .progress-text {
+      font-size: 9px;
+      color: var(--zinc-500);
+    }
+
+    .pause-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 0;
+      width: 100%;
+      border: 1px solid var(--zinc-200);
+      border-radius: 8px;
+    }
+
+    .pause-btn svg { width: 14px; height: 14px; color: var(--zinc-500); }
+    .pause-btn span { font-size: 11px; font-weight: 500; color: var(--black); }
+
+    .chart-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .chart-header {
+      display: flex;
+      align-items: center;
+      width: 100%;
+    }
+
+    .chart-title {
+      flex: 1;
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      color: var(--zinc-500);
+    }
+
+    .chart-total {
+      font-size: 9px;
+      color: var(--zinc-400);
+    }
+
+    .chart-bars {
+      display: flex;
+      gap: 6px;
+      height: 90px;
+      width: 100%;
+      align-items: flex-end;
+    }
+
+    .chart-bar-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      height: 100%;
+    }
+
+    .chart-bar-fill {
+      border-radius: 3px 3px 0 0;
+    }
+
+    .chart-labels {
+      display: flex;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .chart-labels span {
+      flex: 1;
+      text-align: center;
+      font-size: 8px;
+      color: var(--zinc-400);
+    }
+
+    .event-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .event-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .event-title {
+      flex: 1;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--black);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .event-badge {
+      padding: 3px 8px;
+      border-radius: 8px;
+      background: #DCFCE7;
+      font-size: 9px;
+      font-weight: 600;
+      color: #16A34A;
+      white-space: nowrap;
+    }
+
+    .event-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .event-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .event-row svg { width: 12px; height: 12px; color: var(--zinc-400); flex-shrink: 0; }
+    .event-row span { font-size: 10px; color: var(--zinc-600); }
+
+    /* Screen 3 - Post draft */
+    .screen3-nav {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .screen3-nav svg { width: 16px; height: 16px; color: var(--black); }
+
+    .screen3-nav-text {
+      font-family: 'Outfit', sans-serif;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--black);
+    }
+
+    .post-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .post-label {
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      color: var(--zinc-500);
+    }
+
+    .post-box {
+      padding: 10px;
+      border: 1px solid var(--zinc-200);
+      border-radius: 8px;
+      font-size: 10px;
+      line-height: 1.5;
+      color: var(--black);
+    }
+
+    .copy-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 0;
+      width: 100%;
+      background: var(--black);
+      border-radius: 8px;
+    }
+
+    .copy-btn svg { width: 14px; height: 14px; color: var(--white); }
+    .copy-btn span { font-size: 11px; font-weight: 600; color: var(--white); }
+
+    .guest-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .guest-tags {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      width: 100%;
+    }
+
+    .guest-tag {
+      padding: 3px 6px;
+      background: var(--zinc-100);
+      border-radius: 6px;
+      font-size: 9px;
+      font-weight: 500;
+      color: var(--zinc-700);
+    }
+
+    .shuffle-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 0;
+      width: 100%;
+      border: 1px solid var(--zinc-200);
+      border-radius: 8px;
+    }
+
+    .shuffle-btn svg { width: 14px; height: 14px; color: var(--zinc-500); }
+    .shuffle-btn span { font-size: 11px; font-weight: 500; color: var(--black); }
+
+    .hash-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .hash-label {
+      font-size: 8px;
+      font-weight: 700;
+      color: var(--zinc-400);
+    }
+
+    .hash-tags {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .hash-tag {
+      padding: 4px 8px;
+      background: var(--zinc-100);
+      border-radius: 4px;
+      font-size: 9px;
+      color: var(--zinc-600);
+    }
+
+    .tone-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .tone-label {
+      font-size: 8px;
+      font-weight: 700;
+      color: var(--zinc-400);
+    }
+
+    .tone-tags {
+      display: flex;
+      gap: 4px;
+    }
+
+    .tone-tag {
+      padding: 5px 10px;
+      border-radius: 12px;
+      font-size: 9px;
+      font-weight: 500;
+    }
+
+    .tone-tag.active { background: var(--zinc-900); color: var(--white); }
+    .tone-tag.inactive { background: var(--zinc-100); color: var(--zinc-600); }
+
+    .tip-box {
+      display: flex;
+      gap: 8px;
+      padding: 10px;
+      background: var(--zinc-100);
+      border-radius: 8px;
+      width: 100%;
+    }
+
+    .tip-box svg { width: 14px; height: 14px; color: var(--zinc-400); flex-shrink: 0; margin-top: 1px; }
+
+    .tip-box span {
+      font-size: 9px;
+      color: var(--zinc-500);
+      line-height: 1.4;
+    }
+
+    .screen-footer {
+      font-size: 9px;
+      color: var(--zinc-300);
+      text-align: center;
+    }
+
+    /* --- FEATURES --- */
+    .features {
+      padding: 80px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 40px;
+    }
+
+    .section-label {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 3px;
+      color: var(--zinc-500);
+    }
+
+    .features-grid {
+      display: flex;
+      gap: 24px;
+      width: 100%;
+    }
+
+    .feature-card {
+      flex: 1;
+      border-radius: 20px;
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .feature-card.light { background: var(--zinc-100); }
+    .feature-card.dark { background: var(--zinc-900); }
+
+    .feature-icon-wrap {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .feature-icon-wrap.light-icon { background: var(--zinc-200); }
+    .feature-icon-wrap.light-icon svg { color: var(--zinc-900); }
+    .feature-icon-wrap.dark-icon { background: var(--zinc-800); }
+    .feature-icon-wrap.dark-icon svg { color: var(--white); }
+
+    .feature-icon-wrap svg { width: 24px; height: 24px; }
+
+    .feature-number {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 900;
+      font-size: 48px;
+      letter-spacing: -2px;
+      line-height: 0.9;
+    }
+
+    .feature-card.light .feature-number { color: var(--black); }
+    .feature-card.dark .feature-number { color: var(--white); }
+
+    .feature-title {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      font-size: 22px;
+      line-height: 1.1;
+    }
+
+    .feature-card.light .feature-title { color: var(--black); }
+    .feature-card.dark .feature-title { color: var(--white); }
+
+    .feature-desc {
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--zinc-500);
+    }
+
+    /* --- TRUST BAR --- */
+    .trust-bar {
+      background: #0A0A0A;
+      padding: 64px 120px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .shield-ring {
+      width: 64px;
+      height: 64px;
+      border-radius: 32px;
+      background: var(--zinc-900);
+      border: 1px solid var(--zinc-800);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .shield-ring svg {
+      width: 32px;
+      height: 32px;
+      color: var(--white);
+    }
+
+    .safety-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .safety-header svg {
+      width: 14px;
+      height: 14px;
+      color: var(--zinc-300);
+    }
+
+    .safety-header span {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 3px;
+      color: var(--zinc-300);
+    }
+
+    .trust-items {
+      display: flex;
+      justify-content: center;
+      gap: 48px;
+    }
+
+    .trust-detail {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .trust-detail svg {
+      width: 20px;
+      height: 20px;
+      color: var(--zinc-500);
+      flex-shrink: 0;
+    }
+
+    .trust-detail span {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--zinc-300);
+    }
+
+    /* --- SCREENSHOTS --- */
+    .screenshots {
+      background: var(--zinc-100);
+      padding: 80px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 40px;
+    }
+
+    .screenshots-grid {
+      display: flex;
+      gap: 32px;
+      width: 100%;
+    }
+
+    .screenshot-card {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+
+    .screenshot-phone-wrap {
+      position: relative;
+      width: 340px;
+      max-width: 100%;
+      max-height: 560px;
+      overflow: hidden;
+    }
+
+    .screenshot-bezel {
+      width: 100%;
+      border-radius: 24px;
+      background: var(--zinc-800);
+      padding: 6px;
+      position: relative;
+    }
+
+    .screenshot-inner {
+      border-radius: 20px;
+      background: var(--white);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    .screenshot-fade {
+      position: absolute;
+      bottom: 6px;
+      left: 6px;
+      right: 6px;
+      height: 100px;
+      border-radius: 0 0 20px 20px;
+      background: linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.7) 40%, white 100%);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .screenshot-caption {
+      margin-top: 8px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--zinc-600);
+    }
+
+    /* --- FOOTER --- */
+    .footer {
+      background: var(--zinc-950);
+      padding: 80px 120px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .footer-tagline {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      font-size: 32px;
+      color: var(--white);
+      line-height: 1.1;
+    }
+
+    .footer-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 18px 36px;
+      border-radius: 100px;
+      background: var(--white);
+      color: var(--zinc-950);
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .footer-cta:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 32px rgba(255,255,255,0.1);
+    }
+
+    .footer-cta svg { width: 18px; height: 18px; }
+
+    .footer-meta {
+      font-size: 14px;
+      color: var(--zinc-500);
+    }
+
+    .footer-byline {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--zinc-500);
+      letter-spacing: 1px;
+    }
+
+    /* --- ANIMATIONS --- */
+    .fade-up {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .fade-up.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .stagger-1 { transition-delay: 0.1s; }
+    .stagger-2 { transition-delay: 0.2s; }
+    .stagger-3 { transition-delay: 0.3s; }
+
+    /* --- RESPONSIVE --- */
+    @media (max-width: 1024px) {
+      .hero { padding: 40px 60px 80px; }
+      .features { padding: 60px 40px; }
+      .trust-bar { padding: 48px 40px; }
+      .screenshots { padding: 60px 40px; }
+      .footer { padding: 60px 40px; }
+    }
+
+    @media (max-width: 768px) {
+      nav {
+        padding: 16px 24px;
+      }
+
+      .nav-links { display: none; }
+      .nav-cta { display: none; }
+      .mobile-hamburger {
+        display: block;
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--white);
+      }
+      .mobile-hamburger svg { width: 24px; height: 24px; }
+
+      .nav-logo { width: 24px; height: 24px; }
+      .nav-title { font-size: 13px; }
+
+      .hero {
+        padding: 0 24px;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .hero-title-block { gap: 6px; }
+      .hero-t1 { font-size: 18px; }
+      .hero-t2 { font-size: 56px; letter-spacing: -2px; line-height: 0.95; }
+      .hero-badge { padding: 6px 14px; }
+      .hero-badge span { font-size: 11px; letter-spacing: 2.5px; }
+      .hero-sub { font-size: 15px; max-width: 100%; line-height: 1.5; }
+      .hero-cta { padding: 16px 32px; font-size: 16px; }
+      .trust-row { display: none; }
+
+      .hero-right {
+        width: 100%;
+        position: relative;
+        height: 420px;
+        overflow: hidden;
+        align-items: flex-start;
+        justify-content: center;
+      }
+
+      .phone-mockup {
+        width: 306px;
+        border-radius: 24px;
+      }
+
+      .hero-right::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 200px;
+        background: linear-gradient(to bottom, transparent, var(--zinc-950));
+        pointer-events: none;
+      }
+
+      .features {
+        padding: 48px 24px;
+        gap: 24px;
+      }
+
+      .section-label {
+        font-size: 13px;
+        letter-spacing: 2.5px;
+      }
+
+      .features-grid {
+        flex-direction: column;
+      }
+
+      .feature-card { padding: 20px; border-radius: 16px; gap: 12px; }
+      .feature-number { font-size: 40px; letter-spacing: -1px; }
+      .feature-title { font-size: 20px; }
+      .feature-desc { font-size: 13px; line-height: 1.4; }
+      .feature-icon-wrap { display: none; }
+
+      .trust-bar {
+        padding: 40px 24px;
+        gap: 20px;
+      }
+
+      .shield-ring {
+        width: 56px;
+        height: 56px;
+        border-radius: 28px;
+        background: var(--white);
+        border: none;
+      }
+
+      .shield-ring svg { color: var(--zinc-900); width: 28px; height: 28px; }
+
+      .safety-header {
+        gap: 8px;
+      }
+
+      .safety-header span {
+        font-size: 13px;
+        letter-spacing: 2.5px;
+      }
+
+      .trust-items {
+        flex-direction: column;
+        gap: 12px;
+        width: 100%;
+      }
+
+      .trust-detail {
+        gap: 12px;
+        width: 100%;
+      }
+
+      .trust-detail svg { width: 18px; height: 18px; color: var(--white); }
+      .trust-detail span { font-size: 13px; line-height: 1.4; }
+
+      .screenshots {
+        padding: 48px 24px;
+        gap: 32px;
+        background: var(--white);
+      }
+
+      .screenshots-grid {
+        flex-direction: column;
+        gap: 24px;
+      }
+
+      .screenshot-phone-wrap {
+        width: 322px;
+        max-height: 520px;
+      }
+
+      .screenshot-caption {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--zinc-500);
+      }
+
+      .footer {
+        padding: 48px 24px;
+        gap: 24px;
+      }
+
+      .footer-tagline { font-size: 24px; text-align: center; }
+      .footer-cta { padding: 14px 28px; font-size: 14px; }
+      .footer-meta { font-size: 12px; }
+      .footer-byline { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <a href="https://chromewebstore.google.com/detail/i-hate-networking/phoillpplmnalofcbehbjfckbckoabfg" class="nav-left" style="text-decoration:none;color:inherit;">
+      <img src="extension/icons/small logo black.png" alt="I Hate Networking" class="nav-logo">
+      <span class="nav-title">I Hate Networking</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">How it works</a>
+      <a href="#safety">Safety</a>
+      <a href="#screenshots">Features</a>
+    </div>
+    <a href="https://chromewebstore.google.com/detail/i-hate-networking/phoillpplmnalofcbehbjfckbckoabfg" class="nav-cta">
+      Install
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </a>
+    <button class="mobile-hamburger" aria-label="Menu">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+    </button>
+  </nav>
+
+  <div class="mobile-menu" id="mobileMenu">
+    <button class="mobile-menu-close" id="mobileMenuClose" aria-label="Close menu">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <a href="#features" class="mobile-menu-link">How it works</a>
+    <a href="#safety" class="mobile-menu-link">Safety</a>
+    <a href="#screenshots" class="mobile-menu-link">Features</a>
+    <a href="https://chromewebstore.google.com/detail/i-hate-networking/phoillpplmnalofcbehbjfckbckoabfg" class="mobile-menu-cta">
+      Install
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </a>
+  </div>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-left">
+      <div class="hero-title-block">
+        <div class="hero-t1">I Hate Networking</div>
+        <div class="hero-t2">Networking</div>
+      </div>
+      <div class="hero-badge"><span>CHROME EXTENSION</span></div>
+      <p class="hero-sub">Scan any event page. Auto-connect on LinkedIn. Make real connections. Automate the rest.</p>
+      <a href="https://chromewebstore.google.com/detail/i-hate-networking/phoillpplmnalofcbehbjfckbckoabfg" class="hero-cta">
+        Install Free Extension
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </a>
+      <div class="trust-row">
+        <div class="trust-item">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span>2-min setup</span>
+        </div>
+        <span class="trust-divider">&#183;</span>
+        <div class="trust-item">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+          <span>Account safe</span>
+        </div>
+        <span class="trust-divider">&#183;</span>
+        <div class="trust-item">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+          <span>Free forever</span>
+        </div>
+      </div>
+    </div>
+    <div class="hero-right">
+      <div class="phone-mockup">
+        <div class="phone-screen">
+          <div class="screen-header">
+            <img src="../logo chrome.png" alt="" class="screen-header-logo">
+            <span class="screen-header-text">I Hate Networking</span>
+          </div>
+          <div class="screen-big-number">Found 18 contacts</div>
+          <div class="screen-small-text">out of 20 attendees scanned</div>
+          <div class="screen-link">Download CSV</div>
+          <div class="screen-contacts">
+            <div class="screen-contact-row">
+              <div class="contact-avatar" style="background: #818CF8;">RZ</div>
+              <span class="contact-name">Rayyan Z.</span>
+              <span class="contact-spacer"></span>
+              <span class="contact-badge badge-li">IN</span>
+              <span class="contact-badge badge-ig">IG</span>
+            </div>
+            <div class="screen-contact-row">
+              <div class="contact-avatar" style="background: #34D399;">DN</div>
+              <span class="contact-name">David N.</span>
+              <span class="contact-spacer"></span>
+              <span class="contact-badge badge-li">IN</span>
+              <span class="contact-badge badge-ig">IG</span>
+              <span class="contact-badge badge-x">X</span>
+            </div>
+            <div class="screen-contact-row">
+              <div class="contact-avatar" style="background: #F472B6;">RP</div>
+              <span class="contact-name">RP1</span>
+              <span class="contact-spacer"></span>
+              <span class="contact-badge badge-li">IN</span>
+              <span class="contact-badge badge-ig">IG</span>
+              <span class="contact-badge badge-x">X</span>
+            </div>
+            <div class="screen-contact-row">
+              <div class="contact-avatar" style="background: #60A5FA;">JC</div>
+              <span class="contact-name">Jenny C.</span>
+              <span class="contact-spacer"></span>
+              <span class="contact-badge badge-li">IN</span>
+            </div>
+            <div class="screen-contact-row">
+              <div class="contact-avatar" style="background: #FBBF24;">AO</div>
+              <span class="contact-name">Ayush O.</span>
+              <span class="contact-spacer"></span>
+              <span class="contact-badge badge-li">IN</span>
+              <span class="contact-badge badge-x">X</span>
+            </div>
+          </div>
+          <div class="screen-btn">Auto connect on LinkedIn</div>
+          <div class="screen-msg-input">
+            <span>I saw you at the hackathon...</span>
+            <span class="msg-send">Connect</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="features" id="features">
+    <span class="section-label fade-up">HOW IT WORKS</span>
+    <div class="features-grid">
+      <div class="feature-card light fade-up stagger-1">
+        <div class="feature-icon-wrap light-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg>
+        </div>
+        <div class="feature-number">01</div>
+        <div class="feature-title">Scan Luma event</div>
+        <p class="feature-desc">Open a Luma event page and we instantly find every attendee's LinkedIn, Instagram, and X.</p>
+      </div>
+      <div class="feature-card dark fade-up stagger-2">
+        <div class="feature-icon-wrap dark-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </div>
+        <div class="feature-number">02</div>
+        <div class="feature-title">Auto-send LinkedIn connections</div>
+        <p class="feature-desc">Rate-limited, business-hours only, with personalized notes. Pause or stop anytime. Your account stays safe.</p>
+      </div>
+      <div class="feature-card light fade-up stagger-3">
+        <div class="feature-icon-wrap light-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+        </div>
+        <div class="feature-number">03</div>
+        <div class="feature-title">Draft a LinkedIn post</div>
+        <p class="feature-desc">Auto-generate a thank-you post tagging organizers and attendees. Copy, paste, and publish in seconds.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRUST BAR -->
+  <section class="trust-bar" id="safety">
+    <div class="shield-ring fade-up">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+    </div>
+    <div class="safety-header fade-up">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>ACCOUNT SAFETY</span>
+    </div>
+    <div class="trust-items">
+      <div class="trust-detail fade-up stagger-1">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+        <span>25 requests/day max</span>
+      </div>
+      <div class="trust-detail fade-up stagger-2">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16.5 12"/></svg>
+        <span>Business hours only</span>
+      </div>
+      <div class="trust-detail fade-up stagger-3">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg>
+        <span>Pause or cancel anytime</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREENSHOTS -->
+  <section class="screenshots" id="screenshots">
+    <span class="section-label fade-up">SEE IT IN ACTION</span>
+    <div class="screenshots-grid">
+
+      <!-- Screenshot 1: Scan contacts -->
+      <div class="screenshot-card fade-up stagger-1">
+        <div class="screenshot-phone-wrap">
+          <div class="screenshot-bezel">
+            <div class="screenshot-inner">
+              <div class="screen-header">
+                <img src="../logo chrome.png" alt="" class="screen-header-logo">
+                <span class="screen-header-text">I Hate Networking</span>
+              </div>
+              <div class="screen-big-number">Found 18 contacts</div>
+              <div class="screen-small-text">out of 20 attendees scanned</div>
+              <div class="screen-link">Download CSV</div>
+              <div class="screen-contacts">
+                <div class="screen-contact-row">
+                  <div class="contact-avatar" style="background: #818CF8;">RZ</div>
+                  <span class="contact-name">Rayyan Z.</span>
+                  <span class="contact-spacer"></span>
+                  <span class="contact-badge badge-li">IN</span>
+                  <span class="contact-badge badge-ig">IG</span>
+                </div>
+                <div class="screen-contact-row">
+                  <div class="contact-avatar" style="background: #34D399;">DN</div>
+                  <span class="contact-name">David N.</span>
+                  <span class="contact-spacer"></span>
+                  <span class="contact-badge badge-li">IN</span>
+                  <span class="contact-badge badge-ig">IG</span>
+                  <span class="contact-badge badge-x">X</span>
+                </div>
+                <div class="screen-contact-row">
+                  <div class="contact-avatar" style="background: #F472B6;">RP</div>
+                  <span class="contact-name">RP1</span>
+                  <span class="contact-spacer"></span>
+                  <span class="contact-badge badge-li">IN</span>
+                  <span class="contact-badge badge-ig">IG</span>
+                  <span class="contact-badge badge-x">X</span>
+                </div>
+                <div class="screen-contact-row">
+                  <div class="contact-avatar" style="background: #60A5FA;">JC</div>
+                  <span class="contact-name">Jenny C.</span>
+                  <span class="contact-spacer"></span>
+                  <span class="contact-badge badge-li">IN</span>
+                </div>
+                <div class="screen-contact-row">
+                  <div class="contact-avatar" style="background: #FBBF24;">AO</div>
+                  <span class="contact-name">Ayush O.</span>
+                  <span class="contact-spacer"></span>
+                  <span class="contact-badge badge-li">IN</span>
+                  <span class="contact-badge badge-x">X</span>
+                </div>
+              </div>
+              <div class="screen-btn">Auto connect on LinkedIn</div>
+              <div class="screen-msg-input">
+                <span>I saw you at the hackathon...</span>
+                <span class="msg-send">Connect</span>
+              </div>
+            </div>
+            <div class="screenshot-fade"></div>
+          </div>
+        </div>
+        <div class="screenshot-caption">Scan any Luma event page</div>
+      </div>
+
+      <!-- Screenshot 2: Campaign dashboard -->
+      <div class="screenshot-card fade-up stagger-2">
+        <div class="screenshot-phone-wrap">
+          <div class="screenshot-bezel">
+            <div class="screenshot-inner">
+            <div class="screen2-header">
+              <img src="../logo chrome.png" alt="" class="screen2-header-logo">
+              <span class="screen2-header-text">I Hate Networking</span>
+              <svg class="screen2-header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="3"/><line x1="5" y1="12" x2="12" y2="17"/><line x1="19" y1="12" x2="12" y2="17"/><line x1="5" y1="21" x2="19" y2="21"/></svg>
+              <svg class="screen2-header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+            <div class="stats-row">
+              <div class="stat-box">
+                <span class="stat-number green">10</span>
+                <span class="stat-label">CONNECTED</span>
+              </div>
+              <div class="stat-divider"></div>
+              <div class="stat-box">
+                <span class="stat-number dark">16</span>
+                <span class="stat-label">QUEUED</span>
+              </div>
+            </div>
+            <div class="progress-wrap">
+              <div class="progress-bar"><div class="progress-fill"></div></div>
+              <span class="progress-text">38% complete &middot; Next connection in ~15 min</span>
+            </div>
+            <div class="pause-btn">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg>
+              <span>Pause campaign</span>
+            </div>
+            <div class="chart-wrap">
+              <div class="chart-header">
+                <span class="chart-title">SENT PER DAY</span>
+                <span class="chart-total">55 total</span>
+              </div>
+              <div class="chart-bars">
+                <div class="chart-bar-col"><div class="chart-bar-fill" style="height: 60%; background: #16A34A;"></div></div>
+                <div class="chart-bar-col"><div class="chart-bar-fill" style="height: 100%; background: #16A34A;"></div></div>
+                <div class="chart-bar-col"><div class="chart-bar-fill" style="height: 40%; background: #16A34A;"></div></div>
+              </div>
+              <div class="chart-labels">
+                <span>Mar 7</span>
+                <span>Mar 8</span>
+                <span>Mar 9</span>
+              </div>
+            </div>
+            <div class="event-wrap">
+              <div class="event-header">
+                <span class="event-title">RP1 Hackathon @ The Imm...</span>
+                <span class="event-badge">Active</span>
+              </div>
+              <div class="event-list">
+                <div class="event-row">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  <span>March 8, 2026</span>
+                </div>
+                <div class="event-row">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                  <span>The Immersive</span>
+                </div>
+                <div class="event-row">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  <span>20 attendees</span>
+                </div>
+              </div>
+            </div>
+            </div>
+            <div class="screenshot-fade"></div>
+          </div>
+        </div>
+        <div class="screenshot-caption">Auto-send LinkedIn connections</div>
+      </div>
+
+      <!-- Screenshot 3: Draft post -->
+      <div class="screenshot-card fade-up stagger-3">
+        <div class="screenshot-phone-wrap">
+          <div class="screenshot-bezel">
+            <div class="screenshot-inner">
+            <div class="screen3-nav">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+              <span class="screen3-nav-text">Draft LinkedIn post</span>
+            </div>
+            <div class="post-section">
+              <span class="post-label">POST DRAFT</span>
+              <div class="post-box">Huge thank you to @Rayyan Z., @David N., @RP1, @Jenny C., and @Ayush O. for an incredible hackathon! The energy was unreal - can't wait for the next one. 🚀</div>
+            </div>
+            <div class="copy-btn">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Copy to clipboard</span>
+            </div>
+            <div class="guest-section">
+              <span class="post-label">GUEST NAMES</span>
+              <div class="guest-tags">
+                <span class="guest-tag">Rayyan Z.</span>
+                <span class="guest-tag">David N.</span>
+                <span class="guest-tag">RP1</span>
+                <span class="guest-tag">Jenny C.</span>
+                <span class="guest-tag">Ayush O.</span>
+              </div>
+            </div>
+            <div class="shuffle-btn">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+              <span>Shuffle (16 total)</span>
+            </div>
+            <div class="hash-section">
+              <span class="hash-label">SUGGESTED HASHTAGS</span>
+              <div class="hash-tags">
+                <span class="hash-tag">#hackathon</span>
+                <span class="hash-tag">#networking</span>
+                <span class="hash-tag">#tech</span>
+                <span class="hash-tag">#community</span>
+              </div>
+            </div>
+            <div class="tone-section">
+              <span class="tone-label">TONE</span>
+              <div class="tone-tags">
+                <span class="tone-tag active">Casual</span>
+                <span class="tone-tag inactive">Professional</span>
+                <span class="tone-tag inactive">Enthusiastic</span>
+              </div>
+            </div>
+            <div class="tip-box">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/></svg>
+              <span>Tip: Mention what you discussed or shared interests to make the post more personal.</span>
+            </div>
+              <span class="screen-footer">by Jenny Chen</span>
+            </div>
+            <div class="screenshot-fade"></div>
+          </div>
+        </div>
+        <div class="screenshot-caption">Draft a LinkedIn post</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <h2 class="footer-tagline fade-up">Stop dreading follow-ups.</h2>
+    <a href="https://chromewebstore.google.com/detail/i-hate-networking/phoillpplmnalofcbehbjfckbckoabfg" class="footer-cta fade-up">
+      Get the Extension
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+    </a>
+    <p class="footer-meta fade-up">Less hustle, more human connection.</p>
+    <p class="footer-byline fade-up">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen/" target="_blank" rel="noopener">Jenny Chen</a></p>
+  </footer>
+
+  <script>
+    // Scroll-triggered fade-in animations
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
+
+    // Mobile menu
+    const menu = document.getElementById('mobileMenu');
+    document.querySelector('.mobile-hamburger').addEventListener('click', () => {
+      menu.classList.add('open');
+    });
+    document.getElementById('mobileMenuClose').addEventListener('click', () => {
+      menu.classList.remove('open');
+    });
+    document.querySelectorAll('.mobile-menu-link').forEach(link => {
+      link.addEventListener('click', () => menu.classList.remove('open'));
+    });
+  </script>
+
+</body>
+</html>

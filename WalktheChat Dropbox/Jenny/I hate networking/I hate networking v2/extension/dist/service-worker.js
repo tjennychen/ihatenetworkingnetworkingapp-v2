@@ -11580,12 +11580,12 @@ ${suffix}`;
     return { tabId, windowId: win.id, opened: true };
   }
   chrome.runtime.onInstalled.addListener(() => {
-    chrome.alarms.create("checkQueue", { periodInMinutes: 0.5 });
+    chrome.alarms.create("checkQueue", { periodInMinutes: 2 });
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
     console.log("I Hate Networking extension installed");
   });
   chrome.runtime.onStartup.addListener(() => {
-    chrome.alarms.create("checkQueue", { periodInMinutes: 0.5 });
+    chrome.alarms.create("checkQueue", { periodInMinutes: 2 });
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   });
   chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -11614,6 +11614,13 @@ ${suffix}`;
     }
   });
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === "SET_AUTH" && msg.session) {
+      chrome.storage.local.set({ session: msg.session }).then(() => {
+        console.log("Session stored from login bridge");
+        sendResponse({ ok: true });
+      });
+      return true;
+    }
     if (msg.type === "CHECK_LINKEDIN_LOGIN") {
       chrome.cookies.get({ url: "https://www.linkedin.com", name: "li_at" }, (cookie) => {
         sendResponse({ loggedIn: !!(cookie && cookie.value) });
@@ -11847,37 +11854,37 @@ ${suffix}`;
         }
         const supabase = getAuthedSupabase(session.access_token);
         const contacts = msg.contacts;
-        const linkedinTabs = await chrome.tabs.query({ url: "https://www.linkedin.com/in/*" });
+        const linkedinTabs = await chrome.tabs.query({ url: "https://www.linkedin.com/*" });
         let relayTabId = linkedinTabs[0]?.id ?? null;
         let openedTabId = null;
-        if (!relayTabId) {
-          if (contacts.length > 0) {
-            const firstUrl = contacts[0].linkedin_url.replace("https://linkedin.com/", "https://www.linkedin.com/");
-            const relay = await getOrCreateLinkedinWindow(firstUrl);
-            openedTabId = relay.tabId;
-            await new Promise((resolve) => {
-              const timeout = setTimeout(resolve, 15e3);
-              chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-                if (tid === openedTabId && info.status === "complete") {
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  clearTimeout(timeout);
-                  setTimeout(resolve, 2e3);
-                }
-              });
+        if (!relayTabId && contacts.length > 0) {
+          const tab = await chrome.tabs.create({ url: "https://www.linkedin.com/feed/", active: false });
+          openedTabId = tab.id;
+          await new Promise((resolve) => {
+            const timeout = setTimeout(resolve, 15e3);
+            chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+              if (tid === openedTabId && info.status === "complete") {
+                chrome.tabs.onUpdated.removeListener(listener);
+                clearTimeout(timeout);
+                setTimeout(resolve, 2e3);
+              }
             });
-            relayTabId = openedTabId;
-          }
+          });
+          relayTabId = openedTabId;
         }
         let results = [];
         if (relayTabId !== null) {
-          results = await new Promise((resolve) => {
-            const timeout = setTimeout(() => resolve([]), 12e4);
-            chrome.tabs.sendMessage(relayTabId, { type: "FETCH_LINKEDIN_PROFILES", contacts }, (response) => {
-              void chrome.runtime.lastError;
-              clearTimeout(timeout);
-              resolve(response ?? []);
+          const ready = await waitForContentScript(relayTabId, 8e3);
+          if (ready) {
+            results = await new Promise((resolve) => {
+              const timeout = setTimeout(() => resolve([]), 6e4);
+              chrome.tabs.sendMessage(relayTabId, { type: "FETCH_LINKEDIN_PROFILES", contacts }, (response) => {
+                void chrome.runtime.lastError;
+                clearTimeout(timeout);
+                resolve(response ?? []);
+              });
             });
-          });
+          }
         }
         if (openedTabId) chrome.tabs.remove(openedTabId).catch(() => {
         });
@@ -12026,7 +12033,7 @@ ${suffix}`;
     if (hour < 6 || hour >= 23) return;
     const { campaignPaused, consecutiveFailures: prevFailures } = await chrome.storage.local.get(["campaignPaused", "consecutiveFailures"]);
     if (campaignPaused) return;
-    const consecutiveFailures = prevFailures ?? 0;
+    let consecutiveFailures = prevFailures ?? 0;
     const session = await getSession();
     if (!session) {
       console.log("[IHN] processNextQueueItem: no session");
@@ -12036,98 +12043,134 @@ ${suffix}`;
     const sentToday = await getSentTodayCount(supabase, session.user.id);
     const { canSend } = checkDailyLimit(sentToday);
     if (!canSend) return;
-    const { data: item } = await supabase.from("connection_queue").select("*, contacts(linkedin_url, name, event_id)").eq("user_id", session.user.id).eq("status", "pending").lte("scheduled_at", (/* @__PURE__ */ new Date()).toISOString()).order("scheduled_at", { ascending: true }).limit(1).single();
-    if (!item) {
-      console.log("[IHN] No pending items");
-      return;
-    }
-    const eventId = item.contacts?.event_id;
-    if (eventId) {
-      const { pausedEvents } = await chrome.storage.local.get("pausedEvents");
-      if ((pausedEvents ?? []).includes(eventId)) {
-        console.log("[IHN] Event paused, skipping");
-        return;
-      }
-    }
-    console.log("[IHN] Processing queue item for:", item.contacts?.name);
-    const linkedinUrl = item.contacts?.linkedin_url;
-    if (!linkedinUrl) {
-      await supabase.from("connection_queue").update({ status: "failed", error: "no_linkedin_url" }).eq("id", item.id);
-      return;
-    }
-    const vanityFromUrl = (() => {
-      try {
-        return new URL(linkedinUrl.replace("https://linkedin.com/", "https://www.linkedin.com/")).pathname.split("/").filter(Boolean)[1] ?? "";
-      } catch {
-        return "";
-      }
-    })();
-    const invalidVanity = !vanityFromUrl || vanityFromUrl.toLowerCase() === "none" || vanityFromUrl.includes(" ");
-    if (invalidVanity) {
-      await supabase.from("connection_queue").update({ status: "failed", error: "invalid_linkedin_url" }).eq("id", item.id);
-      return;
-    }
-    const firstName = item.contacts?.name?.split(" ")[0] || "";
-    const resolvedNote = (item.note || "").replace(/\[first name\]/gi, firstName);
     const jsessionCookie = await new Promise(
       (resolve) => chrome.cookies.get({ url: "https://www.linkedin.com", name: "JSESSIONID" }, (c) => resolve(c ?? null))
     );
     const csrfToken = jsessionCookie ? decodeURIComponent(jsessionCookie.value).replace(/^"|"$/g, "") : "";
-    if (!csrfToken) {
-      await supabase.from("connection_queue").update({
-        scheduled_at: new Date(Date.now() + 10 * 6e4).toISOString()
-      }).eq("id", item.id);
-      console.log("[IHN] No JSESSIONID cookie \u2014 not logged into LinkedIn, deferring");
-      return;
-    }
-    const result = await sendViaLinkedInRelay(vanityFromUrl, resolvedNote, csrfToken);
-    console.log("[IHN] Result:", result);
-    if (result.success) {
-      const sentAt = (/* @__PURE__ */ new Date()).toISOString();
-      await supabase.from("connection_queue").update({
-        status: "sent",
-        sent_at: sentAt
-      }).eq("id", item.id);
-      await supabase.from("usage_logs").insert({
-        user_id: session.user.id,
-        action: "connection_sent"
-      });
-      const nowHour = (/* @__PURE__ */ new Date()).getHours();
-      const hrsLeft = Math.max(0, 23 - nowHour);
-      const minGap = hrsLeft < 2 ? 8 : 15;
-      const maxGap = hrsLeft < 2 ? 15 : 30;
-      const delayMinutes = minGap + Math.random() * (maxGap - minGap);
-      const nextScheduledAt = new Date(Date.now() + delayMinutes * 6e4).toISOString();
-      await supabase.from("connection_queue").update({ scheduled_at: nextScheduledAt }).eq("user_id", session.user.id).eq("status", "pending").lte("scheduled_at", (/* @__PURE__ */ new Date()).toISOString());
-      const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
-      await chrome.storage.local.set({
-        queuePending: Math.max(0, (storedPending ?? 1) - 1),
-        lastSentAt: sentAt,
-        lastSentName: item.contacts?.name ?? "",
-        nextScheduledAt,
-        consecutiveFailures: 0
-      });
-    } else if (result.error === "no_linkedin_session" || result.error === "no_csrf_token") {
-      await supabase.from("connection_queue").update({
-        scheduled_at: new Date(Date.now() + 10 * 6e4).toISOString()
-      }).eq("id", item.id);
-    } else {
-      await supabase.from("connection_queue").update({
-        status: "failed",
-        error: result.error ?? "unknown"
-      }).eq("id", item.id);
-      const failDelayMinutes = 8 + Math.random() * 12;
-      const nextFailAt = new Date(Date.now() + failDelayMinutes * 6e4).toISOString();
-      await supabase.from("connection_queue").update({ scheduled_at: nextFailAt }).eq("user_id", session.user.id).eq("status", "pending").lte("scheduled_at", (/* @__PURE__ */ new Date()).toISOString());
-      const newFailCount = consecutiveFailures + 1;
-      const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
-      await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1), consecutiveFailures: newFailCount });
-      if (newFailCount >= 5) {
+    let skipMode = false;
+    while (true) {
+      let query = supabase.from("connection_queue").select("*, contacts(linkedin_url, name, event_id)").eq("user_id", session.user.id).eq("status", "pending");
+      if (!skipMode) {
+        query = query.lte("scheduled_at", (/* @__PURE__ */ new Date()).toISOString());
+      }
+      const { data: item } = await query.order("scheduled_at", { ascending: true }).limit(1).single();
+      if (!item) {
+        console.log("[IHN] No pending items");
+        return;
+      }
+      const eventId = item.contacts?.event_id;
+      if (eventId) {
+        const { pausedEvents } = await chrome.storage.local.get("pausedEvents");
+        if ((pausedEvents ?? []).includes(eventId)) {
+          console.log("[IHN] Event paused, skipping");
+          return;
+        }
+      }
+      console.log("[IHN] Processing queue item for:", item.contacts?.name);
+      const linkedinUrl = item.contacts?.linkedin_url;
+      if (!linkedinUrl) {
+        await supabase.from("connection_queue").update({ status: "failed", error: "no_linkedin_url" }).eq("id", item.id);
+        console.log("[IHN] No LinkedIn URL, skipping to next");
+        skipMode = true;
+        continue;
+      }
+      const vanityFromUrl = (() => {
+        try {
+          return new URL(linkedinUrl.replace("https://linkedin.com/", "https://www.linkedin.com/")).pathname.split("/").filter(Boolean)[1] ?? "";
+        } catch {
+          return "";
+        }
+      })();
+      const invalidVanity = !vanityFromUrl || vanityFromUrl.toLowerCase() === "none" || vanityFromUrl.includes(" ");
+      if (invalidVanity) {
+        await supabase.from("connection_queue").update({ status: "failed", error: "invalid_linkedin_url" }).eq("id", item.id);
+        console.log("[IHN] Invalid LinkedIn URL, skipping to next");
+        skipMode = true;
+        continue;
+      }
+      if (!csrfToken) {
+        await supabase.from("connection_queue").update({
+          scheduled_at: new Date(Date.now() + 10 * 6e4).toISOString()
+        }).eq("id", item.id);
+        console.log("[IHN] No JSESSIONID cookie \u2014 not logged into LinkedIn, deferring");
+        return;
+      }
+      const firstName = item.contacts?.name?.split(" ")[0] || "";
+      const resolvedNote = (item.note || "").replace(/\[first name\]/gi, firstName);
+      const result = await sendViaLinkedInRelay(vanityFromUrl, resolvedNote, csrfToken);
+      console.log("[IHN] Result:", result);
+      if (result.success) {
+        const sentAt = (/* @__PURE__ */ new Date()).toISOString();
+        await supabase.from("connection_queue").update({
+          status: "sent",
+          sent_at: sentAt
+        }).eq("id", item.id);
+        await supabase.from("usage_logs").insert({
+          user_id: session.user.id,
+          action: "connection_sent"
+        });
+        const nowHour = (/* @__PURE__ */ new Date()).getHours();
+        const hrsLeft = Math.max(0, 23 - nowHour);
+        const minGap = hrsLeft < 2 ? 8 : 15;
+        const maxGap = hrsLeft < 2 ? 15 : 30;
+        const delayMinutes = minGap + Math.random() * (maxGap - minGap);
+        const nextScheduledAt = new Date(Date.now() + delayMinutes * 6e4).toISOString();
+        await supabase.from("connection_queue").update({ scheduled_at: nextScheduledAt }).eq("user_id", session.user.id).eq("status", "pending").lte("scheduled_at", (/* @__PURE__ */ new Date()).toISOString());
+        const { queuePending: storedPending } = await chrome.storage.local.get("queuePending");
+        await chrome.storage.local.set({
+          queuePending: Math.max(0, (storedPending ?? 1) - 1),
+          lastSentAt: sentAt,
+          lastSentName: item.contacts?.name ?? "",
+          nextScheduledAt,
+          consecutiveFailures: 0
+        });
+        return;
+      } else if (result.error === "no_linkedin_session" || result.error === "no_csrf_token") {
+        await supabase.from("connection_queue").update({
+          scheduled_at: new Date(Date.now() + 10 * 6e4).toISOString()
+        }).eq("id", item.id);
+        return;
+      } else if (result.error === "weekly_limit_reached") {
+        await supabase.from("connection_queue").update({
+          status: "failed",
+          error: "weekly_limit_reached"
+        }).eq("id", item.id);
         await chrome.storage.local.set({
           campaignPaused: true,
-          pauseReason: `Auto-paused: ${newFailCount} connections failed in a row (${result.error ?? "unknown"})`
+          pauseReason: "Auto-paused: LinkedIn weekly invite limit reached. Try again in a few days."
         });
         updateBadge();
+        return;
+      } else if (result.error?.startsWith("not_logged_in")) {
+        await supabase.from("connection_queue").update({
+          scheduled_at: new Date(Date.now() + 10 * 6e4).toISOString()
+        }).eq("id", item.id);
+        return;
+      } else {
+        await supabase.from("connection_queue").update({
+          status: "failed",
+          error: result.error ?? "unknown"
+        }).eq("id", item.id);
+        const isExpectedSkip = result.error === "already_connected" || result.error === "already_pending";
+        if (!isExpectedSkip) {
+          consecutiveFailures++;
+          const { queuePending: sp } = await chrome.storage.local.get("queuePending");
+          await chrome.storage.local.set({ queuePending: Math.max(0, (sp ?? 1) - 1), consecutiveFailures });
+          if (consecutiveFailures >= 5) {
+            await chrome.storage.local.set({
+              campaignPaused: true,
+              pauseReason: `Auto-paused: ${consecutiveFailures} connections failed in a row (${result.error ?? "unknown"})`
+            });
+            updateBadge();
+            return;
+          }
+        } else {
+          const { queuePending: sp } = await chrome.storage.local.get("queuePending");
+          await chrome.storage.local.set({ queuePending: Math.max(0, (sp ?? 1) - 1), consecutiveFailures: 0 });
+        }
+        console.log("[IHN] Skipped, trying next immediately");
+        skipMode = true;
+        continue;
       }
     }
   }

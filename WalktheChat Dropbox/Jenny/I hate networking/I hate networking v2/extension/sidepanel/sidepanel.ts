@@ -15,8 +15,8 @@ type AppState =
 type ScanState =
   | { type: 'idle' }
   | { type: 'already_scanned'; count: number; linkedInCount: number; eventId: string; eventName: string }
-  | { type: 'scanning'; phase: string; done: number; total: number; currentName: string; startTime: number }
-  | { type: 'results'; found: number; total: number; eventId: string; eventName: string; contacts: any[]; scanDebug?: any }
+  | { type: 'scanning'; phase: string; done: number; total: number; currentName: string; startTime: number; eventName: string }
+  | { type: 'results'; found: number; total: number; eventId: string; eventName: string; eventUrl?: string; contacts: any[]; scanDebug?: any }
   | { type: 'launched'; queued: number; eventId: string }
 
 let scanState: ScanState = { type: 'idle' }
@@ -78,10 +78,27 @@ function isLumaEventPath(pathname: string): boolean {
   return !nonEventPaths.includes(pathname) && pathname.split('/').length === 2
 }
 
+function shortEventLabel(name: string): string {
+  // Take part before subtitle separators
+  let s = name.split(/[:\|]/)[0]
+  // Remove common suffixes after dashes
+  s = s.replace(/\s*[-–—]\s*(Open Registration|Waitlist|Registration|RSVP|Sign Up).*$/i, '')
+  // Remove numbering like #18
+  s = s.replace(/#\d+/g, '')
+  s = s.trim()
+  if (!s) return 'event'
+  const words = s.split(/\s+/)
+  if (words.length <= 4) return s.toLowerCase()
+  // Look for a recognizable event-type keyword
+  const m = s.match(/\b(hackathon|meetup|mixer|workshop|night|summit|conference|brunch|social|happy hour|bootcamp|jam|sprint|demo day|pitch night|office hours)\b/i)
+  if (m) return m[0].toLowerCase()
+  return words.slice(0, 3).join(' ').toLowerCase()
+}
+
 function defaultNote(eventName: string): string {
-  const label = eventName.split('·')[0].trim()
-  return label ? `I saw you at the ${label} event, I'd like to stay in touch!`
-               : "I saw you at the hackathon, I'd like to stay in touch!"
+  const raw = eventName.split('·')[0].trim()
+  const label = shortEventLabel(raw)
+  return `I saw you at the ${label}, I'd like to stay in touch!`
 }
 
 function etaString(done: number, total: number, startTime: number): string {
@@ -230,18 +247,43 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
   if (needFetch.length > 0) {
     draftNamesStartTime = Date.now()
     draftState = { stage: 'loading', eventId, eventName, fetching: needFetch.length }
+    // Save context so progress listener can force-finish if the callback hangs
+    _draftFetchContext = { eventId, eventName, hosts, guests, totalGuests, state }
     await renderDraftView(state)
   }
 
-  const fetchedNames: { id: string; linkedin_name: string }[] = needFetch.length > 0
-    ? (await Promise.race([
+  let fetchedNames: { id: string; linkedin_name: string }[] = []
+  if (needFetch.length > 0) {
+    try {
+      const raw = await Promise.race([
         new Promise<any>(resolve =>
           chrome.runtime.sendMessage({ type: 'GET_LINKEDIN_NAMES', contacts: needFetch.map((c: any) => ({ id: c.id, linkedin_url: c.linkedin_url })) }, resolve)
         ),
         new Promise<null>(resolve => setTimeout(() => resolve(null), 30000))
-      ])) ?? []
-    : []
+      ])
+      fetchedNames = Array.isArray(raw) ? raw : []
+    } catch (e) {
+      console.error('[IHN] Name fetch error:', e)
+    }
+  }
 
+  finishDraft(eventId, eventName, hosts, guests, totalGuests, fetchedNames, state)
+}
+
+/** Build the draft post and render — extracted so the progress listener can call it as a fallback */
+let _draftFetchContext: { eventId: string; eventName: string; hosts: any[]; guests: any[]; totalGuests: number; state: any } | null = null
+
+function finishDraft(
+  eventId: string, eventName: string,
+  hosts: any[], guests: any[], totalGuests: number,
+  fetchedNames: { id: string; linkedin_name: string }[],
+  state: Extract<AppState, { type: 'campaign' }>
+): void {
+  // Prevent double-render
+  if (typeof draftState === 'object' && draftState.stage === 'ready') return
+  _draftFetchContext = null
+
+  const isBadName = (n: string) => !n || /^(LinkedIn|Log In|Sign In|Sign Up)$/i.test(n.trim())
   const fetchedMap = new Map(fetchedNames.filter(f => f.linkedin_name && !isBadName(f.linkedin_name)).map(f => [f.id, f.linkedin_name]))
   const nameMap = new Map<string, string>()
   for (const g of [...guests, ...hosts]) nameMap.set(g.id, (!isBadName(g.linkedin_name) && g.linkedin_name) || g.name || '')
@@ -260,7 +302,7 @@ async function startDraftFetch(eventId: string, eventName: string, state: Extrac
 
   const guestNames = guests.map((g: any) => nameMap.get(g.id) || g.name || '').filter(Boolean)
   draftState = { stage: 'ready', eventId, eventName, postText, guestNames, totalGuests }
-  await renderDraftView(state)
+  renderDraftView(state)
 }
 
 // ── Draft full-page view (matches image 4: tip + plain name list) ─────────────
@@ -311,8 +353,9 @@ async function renderDraftView(state: Extract<AppState, { type: 'campaign' }>): 
     root.innerHTML = backBtn + `
       <div style="text-align:center;padding:60px 20px;">
         <div style="color:#9ca3af;font-size:13px;" id="draftNamesProgress">
-          ${n > 0 ? `Fetching ${n} LinkedIn names${hint}` : 'Building your post draft…'}
+          ${n > 0 ? `Looking up ${n} LinkedIn names${hint}` : 'Building your post draft…'}
         </div>
+        ${n > 0 ? '<div style="color:#b0b5bd;font-size:11px;margin-top:6px;">So you can @ them in your post</div>' : ''}
       </div>
     `
     wireBack()
@@ -361,9 +404,14 @@ async function renderDraftView(state: Extract<AppState, { type: 'campaign' }>): 
 function nextConnectionLabel(nextAt: string | null): string {
   if (!nextAt) return ''
   const diff = new Date(nextAt).getTime() - Date.now()
-  if (diff <= 0) return 'Next connection starting soon'
+  if (diff <= 0) return 'Processing now...'
   const mins = Math.ceil(diff / 60000)
-  return `Next connection in ~${mins} min`
+  if (mins >= 60) {
+    const hrs = Math.floor(mins / 60)
+    const rem = mins % 60
+    return rem > 0 ? `Next in ~${hrs}h ${rem}m` : `Next in ~${hrs}h`
+  }
+  return `Next in ~${mins} min`
 }
 
 function renderDailyChart(dailyCounts: Record<string, number>): string {
@@ -595,10 +643,15 @@ async function renderCampaign(state: Extract<AppState, { type: 'campaign' }>): P
     ${eventsListHtml}
     ${draftSectionHtml}
 
-    ${isRunning ? `<div class="chrome-warning">⚠ Keep Chrome open — connections send in background</div>` : ''}
+    ${isRunning ? `<div class="chrome-warning" id="chromeWarning">⚠ Keep Chrome open — connections send in background <button class="warning-close" id="btnDismissWarning">✕</button></div>` : ''}
 
     <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> · <button class="signout-btn" id="btnSignOut">Sign out</button></div>
   `
+
+  // ── Dismiss chrome warning ──────────────────────────────────────────────────
+  document.getElementById('btnDismissWarning')?.addEventListener('click', () => {
+    document.getElementById('chromeWarning')?.remove()
+  })
 
   // ── Wire pause / resume ────────────────────────────────────────────────────
   document.getElementById('btnPause')?.addEventListener('click', () => {
@@ -746,7 +799,7 @@ function wireAuthGate(): void {
 
 function startScan(ctx: Extract<TabContext, { kind: 'luma-event' }>, hasCampaign = false): void {
   noteValue = ''
-  scanState = { type: 'scanning', phase: 'starting', done: 0, total: 0, currentName: '', startTime: Date.now() }
+  scanState = { type: 'scanning', phase: 'starting', done: 0, total: 0, currentName: '', startTime: Date.now(), eventName: ctx.eventName }
   renderEventPage(ctx, hasCampaign)
   chrome.tabs.sendMessage(ctx.tabId, { type: 'START_SCAN' })
 }
@@ -760,6 +813,16 @@ async function launchCampaign(s: Extract<ScanState, { type: 'results' }>): Promi
 }
 
 async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>, hasCampaign = false): Promise<void> {
+  // Reset stale results if user navigated to a different event
+  if (scanState.type === 'results' && scanState.eventUrl) {
+    const currentUrl: string = await new Promise(resolve =>
+      chrome.tabs.query({ active: true, currentWindow: true }, ([t]) => resolve(t?.url ?? ''))
+    )
+    if (currentUrl && currentUrl !== scanState.eventUrl) {
+      scanState = { type: 'idle' }
+      noteValue = ''
+    }
+  }
   if (scanState.type === 'idle') {
     const existing: { eventId: string; existingUrls: string[]; linkedInCount: number } = await new Promise(resolve => {
       chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
@@ -843,6 +906,21 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
 
   if (scanState.type === 'results') {
     const s = scanState
+    // If we have results but no eventId, check if user signed in and save now
+    if (!s.eventId && await hasSession()) {
+      const tabUrl: string = await new Promise(resolve =>
+        chrome.tabs.query({ active: true, currentWindow: true }, ([t]) => resolve(t?.url ?? ''))
+      )
+      const result: any = await new Promise(resolve =>
+        chrome.runtime.sendMessage({
+          type: 'START_ENRICHMENT',
+          data: { lumaUrl: tabUrl, eventName: s.eventName, contacts: s.contacts }
+        }, resolve)
+      )
+      if (result?.eventId) {
+        scanState = { ...s, eventId: result.eventId, found: result.found || s.found }
+      }
+    }
     if (!noteValue) noteValue = defaultNote(s.eventName)
     const linkedInReady: boolean = await new Promise(resolve => chrome.runtime.sendMessage({ type: 'CHECK_LINKEDIN_LOGIN' }, r => resolve(r?.loggedIn ?? false)))
     const leadsHtml = s.contacts.filter(c => c.linkedInUrl).map(c => `
@@ -1041,7 +1119,7 @@ async function render(): Promise<void> {
 }
 
 // Scan progress messages from luma.ts content script
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener(async (msg) => {
   if (msg.type === 'LINKEDIN_NAMES_PROGRESS') {
     const el = document.getElementById('draftNamesProgress')
     if (!el) return
@@ -1052,9 +1130,19 @@ chrome.runtime.onMessage.addListener((msg) => {
       const perItem = elapsed / done
       const remaining = Math.ceil((total - done) * perItem)
       const eta = remaining > 0 ? ` · ~${remaining}s left` : ''
-      el.textContent = `Fetching names ${done} / ${total}${eta}`
+      el.textContent = `Looking up names ${done} / ${total}${eta}`
     } else {
-      el.textContent = `Fetching names ${done} / ${total}`
+      el.textContent = `Looking up names ${done} / ${total}`
+    }
+    // When all names fetched, force-finish after 2s if the callback hasn't resolved yet
+    if (done >= total && _draftFetchContext) {
+      const ctx = _draftFetchContext
+      setTimeout(() => {
+        if (typeof draftState === 'object' && draftState.stage === 'loading') {
+          console.log('[IHN] Force-finishing draft after all names fetched')
+          finishDraft(ctx.eventId, ctx.eventName, ctx.hosts, ctx.guests, ctx.totalGuests, [], ctx.state)
+        }
+      }, 2000)
     }
     return
   }
@@ -1072,12 +1160,17 @@ chrome.runtime.onMessage.addListener((msg) => {
     })
   }
   if (msg.type === 'SCAN_COMPLETE') {
+    // Capture the tab URL for this scan
+    const tabUrl = await new Promise<string>(resolve =>
+      chrome.tabs.query({ active: true, currentWindow: true }, ([t]) => resolve(t?.url ?? ''))
+    )
     scanState = {
       type: 'results',
       found: msg.found,
       total: msg.total,
       eventId: msg.eventId,
       eventName: (scanState as any).eventName ?? '',
+      eventUrl: tabUrl,
       contacts: msg.contacts ?? [],
       scanDebug: msg.scanDebug,
     }
@@ -1108,7 +1201,7 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
   if (changeInfo.url) render()
 })
 
-// Re-render when storage changes (campaign starts/stops/pauses)
+// Re-render when storage changes (campaign starts/stops/pauses, session set)
 chrome.storage.onChanged.addListener(() => render())
 
 render()

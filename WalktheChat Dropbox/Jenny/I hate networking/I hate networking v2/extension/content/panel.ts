@@ -248,7 +248,14 @@ function startDraftFetch(eventId: string, eventName: string): void {
       const postText = hostMentions
         ? `Thanks ${hostMentions} for organizing the ${shortName} event!`
         : `Thanks everyone for organizing the ${shortName} event!`
-      const guestNames = guests.map(g => nameMap.get(g.id) || g.name || '').filter(Boolean)
+      const confirmedLinkedinIds = new Set([
+        ...alreadyCached.map(g => g.id),
+        ...fetchedNames.filter(f => f.linkedin_name).map(f => f.id)
+      ])
+      const guestNames = guests
+        .filter(g => confirmedLinkedinIds.has(g.id))
+        .map(g => nameMap.get(g.id)!)
+        .filter(Boolean)
 
       draftState = { stage: 'ready', eventId, eventName, eventShortName: shortName, postText, guestNames, totalGuests }
       renderPanel()

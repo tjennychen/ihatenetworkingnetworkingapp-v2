@@ -43,9 +43,22 @@
   function isLumaEventPath(pathname) {
     return !nonEventPaths.includes(pathname) && pathname.split("/").length === 2;
   }
+  function shortEventLabel(name) {
+    let s = name.split(/[:\|]/)[0];
+    s = s.replace(/\s*[-–—]\s*(Open Registration|Waitlist|Registration|RSVP|Sign Up).*$/i, "");
+    s = s.replace(/#\d+/g, "");
+    s = s.trim();
+    if (!s) return "event";
+    const words = s.split(/\s+/);
+    if (words.length <= 4) return s.toLowerCase();
+    const m = s.match(/\b(hackathon|meetup|mixer|workshop|night|summit|conference|brunch|social|happy hour|bootcamp|jam|sprint|demo day|pitch night|office hours)\b/i);
+    if (m) return m[0].toLowerCase();
+    return words.slice(0, 3).join(" ").toLowerCase();
+  }
   function defaultNote(eventName) {
-    const label = eventName.split("\xB7")[0].trim();
-    return label ? `I saw you at the ${label} event, I'd like to stay in touch!` : "I saw you at the hackathon, I'd like to stay in touch!";
+    const raw = eventName.split("\xB7")[0].trim();
+    const label = shortEventLabel(raw);
+    return `I saw you at the ${label}, I'd like to stay in touch!`;
   }
   function etaString(done, total, startTime) {
     if (done === 0) return "";
@@ -72,6 +85,10 @@
     if (!isLumaEventPath(pathname)) return { kind: "luma-other", tabId };
     const eventName = tab.title?.replace(/\s*[·|–-].*$/, "").trim() ?? "";
     return { kind: "luma-event", tabId, eventName };
+  }
+  async function hasSession() {
+    const { session } = await chrome.storage.local.get("session");
+    return !!session;
   }
   async function signOut() {
     await new Promise((r) => chrome.runtime.sendMessage({ type: "SIGN_OUT" }, r));
@@ -173,14 +190,30 @@
     if (needFetch.length > 0) {
       draftNamesStartTime = Date.now();
       draftState = { stage: "loading", eventId, eventName, fetching: needFetch.length };
+      _draftFetchContext = { eventId, eventName, hosts, guests, totalGuests, state };
       await renderDraftView(state);
     }
-    const fetchedNames = needFetch.length > 0 ? await Promise.race([
-      new Promise(
-        (resolve) => chrome.runtime.sendMessage({ type: "GET_LINKEDIN_NAMES", contacts: needFetch.map((c) => ({ id: c.id, linkedin_url: c.linkedin_url })) }, resolve)
-      ),
-      new Promise((resolve) => setTimeout(() => resolve(null), 3e4))
-    ]) ?? [] : [];
+    let fetchedNames = [];
+    if (needFetch.length > 0) {
+      try {
+        const raw = await Promise.race([
+          new Promise(
+            (resolve) => chrome.runtime.sendMessage({ type: "GET_LINKEDIN_NAMES", contacts: needFetch.map((c) => ({ id: c.id, linkedin_url: c.linkedin_url })) }, resolve)
+          ),
+          new Promise((resolve) => setTimeout(() => resolve(null), 3e4))
+        ]);
+        fetchedNames = Array.isArray(raw) ? raw : [];
+      } catch (e) {
+        console.error("[IHN] Name fetch error:", e);
+      }
+    }
+    finishDraft(eventId, eventName, hosts, guests, totalGuests, fetchedNames, state);
+  }
+  var _draftFetchContext = null;
+  function finishDraft(eventId, eventName, hosts, guests, totalGuests, fetchedNames, state) {
+    if (typeof draftState === "object" && draftState.stage === "ready") return;
+    _draftFetchContext = null;
+    const isBadName = (n) => !n || /^(LinkedIn|Log In|Sign In|Sign Up)$/i.test(n.trim());
     const fetchedMap = new Map(fetchedNames.filter((f) => f.linkedin_name && !isBadName(f.linkedin_name)).map((f) => [f.id, f.linkedin_name]));
     const nameMap = /* @__PURE__ */ new Map();
     for (const g of [...guests, ...hosts]) nameMap.set(g.id, !isBadName(g.linkedin_name) && g.linkedin_name || g.name || "");
@@ -190,7 +223,7 @@
     const postText = hostMentions ? `Thanks ${hostMentions} for organizing the ${shortName} event!` : `Thanks everyone for organizing the ${shortName} event!`;
     const guestNames = guests.map((g) => nameMap.get(g.id) || g.name || "").filter(Boolean);
     draftState = { stage: "ready", eventId, eventName, postText, guestNames, totalGuests };
-    await renderDraftView(state);
+    renderDraftView(state);
   }
   async function renderDraftView(state) {
     const backBtn = `
@@ -239,8 +272,9 @@
       root.innerHTML = backBtn + `
       <div style="text-align:center;padding:60px 20px;">
         <div style="color:#9ca3af;font-size:13px;" id="draftNamesProgress">
-          ${n > 0 ? `Fetching ${n} LinkedIn names${hint}` : "Building your post draft\u2026"}
+          ${n > 0 ? `Looking up ${n} LinkedIn names${hint}` : "Building your post draft\u2026"}
         </div>
+        ${n > 0 ? '<div style="color:#b0b5bd;font-size:11px;margin-top:6px;">So you can @ them in your post</div>' : ""}
       </div>
     `;
       wireBack();
@@ -293,9 +327,14 @@
   function nextConnectionLabel(nextAt) {
     if (!nextAt) return "";
     const diff = new Date(nextAt).getTime() - Date.now();
-    if (diff <= 0) return "Next connection starting soon";
+    if (diff <= 0) return "Processing now...";
     const mins = Math.ceil(diff / 6e4);
-    return `Next connection in ~${mins} min`;
+    if (mins >= 60) {
+      const hrs = Math.floor(mins / 60);
+      const rem = mins % 60;
+      return rem > 0 ? `Next in ~${hrs}h ${rem}m` : `Next in ~${hrs}h`;
+    }
+    return `Next in ~${mins} min`;
   }
   function renderDailyChart(dailyCounts) {
     const rawDays = Object.keys(dailyCounts).sort().slice(-14);
@@ -495,10 +534,13 @@
     ${eventsListHtml}
     ${draftSectionHtml}
 
-    ${isRunning ? `<div class="chrome-warning">\u26A0 Keep Chrome open \u2014 connections send in background</div>` : ""}
+    ${isRunning ? `<div class="chrome-warning" id="chromeWarning">\u26A0 Keep Chrome open \u2014 connections send in background <button class="warning-close" id="btnDismissWarning">\u2715</button></div>` : ""}
 
     <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a> \xB7 <button class="signout-btn" id="btnSignOut">Sign out</button></div>
   `;
+    document.getElementById("btnDismissWarning")?.addEventListener("click", () => {
+      document.getElementById("chromeWarning")?.remove();
+    });
     document.getElementById("btnPause")?.addEventListener("click", () => {
       chrome.runtime.sendMessage({ type: "PAUSE_CAMPAIGN" }, () => render());
     });
@@ -624,7 +666,7 @@
   }
   function startScan(ctx, hasCampaign = false) {
     noteValue = "";
-    scanState = { type: "scanning", phase: "starting", done: 0, total: 0, currentName: "", startTime: Date.now() };
+    scanState = { type: "scanning", phase: "starting", done: 0, total: 0, currentName: "", startTime: Date.now(), eventName: ctx.eventName };
     renderEventPage(ctx, hasCampaign);
     chrome.tabs.sendMessage(ctx.tabId, { type: "START_SCAN" });
   }
@@ -636,6 +678,15 @@
     render();
   }
   async function renderEventPage(ctx, hasCampaign = false) {
+    if (scanState.type === "results" && scanState.eventUrl) {
+      const currentUrl = await new Promise(
+        (resolve) => chrome.tabs.query({ active: true, currentWindow: true }, ([t]) => resolve(t?.url ?? ""))
+      );
+      if (currentUrl && currentUrl !== scanState.eventUrl) {
+        scanState = { type: "idle" };
+        noteValue = "";
+      }
+    }
     if (scanState.type === "idle") {
       const existing = await new Promise((resolve) => {
         chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
@@ -715,6 +766,20 @@
     }
     if (scanState.type === "results") {
       const s = scanState;
+      if (!s.eventId && await hasSession()) {
+        const tabUrl = await new Promise(
+          (resolve) => chrome.tabs.query({ active: true, currentWindow: true }, ([t]) => resolve(t?.url ?? ""))
+        );
+        const result = await new Promise(
+          (resolve) => chrome.runtime.sendMessage({
+            type: "START_ENRICHMENT",
+            data: { lumaUrl: tabUrl, eventName: s.eventName, contacts: s.contacts }
+          }, resolve)
+        );
+        if (result?.eventId) {
+          scanState = { ...s, eventId: result.eventId, found: result.found || s.found };
+        }
+      }
       if (!noteValue) noteValue = defaultNote(s.eventName);
       const linkedInReady = await new Promise((resolve) => chrome.runtime.sendMessage({ type: "CHECK_LINKEDIN_LOGIN" }, (r) => resolve(r?.loggedIn ?? false)));
       const leadsHtml = s.contacts.filter((c) => c.linkedInUrl).map((c) => `
@@ -899,7 +964,7 @@
       root.innerHTML = `<div style="padding:40px 20px;text-align:center;color:#ef4444;font-size:13px;">Something went wrong. Try closing and reopening the panel.<br><br><small style="color:#9ca3af">${err}</small></div>`;
     }
   }
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener(async (msg) => {
     if (msg.type === "LINKEDIN_NAMES_PROGRESS") {
       const el = document.getElementById("draftNamesProgress");
       if (!el) return;
@@ -910,9 +975,18 @@
         const perItem = elapsed / done;
         const remaining = Math.ceil((total - done) * perItem);
         const eta = remaining > 0 ? ` \xB7 ~${remaining}s left` : "";
-        el.textContent = `Fetching names ${done} / ${total}${eta}`;
+        el.textContent = `Looking up names ${done} / ${total}${eta}`;
       } else {
-        el.textContent = `Fetching names ${done} / ${total}`;
+        el.textContent = `Looking up names ${done} / ${total}`;
+      }
+      if (done >= total && _draftFetchContext) {
+        const ctx = _draftFetchContext;
+        setTimeout(() => {
+          if (typeof draftState === "object" && draftState.stage === "loading") {
+            console.log("[IHN] Force-finishing draft after all names fetched");
+            finishDraft(ctx.eventId, ctx.eventName, ctx.hosts, ctx.guests, ctx.totalGuests, [], ctx.state);
+          }
+        }, 2e3);
       }
       return;
     }
@@ -930,12 +1004,16 @@
       });
     }
     if (msg.type === "SCAN_COMPLETE") {
+      const tabUrl = await new Promise(
+        (resolve) => chrome.tabs.query({ active: true, currentWindow: true }, ([t]) => resolve(t?.url ?? ""))
+      );
       scanState = {
         type: "results",
         found: msg.found,
         total: msg.total,
         eventId: msg.eventId,
         eventName: scanState.eventName ?? "",
+        eventUrl: tabUrl,
         contacts: msg.contacts ?? [],
         scanDebug: msg.scanDebug
       };

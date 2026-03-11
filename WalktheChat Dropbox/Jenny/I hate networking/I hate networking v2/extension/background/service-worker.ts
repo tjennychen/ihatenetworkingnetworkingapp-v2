@@ -25,13 +25,13 @@ async function getOrCreateLinkedinWindow(url: string): Promise<{ tabId: number; 
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
+  chrome.alarms.create('checkQueue', { periodInMinutes: 2 })
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
   console.log('I Hate Networking extension installed')
 })
 
 chrome.runtime.onStartup.addListener(() => {
-  chrome.alarms.create('checkQueue', { periodInMinutes: 0.5 })
+  chrome.alarms.create('checkQueue', { periodInMinutes: 2 })
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
 })
 
@@ -67,6 +67,14 @@ chrome.runtime.onMessageExternal.addListener(async (msg) => {
 
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Session forwarded from login-bridge content script
+  if (msg.type === 'SET_AUTH' && msg.session) {
+    chrome.storage.local.set({ session: msg.session }).then(() => {
+      console.log('Session stored from login bridge')
+      sendResponse({ ok: true })
+    })
+    return true
+  }
   if (msg.type === 'CHECK_LINKEDIN_LOGIN') {
     chrome.cookies.get({ url: 'https://www.linkedin.com', name: 'li_at' }, cookie => {
       sendResponse({ loggedIn: !!(cookie && cookie.value) })
@@ -348,43 +356,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const supabase = getAuthedSupabase(session.access_token)
       const contacts: { id: string; linkedin_url: string }[] = msg.contacts
 
-      // Try to find an existing LinkedIn profile tab — can relay fetches from there (same-origin, no new tabs)
-      const linkedinTabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/in/*' })
+      // Find ANY existing LinkedIn tab (not just profile pages)
+      const linkedinTabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })
       let relayTabId: number | null = linkedinTabs[0]?.id ?? null
       let openedTabId: number | null = null
 
-      if (!relayTabId) {
-        // Open a minimized window for the first contact's profile and use it as relay for all
-        if (contacts.length > 0) {
-          const firstUrl = contacts[0].linkedin_url.replace('https://linkedin.com/', 'https://www.linkedin.com/')
-          const relay = await getOrCreateLinkedinWindow(firstUrl)
-          openedTabId = relay.tabId
-          await new Promise<void>((resolve) => {
-            const timeout = setTimeout(resolve, 15000)
-            chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-              if (tid === openedTabId && info.status === 'complete') {
-                chrome.tabs.onUpdated.removeListener(listener)
-                clearTimeout(timeout)
-                setTimeout(resolve, 2000)
-              }
-            })
+      if (!relayTabId && contacts.length > 0) {
+        // Open a background tab (NOT a minimized window — per FIXES.md)
+        const tab = await chrome.tabs.create({ url: 'https://www.linkedin.com/feed/', active: false })
+        openedTabId = tab.id!
+        // Wait for the tab to load so the content script is injected
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(resolve, 15000)
+          chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+            if (tid === openedTabId && info.status === 'complete') {
+              chrome.tabs.onUpdated.removeListener(listener)
+              clearTimeout(timeout)
+              setTimeout(resolve, 2000)
+            }
           })
-          relayTabId = openedTabId
-        }
+        })
+        relayTabId = openedTabId
       }
 
       let results: { id: string; linkedin_name: string }[] = []
 
       if (relayTabId !== null) {
-        // Delegate all fetches to the content script in that tab — completely silent
-        results = await new Promise<{ id: string; linkedin_name: string }[]>((resolve) => {
-          const timeout = setTimeout(() => resolve([]), 120000)
-          chrome.tabs.sendMessage(relayTabId!, { type: 'FETCH_LINKEDIN_PROFILES', contacts }, (response) => {
-            void chrome.runtime.lastError
-            clearTimeout(timeout)
-            resolve(response ?? [])
+        // Verify content script is alive before delegating
+        const ready = await waitForContentScript(relayTabId, 8000)
+        if (ready) {
+          results = await new Promise<{ id: string; linkedin_name: string }[]>((resolve) => {
+            const timeout = setTimeout(() => resolve([]), 60000)
+            chrome.tabs.sendMessage(relayTabId!, { type: 'FETCH_LINKEDIN_PROFILES', contacts }, (response) => {
+              void chrome.runtime.lastError
+              clearTimeout(timeout)
+              resolve(response ?? [])
+            })
           })
-        })
+        }
       }
 
       if (openedTabId) chrome.tabs.remove(openedTabId).catch(() => {})
@@ -623,7 +632,7 @@ async function processNextQueueItem(): Promise<void> {
 
   const { campaignPaused, consecutiveFailures: prevFailures } = await chrome.storage.local.get(['campaignPaused', 'consecutiveFailures'])
   if (campaignPaused) return
-  const consecutiveFailures: number = prevFailures ?? 0
+  let consecutiveFailures: number = prevFailures ?? 0
 
   const session = await getSession()
   if (!session) { console.log('[IHN] processNextQueueItem: no session'); return }
@@ -634,137 +643,177 @@ async function processNextQueueItem(): Promise<void> {
   const { canSend } = checkDailyLimit(sentToday)
   if (!canSend) return
 
-  const { data: item } = await supabase
-    .from('connection_queue')
-    .select('*, contacts(linkedin_url, name, event_id)')
-    .eq('user_id', session.user.id)
-    .eq('status', 'pending')
-    .lte('scheduled_at', new Date().toISOString())
-    .order('scheduled_at', { ascending: true })
-    .limit(1)
-    .single()
-
-  if (!item) { console.log('[IHN] No pending items'); return }
-
-  // Skip if this event is paused
-  const eventId = (item.contacts as any)?.event_id
-  if (eventId) {
-    const { pausedEvents } = await chrome.storage.local.get('pausedEvents')
-    if ((pausedEvents ?? []).includes(eventId)) {
-      console.log('[IHN] Event paused, skipping')
-      return
-    }
-  }
-
-  console.log('[IHN] Processing queue item for:', (item.contacts as any)?.name)
-  const linkedinUrl = (item.contacts as any)?.linkedin_url
-  if (!linkedinUrl) {
-    await supabase.from('connection_queue').update({ status: 'failed', error: 'no_linkedin_url' }).eq('id', item.id)
-    return
-  }
-
-  // Validate the LinkedIn URL before opening a tab — catch corrupted data early
-  const vanityFromUrl = (() => {
-    try { return new URL(linkedinUrl.replace('https://linkedin.com/', 'https://www.linkedin.com/')).pathname.split('/').filter(Boolean)[1] ?? '' }
-    catch { return '' }
-  })()
-  const invalidVanity = !vanityFromUrl || vanityFromUrl.toLowerCase() === 'none' || vanityFromUrl.includes(' ')
-  if (invalidVanity) {
-    await supabase.from('connection_queue').update({ status: 'failed', error: 'invalid_linkedin_url' }).eq('id', item.id)
-    return
-  }
-
-  const firstName = (item.contacts as any)?.name?.split(' ')[0] || ''
-  const resolvedNote = (item.note || '').replace(/\[first name\]/gi, firstName)
-
-  // chrome.cookies.get CAN read HttpOnly cookies — document.cookie in content scripts cannot.
-  // JSESSIONID is HttpOnly, so getCsrfToken() in the content script returns '' and every
-  // Voyager API call fails CSRF validation. Read it here and pass it explicitly.
+  // Read CSRF token once per tick (shared across all items in this loop)
   const jsessionCookie = await new Promise<chrome.cookies.Cookie | null>(resolve =>
     chrome.cookies.get({ url: 'https://www.linkedin.com', name: 'JSESSIONID' }, c => resolve(c ?? null))
   )
-  // LinkedIn stores JSESSIONID as "ajax:..." with literal surrounding double-quotes.
-  // The csrf-token header must be the value WITHOUT those quotes.
   const csrfToken = jsessionCookie ? decodeURIComponent(jsessionCookie.value).replace(/^"|"$/g, '') : ''
-  if (!csrfToken) {
-    await supabase.from('connection_queue').update({
-      scheduled_at: new Date(Date.now() + 10 * 60000).toISOString(),
-    }).eq('id', item.id)
-    console.log('[IHN] No JSESSIONID cookie — not logged into LinkedIn, deferring')
-    return
-  }
 
-  const result = await sendViaLinkedInRelay(vanityFromUrl, resolvedNote, csrfToken)
-  console.log('[IHN] Result:', result)
-
-  if (result.success) {
-    const sentAt = new Date().toISOString()
-    await supabase.from('connection_queue').update({
-      status: 'sent',
-      sent_at: sentAt,
-    }).eq('id', item.id)
-
-    await supabase.from('usage_logs').insert({
-      user_id: session.user.id,
-      action: 'connection_sent',
-    })
-
-    // Schedule next item: 15-30 min normally, compressed if < 2h until 11pm cutoff
-    const nowHour = new Date().getHours()
-    const hrsLeft = Math.max(0, 23 - nowHour)
-    const minGap = hrsLeft < 2 ? 8 : 15
-    const maxGap = hrsLeft < 2 ? 15 : 30
-    const delayMinutes = minGap + Math.random() * (maxGap - minGap)
-    const nextScheduledAt = new Date(Date.now() + delayMinutes * 60000).toISOString()
-    // Push ALL past-due pending items to the future in one query.
-    // If we only update the single "next" item, all other past-due items (same old timestamp)
-    // still fire every 30-second alarm tick — causing rapid-fire sends.
-    await supabase.from('connection_queue')
-      .update({ scheduled_at: nextScheduledAt })
+  // Loop: skip failed/already-connected items immediately, only pause after a successful send.
+  // After a skip, ignore scheduled_at so we grab the next item even if it's future-scheduled.
+  let skipMode = false
+  while (true) {
+    let query = supabase
+      .from('connection_queue')
+      .select('*, contacts(linkedin_url, name, event_id)')
       .eq('user_id', session.user.id)
       .eq('status', 'pending')
-      .lte('scheduled_at', new Date().toISOString())
+    if (!skipMode) {
+      query = query.lte('scheduled_at', new Date().toISOString())
+    }
+    const { data: item } = await query
+      .order('scheduled_at', { ascending: true })
+      .limit(1)
+      .single()
 
-    // Update storage so badge + popup reflect new state
-    const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
-    await chrome.storage.local.set({
-      queuePending: Math.max(0, (storedPending ?? 1) - 1),
-      lastSentAt: sentAt,
-      lastSentName: (item.contacts as any)?.name ?? '',
-      nextScheduledAt,
-      consecutiveFailures: 0,
-    })
-  } else if (result.error === 'no_linkedin_session' || result.error === 'no_csrf_token') {
-    // Not logged into LinkedIn — defer, don't fail permanently
-    await supabase.from('connection_queue').update({
-      scheduled_at: new Date(Date.now() + 10 * 60000).toISOString(),
-    }).eq('id', item.id)
-  } else {
-    await supabase.from('connection_queue').update({
-      status: 'failed',
-      error: result.error ?? 'unknown',
-    }).eq('id', item.id)
-    // Push ALL past-due pending items forward (same logic as success path)
-    const failDelayMinutes = 8 + Math.random() * 12 // 8–20 min
-    const nextFailAt = new Date(Date.now() + failDelayMinutes * 60000).toISOString()
-    await supabase.from('connection_queue')
-      .update({ scheduled_at: nextFailAt })
-      .eq('user_id', session.user.id)
-      .eq('status', 'pending')
-      .lte('scheduled_at', new Date().toISOString())
-    const newFailCount = consecutiveFailures + 1
-    const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
-    await chrome.storage.local.set({ queuePending: Math.max(0, (storedPending ?? 1) - 1), consecutiveFailures: newFailCount })
+    if (!item) { console.log('[IHN] No pending items'); return }
 
-    if (newFailCount >= 5) {
+    // Skip if this event is paused
+    const eventId = (item.contacts as any)?.event_id
+    if (eventId) {
+      const { pausedEvents } = await chrome.storage.local.get('pausedEvents')
+      if ((pausedEvents ?? []).includes(eventId)) {
+        console.log('[IHN] Event paused, skipping')
+        return
+      }
+    }
+
+    console.log('[IHN] Processing queue item for:', (item.contacts as any)?.name)
+    const linkedinUrl = (item.contacts as any)?.linkedin_url
+
+    // No LinkedIn URL → mark failed, try next immediately
+    if (!linkedinUrl) {
+      await supabase.from('connection_queue').update({ status: 'failed', error: 'no_linkedin_url' }).eq('id', item.id)
+      console.log('[IHN] No LinkedIn URL, skipping to next')
+      skipMode = true
+      continue
+    }
+
+    // Validate the LinkedIn URL — catch corrupted data early
+    const vanityFromUrl = (() => {
+      try { return new URL(linkedinUrl.replace('https://linkedin.com/', 'https://www.linkedin.com/')).pathname.split('/').filter(Boolean)[1] ?? '' }
+      catch { return '' }
+    })()
+    const invalidVanity = !vanityFromUrl || vanityFromUrl.toLowerCase() === 'none' || vanityFromUrl.includes(' ')
+    if (invalidVanity) {
+      await supabase.from('connection_queue').update({ status: 'failed', error: 'invalid_linkedin_url' }).eq('id', item.id)
+      console.log('[IHN] Invalid LinkedIn URL, skipping to next')
+      skipMode = true
+      continue
+    }
+
+    // No CSRF token → not logged into LinkedIn, defer this item and stop
+    if (!csrfToken) {
+      await supabase.from('connection_queue').update({
+        scheduled_at: new Date(Date.now() + 10 * 60000).toISOString(),
+      }).eq('id', item.id)
+      console.log('[IHN] No JSESSIONID cookie — not logged into LinkedIn, deferring')
+      return
+    }
+
+    const firstName = (item.contacts as any)?.name?.split(' ')[0] || ''
+    const resolvedNote = (item.note || '').replace(/\[first name\]/gi, firstName)
+
+    const result = await sendViaLinkedInRelay(vanityFromUrl, resolvedNote, csrfToken)
+    console.log('[IHN] Result:', result)
+
+    if (result.success) {
+      const sentAt = new Date().toISOString()
+      await supabase.from('connection_queue').update({
+        status: 'sent',
+        sent_at: sentAt,
+      }).eq('id', item.id)
+
+      await supabase.from('usage_logs').insert({
+        user_id: session.user.id,
+        action: 'connection_sent',
+      })
+
+      // Schedule next item: 15-30 min normally, compressed if < 2h until 11pm cutoff
+      const nowHour = new Date().getHours()
+      const hrsLeft = Math.max(0, 23 - nowHour)
+      const minGap = hrsLeft < 2 ? 8 : 15
+      const maxGap = hrsLeft < 2 ? 15 : 30
+      const delayMinutes = minGap + Math.random() * (maxGap - minGap)
+      const nextScheduledAt = new Date(Date.now() + delayMinutes * 60000).toISOString()
+      // Push ALL past-due pending items to the future in one query.
+      await supabase.from('connection_queue')
+        .update({ scheduled_at: nextScheduledAt })
+        .eq('user_id', session.user.id)
+        .eq('status', 'pending')
+        .lte('scheduled_at', new Date().toISOString())
+
+      const { queuePending: storedPending } = await chrome.storage.local.get('queuePending')
+      await chrome.storage.local.set({
+        queuePending: Math.max(0, (storedPending ?? 1) - 1),
+        lastSentAt: sentAt,
+        lastSentName: (item.contacts as any)?.name ?? '',
+        nextScheduledAt,
+        consecutiveFailures: 0,
+      })
+      return // ← only wait after a successful send
+
+    } else if (result.error === 'no_linkedin_session' || result.error === 'no_csrf_token') {
+      // Not logged into LinkedIn — defer and stop
+      await supabase.from('connection_queue').update({
+        scheduled_at: new Date(Date.now() + 10 * 60000).toISOString(),
+      }).eq('id', item.id)
+      return
+
+    } else if (result.error === 'weekly_limit_reached') {
+      // LinkedIn weekly invite cap — defer all pending items 6 hours and stop
+      await supabase.from('connection_queue').update({
+        status: 'failed',
+        error: 'weekly_limit_reached',
+      }).eq('id', item.id)
       await chrome.storage.local.set({
         campaignPaused: true,
-        pauseReason: `Auto-paused: ${newFailCount} connections failed in a row (${result.error ?? 'unknown'})`,
+        pauseReason: 'Auto-paused: LinkedIn weekly invite limit reached. Try again in a few days.',
       })
       updateBadge()
+      return
+
+    } else if (result.error?.startsWith('not_logged_in')) {
+      // LinkedIn session expired — defer and stop
+      await supabase.from('connection_queue').update({
+        scheduled_at: new Date(Date.now() + 10 * 60000).toISOString(),
+      }).eq('id', item.id)
+      return
+
+    } else {
+      // Profile-specific failure (already_connected, already_pending, no_profile_urn, api_error, etc.)
+      // → mark failed and immediately try the next item
+      await supabase.from('connection_queue').update({
+        status: 'failed',
+        error: result.error ?? 'unknown',
+      }).eq('id', item.id)
+
+      // Only count real failures toward auto-pause, not expected skips
+      const isExpectedSkip = result.error === 'already_connected' || result.error === 'already_pending'
+      if (!isExpectedSkip) {
+        consecutiveFailures++
+        const { queuePending: sp } = await chrome.storage.local.get('queuePending')
+        await chrome.storage.local.set({ queuePending: Math.max(0, (sp ?? 1) - 1), consecutiveFailures })
+
+        if (consecutiveFailures >= 5) {
+          await chrome.storage.local.set({
+            campaignPaused: true,
+            pauseReason: `Auto-paused: ${consecutiveFailures} connections failed in a row (${result.error ?? 'unknown'})`,
+          })
+          updateBadge()
+          return
+        }
+      } else {
+        // Expected skip — just decrement pending count, reset consecutive failures
+        const { queuePending: sp } = await chrome.storage.local.get('queuePending')
+        await chrome.storage.local.set({ queuePending: Math.max(0, (sp ?? 1) - 1), consecutiveFailures: 0 })
+      }
+
+      console.log('[IHN] Skipped, trying next immediately')
+      skipMode = true
+      continue // ← no delay for skips
     }
   }
-
 }
 
 // ── LinkedIn relay approach ───────────────────────────────────────────────────

@@ -163,7 +163,7 @@
   }
   function extractNameFromHtml(html) {
     const ogMatch = html.match(/property="og:title"\s+content="([^"]+)"/) ?? html.match(/content="([^"]+)"\s+property="og:title"/);
-    if (ogMatch) return ogMatch[1].trim();
+    if (ogMatch) return ogMatch[1].replace(/\s*[|\-–]\s*LinkedIn\s*$/i, "").trim();
     const titleMatch = html.match(/<title>([^<]+)<\/title>/);
     if (titleMatch) return titleMatch[1].replace(/\s*[|\-–]\s*.*$/i, "").trim();
     return "";
@@ -187,8 +187,10 @@
           let linkedinName = "";
           try {
             const resp = await fetch(url, { credentials: "include" });
-            const html = await resp.text();
-            linkedinName = extractNameFromHtml(html);
+            if (resp.url.includes("/in/")) {
+              const html = await resp.text();
+              linkedinName = extractNameFromHtml(html);
+            }
           } catch {
           }
           results.push({ id: c.id, linkedin_name: linkedinName });
