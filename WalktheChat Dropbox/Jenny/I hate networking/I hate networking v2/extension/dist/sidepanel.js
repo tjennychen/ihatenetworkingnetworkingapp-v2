@@ -754,11 +754,11 @@
       chrome.tabs.create({ url: DASHBOARD_LOGIN_URL });
     });
   }
-  function startScan(ctx, hasCampaign = false) {
+  function startScan(ctx, hasCampaign = false, existingUrls = []) {
     noteValue = "";
     scanState = { type: "scanning", phase: "starting", done: 0, total: 0, currentName: "", startTime: Date.now(), eventName: ctx.eventName };
     renderEventPage(ctx, hasCampaign);
-    chrome.tabs.sendMessage(ctx.tabId, { type: "START_SCAN" });
+    chrome.tabs.sendMessage(ctx.tabId, { type: "START_SCAN", existingUrls });
   }
   async function launchCampaign(s) {
     const result = await new Promise((resolve) => {

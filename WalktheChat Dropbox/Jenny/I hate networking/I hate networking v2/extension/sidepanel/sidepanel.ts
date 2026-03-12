@@ -870,11 +870,11 @@ function wireAuthGate(): void {
 
 // ── Scan flow ─────────────────────────────────────────────────────────────────
 
-function startScan(ctx: Extract<TabContext, { kind: 'luma-event' }>, hasCampaign = false): void {
+function startScan(ctx: Extract<TabContext, { kind: 'luma-event' }>, hasCampaign = false, existingUrls: string[] = []): void {
   noteValue = ''
   scanState = { type: 'scanning', phase: 'starting', done: 0, total: 0, currentName: '', startTime: Date.now(), eventName: ctx.eventName }
   renderEventPage(ctx, hasCampaign)
-  chrome.tabs.sendMessage(ctx.tabId, { type: 'START_SCAN' })
+  chrome.tabs.sendMessage(ctx.tabId, { type: 'START_SCAN', existingUrls })
 }
 
 async function launchCampaign(s: Extract<ScanState, { type: 'results' }>): Promise<void> {
