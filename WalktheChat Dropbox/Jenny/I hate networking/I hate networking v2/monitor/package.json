@@ -1,0 +1,11 @@
+{
+  "name": "ihn-monitor",
+  "version": "1.0.0",
+  "description": "Nightly DOM health check and alert poller for IHN extension",
+  "private": true,
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "dotenv": "^16.0.0",
+    "playwright": "^1.40.0"
+  }
+}
