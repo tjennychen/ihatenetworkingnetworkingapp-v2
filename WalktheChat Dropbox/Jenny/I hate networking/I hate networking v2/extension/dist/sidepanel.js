@@ -8,6 +8,7 @@
   var expandedEvents = /* @__PURE__ */ new Set();
   var exportMode = false;
   var exportSelected = /* @__PURE__ */ new Set();
+  var cachedContacts = [];
   var draftState = "closed";
   var draftViewOpen = false;
   var draftNamesStartTime = 0;
@@ -818,6 +819,16 @@
     }
     if (scanState.type === "already_scanned") {
       const s = scanState;
+      const cachedLeadsHtml = s.contacts.filter((c) => c.linkedInUrl).map((c) => `
+      <div class="lead-row">
+        <div class="lead-initials">${escHtml(initials(c.name))}</div>
+        <div class="lead-name">${escHtml(c.name)}</div>
+        <div class="lead-badges">
+          ${c.linkedInUrl ? `<a href="${escHtml(c.linkedInUrl)}" target="_blank" class="badge badge-li">in</a>` : ""}
+          ${c.instagramUrl ? `<a href="${escHtml(c.instagramUrl)}" target="_blank" class="badge badge-ig">ig</a>` : ""}
+          ${c.twitterUrl ? `<a href="${escHtml(c.twitterUrl)}" target="_blank" class="badge badge-x">x</a>` : ""}
+        </div>
+      </div>`).join("");
       root.innerHTML = `
       <div class="compact-header">
         <div class="compact-brand">
@@ -828,14 +839,16 @@
       <div class="section">
         <div class="event-name">${escHtml(ctx.eventName || "This event")}</div>
         <div class="already-count" style="margin-top:8px;font-size:13px;color:#6b7280;">${s.count} attendees scanned \xB7 ${s.linkedInCount} on LinkedIn</div>
-      </div>
-      <div class="section">
-        <button class="btn btn-primary" id="btnRescan">Scan again for new attendees</button>
+        <button class="btn btn-secondary" id="btnRescan" style="margin-top:12px;">Scan for new attendees</button>
         ${hasCampaign ? `<button class="btn btn-secondary" id="btnViewProgress" style="margin-top:8px;">View campaign progress</button>` : ""}
+        ${cachedLeadsHtml.length > 0 ? `<div class="leads-list" style="margin-top:12px;">${cachedLeadsHtml}</div>` : ""}
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `;
-      document.getElementById("btnRescan").addEventListener("click", () => startScan(ctx, hasCampaign));
+      document.getElementById("btnRescan").addEventListener("click", () => {
+        cachedContacts = s.contacts;
+        startScan(ctx, hasCampaign, s.existingUrls);
+      });
       document.getElementById("btnViewProgress")?.addEventListener("click", () => {
         scanState = { type: "idle" };
         render();
