@@ -16,6 +16,7 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'checkQueue') {
     await processNextQueueItem()
+    await refreshNextScheduledAt()
     updateBadge()
   }
 })
@@ -634,6 +635,23 @@ async function launchCampaign(data: {
   return { queued: contacts.length, eventId }
 }
 
+async function refreshNextScheduledAt(): Promise<void> {
+  const session = await getSession()
+  if (!session) return
+  const supabase = getAuthedSupabase(session.access_token)
+  const { data } = await supabase
+    .from('connection_queue')
+    .select('scheduled_at')
+    .eq('user_id', session.user.id)
+    .eq('status', 'pending')
+    .order('scheduled_at', { ascending: true })
+    .limit(1)
+    .single()
+  if (data?.scheduled_at) {
+    await chrome.storage.local.set({ nextScheduledAt: data.scheduled_at })
+  }
+}
+
 async function processNextQueueItem(): Promise<void> {
   // Only send during daytime hours (6am–11pm local) to look natural
   const hour = new Date().getHours()
@@ -854,25 +872,37 @@ async function sendViaLinkedInRelay(
   note: string,
   csrfToken: string
 ): Promise<{ success: boolean; error?: string }> {
-  // Open a background tab (NOT a minimized window — per FIXES.md)
-  const tab = await chrome.tabs.create({ url: 'https://www.linkedin.com/feed/', active: false })
-  const tabId = tab.id!
+  // Prefer an existing LinkedIn tab — avoids opening a visible new tab
+  const existingTabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })
+  const existingTabId = existingTabs[0]?.id ?? null
 
-  // Wait for the tab to finish loading before probing the content script
-  await new Promise<void>((resolve) => {
-    const timeout = setTimeout(resolve, 15000)
-    chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-      if (tid === tabId && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener)
-        clearTimeout(timeout)
-        setTimeout(resolve, 1000)
-      }
+  let tabId: number
+  let openedTabId: number | null = null
+
+  if (existingTabId) {
+    tabId = existingTabId
+  } else {
+    // No LinkedIn tab open — open a background tab (NOT a minimized window — per FIXES.md)
+    const tab = await chrome.tabs.create({ url: 'https://www.linkedin.com/feed/', active: false })
+    openedTabId = tab.id!
+    tabId = openedTabId
+
+    // Wait for the tab to finish loading before probing the content script
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, 15000)
+      chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+        if (tid === tabId && info.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener)
+          clearTimeout(timeout)
+          setTimeout(resolve, 1000)
+        }
+      })
     })
-  })
+  }
 
   const ready = await waitForContentScript(tabId, 8000)
   if (!ready) {
-    await chrome.tabs.remove(tabId).catch(() => {})
+    if (openedTabId) await chrome.tabs.remove(openedTabId).catch(() => {})
     return { success: false, error: 'no_linkedin_session' }
   }
 
@@ -886,6 +916,7 @@ async function sendViaLinkedInRelay(
     })
   })
 
-  await chrome.tabs.remove(tabId).catch(() => {})
+  // Only close the tab if we opened it
+  if (openedTabId) await chrome.tabs.remove(openedTabId).catch(() => {})
   return result
 }

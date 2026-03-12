@@ -11572,6 +11572,7 @@ ${suffix}`;
   chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name === "checkQueue") {
       await processNextQueueItem();
+      await refreshNextScheduledAt();
       updateBadge();
     }
   });
@@ -12038,6 +12039,15 @@ ${suffix}`;
     updateBadge();
     return { queued: contacts.length, eventId };
   }
+  async function refreshNextScheduledAt() {
+    const session = await getSession();
+    if (!session) return;
+    const supabase = getAuthedSupabase(session.access_token);
+    const { data } = await supabase.from("connection_queue").select("scheduled_at").eq("user_id", session.user.id).eq("status", "pending").order("scheduled_at", { ascending: true }).limit(1).single();
+    if (data?.scheduled_at) {
+      await chrome.storage.local.set({ nextScheduledAt: data.scheduled_at });
+    }
+  }
   async function processNextQueueItem() {
     const hour = (/* @__PURE__ */ new Date()).getHours();
     if (hour < 6 || hour >= 23) return;
@@ -12199,21 +12209,30 @@ ${suffix}`;
     return false;
   }
   async function sendViaLinkedInRelay(vanityName, note, csrfToken) {
-    const tab = await chrome.tabs.create({ url: "https://www.linkedin.com/feed/", active: false });
-    const tabId = tab.id;
-    await new Promise((resolve) => {
-      const timeout = setTimeout(resolve, 15e3);
-      chrome.tabs.onUpdated.addListener(function listener(tid, info) {
-        if (tid === tabId && info.status === "complete") {
-          chrome.tabs.onUpdated.removeListener(listener);
-          clearTimeout(timeout);
-          setTimeout(resolve, 1e3);
-        }
+    const existingTabs = await chrome.tabs.query({ url: "https://www.linkedin.com/*" });
+    const existingTabId = existingTabs[0]?.id ?? null;
+    let tabId;
+    let openedTabId = null;
+    if (existingTabId) {
+      tabId = existingTabId;
+    } else {
+      const tab = await chrome.tabs.create({ url: "https://www.linkedin.com/feed/", active: false });
+      openedTabId = tab.id;
+      tabId = openedTabId;
+      await new Promise((resolve) => {
+        const timeout = setTimeout(resolve, 15e3);
+        chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+          if (tid === tabId && info.status === "complete") {
+            chrome.tabs.onUpdated.removeListener(listener);
+            clearTimeout(timeout);
+            setTimeout(resolve, 1e3);
+          }
+        });
       });
-    });
+    }
     const ready = await waitForContentScript(tabId, 8e3);
     if (!ready) {
-      await chrome.tabs.remove(tabId).catch(() => {
+      if (openedTabId) await chrome.tabs.remove(openedTabId).catch(() => {
       });
       return { success: false, error: "no_linkedin_session" };
     }
@@ -12225,7 +12244,7 @@ ${suffix}`;
         resolve(response ?? { success: false, error: "no_response" });
       });
     });
-    await chrome.tabs.remove(tabId).catch(() => {
+    if (openedTabId) await chrome.tabs.remove(openedTabId).catch(() => {
     });
     return result;
   }
