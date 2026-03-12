@@ -784,7 +784,16 @@
         });
       });
       if (existing?.eventId && existing.existingUrls.length > 0) {
-        scanState = { type: "already_scanned", count: existing.existingUrls.length, linkedInCount: existing.linkedInCount, eventId: existing.eventId, eventName: ctx.eventName };
+        const mappedContacts = (existing.contacts ?? []).map((c) => ({
+          url: c.luma_profile_url,
+          name: c.name,
+          linkedInUrl: c.linkedin_url,
+          instagramUrl: c.instagram_url,
+          twitterUrl: c.twitter_url,
+          websiteUrl: c.website_url,
+          isHost: c.is_host
+        }));
+        scanState = { type: "already_scanned", count: existing.existingUrls.length, linkedInCount: existing.linkedInCount, eventId: existing.eventId, eventName: ctx.eventName, contacts: mappedContacts, existingUrls: existing.existingUrls };
       }
     }
     if (scanState.type === "idle") {
