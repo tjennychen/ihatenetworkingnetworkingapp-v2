@@ -268,14 +268,14 @@ interface LumaGuestEntry {
   websiteUrl: string
 }
 
-function installGuestApiInterceptor(): { getGuests: () => LumaGuestEntry[], cleanup: () => void } {
+function installGuestApiInterceptor(apiPatternOverride?: RegExp): { getGuests: () => LumaGuestEntry[], cleanup: () => void } {
   const capturedMap = new Map<string, LumaGuestEntry>()
   const originalFetch = window.fetch
   const originalXhrOpen = XMLHttpRequest.prototype.open
   const originalXhrSend = XMLHttpRequest.prototype.send
   const profileBase = location.origin.replace(/\/$/, '')
 
-  const GUEST_API_PATTERN = /(guest|guests|ticket|tickets|attendee|attendees|rsvp|participant|participants)/i
+  const GUEST_API_PATTERN = apiPatternOverride ?? /(guest|guests|ticket|tickets|attendee|attendees|rsvp|participant|participants)/i
 
   const addGuest = (usernameRaw: string, nameRaw: string, social: { linkedin?: string; instagram?: string; twitter?: string; website?: string }): void => {
     const username = String(usernameRaw || '').trim().replace(/^\/+/, '').replace(/^u\//, '')
@@ -386,14 +386,34 @@ async function runScan(): Promise<void> {
   const eventName = document.querySelector('h1')?.textContent?.trim() ?? document.title
   const lumaUrl = location.href
 
+  // Fetch remote config (falls back to hardcoded defaults if unavailable)
+  let remoteConfig: any = null
+  try {
+    remoteConfig = await new Promise(resolve => {
+      chrome.runtime.sendMessage({ type: 'GET_CONFIG' }, (resp) => {
+        resolve(resp?.config || null)
+      })
+    })
+  } catch {}
+
+  // Build API pattern from remote config if available
+  const apiPatternOverride: RegExp | undefined = remoteConfig?.luma_api_pattern
+    ? new RegExp(remoteConfig.luma_api_pattern, 'i')
+    : undefined
+
   // Install fetch interceptor BEFORE clicking the guest button
-  const interceptor = installGuestApiInterceptor()
+  const interceptor = installGuestApiInterceptor(apiPatternOverride)
 
   // Collect links already on page (hosts etc.)
   const preClickLinks = new Set(extractGuestProfileUrlsFromPage())
   console.log('[IHN] Pre-click /u/ links on page:', preClickLinks.size)
 
-  const labelPatterns = [/\band \d+ others\b/i, /\bGuests\b/, /\bGoing\b/, /\bAttendees\b/, /\bSee all\b/, /\bWent\b/]
+  const buttonLabels: string[] = remoteConfig?.luma_button_labels ||
+    ["Guests", "Going", "Attendees", "See all", "Went", "Registered"]
+  const labelPatterns = [
+    /\band \d+ others\b/i,
+    ...buttonLabels.map(label => new RegExp(`\\b${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'))
+  ]
   const allBtns = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
   const allBtnTexts = allBtns.map(b => b.textContent?.trim()).filter(Boolean).slice(0, 20)
   let buttonClicked = false

@@ -6,6 +6,19 @@ You are the ops agent for the "I Hate Networking" Chrome extension. When invoked
 
 ---
 
+## Environment Detection
+
+If running on VPS (no `/Users/jenny` path exists):
+- Repo root: `~/repos/ihn-v2/`
+- Memory files: `~/repos/ihn-v2/.claude/memory/`
+- Build command: `cd ~/repos/ihn-v2/extension && npm run build` (use Node version from `.nvmrc`)
+- Skip the health check queries if invoked with a `diagnostic_payload:` in the prompt — go straight to break pattern lookup
+
+If running on Mac (default):
+- All existing paths remain unchanged
+
+---
+
 ## First Response: Health Check
 
 Run these Supabase SQL queries (project_id: `urgibxjxbcyvprdejplp`) immediately on every invocation. Do not ask what is wrong first. Just run them and report findings.
@@ -71,6 +84,26 @@ SELECT * FROM queue_monitor_log ORDER BY ran_at DESC LIMIT 5;
 
 ---
 
+## MCP Tools Available (VPS only)
+
+When running on VPS with MCP servers registered, use these tools BEFORE proposing any fix:
+
+**playwright-mcp** — Navigate the actual page and see what's there
+- `browser_navigate` to the failing Luma event URL or LinkedIn profile
+- `browser_take_screenshot` to capture current state
+- `browser_evaluate` to query DOM: `document.querySelectorAll('button').map(b => b.textContent?.trim())`
+- This shows you exactly what a real user sees. Never propose a fix based on assumptions about the DOM — look first.
+
+**supabase-mcp** — Query production data directly
+- Use for all scan_log, monitor_alerts, connection_queue queries
+- Use to update extension_config for label-only fixes (no code change needed)
+
+**github-mcp** — Ship fixes
+- Use `create_pull_request` when fix is ready
+- Branch naming: `fix/<slug>-<YYYY-MM-DD>`
+
+---
+
 ## Hard Rules (NEVER violate)
 
 These bugs have been reintroduced multiple times. Read each one before editing any file.
@@ -101,14 +134,20 @@ These bugs have been reintroduced multiple times. Read each one before editing a
 
 Run this checklist after every fix:
 
-1. Build the extension:
-   ```
-   cd "/Users/jenny/WalktheChat Dropbox/Jenny/I hate networking/I hate networking v2/extension" && npm run build
-   ```
+1. **Build the extension:**
+   - Mac: `cd "/Users/jenny/WalktheChat Dropbox/Jenny/I hate networking/I hate networking v2/extension" && npm run build`
+   - VPS: `cd ~/repos/ihn-v2/extension && npm run build`
 
-2. Update `docs/FIXES.md` with a new entry following the template at the bottom of that file.
+2. **Update `docs/FIXES.md`** with a new entry following the template at the bottom of that file.
 
-3. Update the memory file at `/Users/jenny/.claude/projects/-Users-jenny/memory/linkedin-automation.md` if a new pattern was discovered.
+3. **Update the memory file** at `/Users/jenny/.claude/projects/-Users-jenny/memory/linkedin-automation.md` (Mac) or `~/repos/ihn-v2/.claude/memory/linkedin-automation.md` (VPS) if a new pattern was discovered.
+
+4. **Draft a regression test** for this failure mode and save it to `monitor/staging/<slug>.test.js`. Do NOT add it to `monitor/` directly — Jenny reviews staging tests before activating them. Include:
+   - What was broken
+   - What selector/pattern to check
+   - Pass/fail criteria
+
+5. **Create PR** (VPS only): Use github-mcp `create_pull_request` tool, branch `fix/<slug>-<YYYY-MM-DD>`, then send the PR link to Telegram.
 
 ---
 

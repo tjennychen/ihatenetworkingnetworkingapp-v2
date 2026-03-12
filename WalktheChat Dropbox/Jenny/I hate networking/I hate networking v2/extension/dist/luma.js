@@ -204,13 +204,13 @@
     const raw = titleMatch ? titleMatch[1].trim() : (html.match(/property="og:title"\s+content="([^"]+)"/) ?? [])[1]?.trim() ?? "";
     return raw.replace(/\s*·\s*Luma\s*$/i, "").trim();
   }
-  function installGuestApiInterceptor() {
+  function installGuestApiInterceptor(apiPatternOverride) {
     const capturedMap = /* @__PURE__ */ new Map();
     const originalFetch = window.fetch;
     const originalXhrOpen = XMLHttpRequest.prototype.open;
     const originalXhrSend = XMLHttpRequest.prototype.send;
     const profileBase = location.origin.replace(/\/$/, "");
-    const GUEST_API_PATTERN = /(guest|guests|ticket|tickets|attendee|attendees|rsvp|participant|participants)/i;
+    const GUEST_API_PATTERN = apiPatternOverride ?? /(guest|guests|ticket|tickets|attendee|attendees|rsvp|participant|participants)/i;
     const addGuest = (usernameRaw, nameRaw, social) => {
       const username = String(usernameRaw || "").trim().replace(/^\/+/, "").replace(/^u\//, "");
       if (!username) return;
@@ -312,10 +312,24 @@
   async function runScan() {
     const eventName = document.querySelector("h1")?.textContent?.trim() ?? document.title;
     const lumaUrl = location.href;
-    const interceptor = installGuestApiInterceptor();
+    let remoteConfig = null;
+    try {
+      remoteConfig = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: "GET_CONFIG" }, (resp) => {
+          resolve(resp?.config || null);
+        });
+      });
+    } catch {
+    }
+    const apiPatternOverride = remoteConfig?.luma_api_pattern ? new RegExp(remoteConfig.luma_api_pattern, "i") : void 0;
+    const interceptor = installGuestApiInterceptor(apiPatternOverride);
     const preClickLinks = new Set(extractGuestProfileUrlsFromPage());
     console.log("[IHN] Pre-click /u/ links on page:", preClickLinks.size);
-    const labelPatterns = [/\band \d+ others\b/i, /\bGuests\b/, /\bGoing\b/, /\bAttendees\b/, /\bSee all\b/, /\bWent\b/];
+    const buttonLabels = remoteConfig?.luma_button_labels || ["Guests", "Going", "Attendees", "See all", "Went", "Registered"];
+    const labelPatterns = [
+      /\band \d+ others\b/i,
+      ...buttonLabels.map((label) => new RegExp(`\\b${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"))
+    ];
     const allBtns = Array.from(document.querySelectorAll('button, [role="button"]'));
     const allBtnTexts = allBtns.map((b) => b.textContent?.trim()).filter(Boolean).slice(0, 20);
     let buttonClicked = false;

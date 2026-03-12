@@ -1,28 +1,6 @@
 import { getSupabase, getAuthedSupabase } from '../lib/supabase'
 import { checkDailyLimit, getSentTodayCount } from '../lib/rate-limiter'
 
-// Track the minimized LinkedIn relay window so we reuse it across operations
-let linkedinWindowId: number | null = null
-
-async function getOrCreateLinkedinWindow(url: string): Promise<{ tabId: number; windowId: number; opened: boolean }> {
-  // Reuse existing minimized window if still alive
-  if (linkedinWindowId !== null) {
-    try {
-      const win = await chrome.windows.get(linkedinWindowId)
-      if (win) {
-        const tab = await chrome.tabs.create({ url, active: false, windowId: linkedinWindowId })
-        return { tabId: tab.id!, windowId: linkedinWindowId, opened: true }
-      }
-    } catch { /* window was closed */ }
-    linkedinWindowId = null
-  }
-  // Create a minimized window — user won't see it
-  const win = await chrome.windows.create({ url, state: 'minimized', focused: false })
-  linkedinWindowId = win.id!
-  const tabId = win.tabs?.[0]?.id
-  if (!tabId) throw new Error('no tab in new window')
-  return { tabId, windowId: win.id!, opened: true }
-}
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('checkQueue', { periodInMinutes: 2 })
@@ -98,6 +76,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'SAVE_CONTACTS') {
     saveContacts(msg.data).then(count => sendResponse({ saved: count }))
+    return true
+  }
+
+  if (msg.type === 'GET_CONFIG') {
+    ;(async () => {
+      const CONFIG_TTL_MS = 60 * 60 * 1000 // 1 hour
+      const stored = await chrome.storage.local.get(['extension_config', 'config_fetched_at'])
+      const cachedConfig = stored.extension_config ?? null
+      const fetchedAt: number = stored.config_fetched_at ?? 0
+      const isFresh = fetchedAt > 0 && (Date.now() - fetchedAt) < CONFIG_TTL_MS
+
+      if (isFresh && cachedConfig) {
+        sendResponse({ config: cachedConfig })
+        return
+      }
+
+      try {
+        const supabase = getSupabase()
+        const { data, error } = await supabase.from('extension_config').select('key, value')
+        if (error || !data) throw error ?? new Error('no data')
+        const config: Record<string, any> = {}
+        for (const row of data) {
+          config[row.key] = row.value
+        }
+        await chrome.storage.local.set({ extension_config: config, config_fetched_at: Date.now() })
+        sendResponse({ config })
+      } catch {
+        // Supabase fetch failed — return cached value if available, otherwise null
+        sendResponse({ config: cachedConfig })
+      }
+    })()
     return true
   }
 
@@ -238,7 +247,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // All queue statuses for this user — explicit user_id filter bypasses nested select auth issues
       const { data: allQueue } = await supabase
         .from('connection_queue')
-        .select('contact_id, status, error')
+        .select('contact_id, status, error, sent_at')
         .eq('user_id', session.user.id)
 
       // Build lookup: contact_id → queue entry
@@ -336,15 +345,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const supabase = getAuthedSupabase(session.access_token)
       const { data: contacts } = await supabase
         .from('contacts')
-        .select('id, name, linkedin_url, linkedin_name, is_host')
+        .select('id, name, linkedin_url, linkedin_name, instagram_url, twitter_url, is_host')
         .eq('event_id', msg.eventId)
         .eq('user_id', session.user.id)
       if (!contacts) { sendResponse(null); return }
       const hosts = contacts.filter((c: any) => c.is_host)
       const guests = contacts.filter((c: any) => !c.is_host)
-      // Random sample of up to 15 guests
-      const shuffled = [...guests].sort(() => Math.random() - 0.5)
-      const sample = shuffled.slice(0, 15)
+      // Shuffle within tiers: both ig+x first, then one, then neither
+      const rand = () => Math.random() - 0.5
+      const withBoth = [...guests.filter((g: any) => g.instagram_url && g.twitter_url)].sort(rand)
+      const withOne = [...guests.filter((g: any) => (g.instagram_url || g.twitter_url) && !(g.instagram_url && g.twitter_url))].sort(rand)
+      const withNone = [...guests.filter((g: any) => !g.instagram_url && !g.twitter_url)].sort(rand)
+      const sample = [...withBoth, ...withOne, ...withNone].slice(0, 15)
       sendResponse({ hosts, guests: sample, totalGuests: guests.length })
     })
     return true
@@ -398,12 +410,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       if (openedTabId) chrome.tabs.remove(openedTabId).catch(() => {})
 
-      // Persist names to Supabase (skip generic/invalid names)
-      for (const r of results) {
-        if (r.linkedin_name && !/^(LinkedIn|Log In|Sign In|Sign Up)$/i.test(r.linkedin_name.trim())) {
-          await supabase.from('contacts').update({ linkedin_name: r.linkedin_name }).eq('id', r.id)
-        }
-      }
+      // Persist names to Supabase (skip generic/invalid names) — fire in parallel, don't block response
+      const validResults = results.filter(r => r.linkedin_name && !/^(LinkedIn|Log In|Sign In|Sign Up)$/i.test(r.linkedin_name.trim()))
+      Promise.all(validResults.map(r => supabase.from('contacts').update({ linkedin_name: r.linkedin_name }).eq('id', r.id))).catch(() => {})
 
       sendResponse(results)
     })
@@ -788,8 +797,10 @@ async function processNextQueueItem(): Promise<void> {
         error: result.error ?? 'unknown',
       }).eq('id', item.id)
 
-      // Only count real failures toward auto-pause, not expected skips
+      // Only count real failures toward auto-pause, not expected skips.
+      // api_error_400 = profile has connection restrictions — treat as a skip.
       const isExpectedSkip = result.error === 'already_connected' || result.error === 'already_pending'
+        || (result.error?.startsWith('api_error_400:') ?? false)
       if (!isExpectedSkip) {
         consecutiveFailures++
         const { queuePending: sp } = await chrome.storage.local.get('queuePending')
@@ -798,7 +809,7 @@ async function processNextQueueItem(): Promise<void> {
         if (consecutiveFailures >= 5) {
           await chrome.storage.local.set({
             campaignPaused: true,
-            pauseReason: `Auto-paused: ${consecutiveFailures} connections failed in a row (${result.error ?? 'unknown'})`,
+            pauseReason: `Auto-paused: ${consecutiveFailures} unexpected errors in a row. Check your LinkedIn session and resume when ready.`,
           })
           updateBadge()
           return
@@ -843,11 +854,23 @@ async function sendViaLinkedInRelay(
   note: string,
   csrfToken: string
 ): Promise<{ success: boolean; error?: string }> {
-  // Open in a minimized window — user won't see it
-  const relay = await getOrCreateLinkedinWindow('https://www.linkedin.com/feed/')
-  const tabId = relay.tabId
+  // Open a background tab (NOT a minimized window — per FIXES.md)
+  const tab = await chrome.tabs.create({ url: 'https://www.linkedin.com/feed/', active: false })
+  const tabId = tab.id!
 
-  const ready = await waitForContentScript(tabId, 12000)
+  // Wait for the tab to finish loading before probing the content script
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, 15000)
+    chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+      if (tid === tabId && info.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener)
+        clearTimeout(timeout)
+        setTimeout(resolve, 1000)
+      }
+    })
+  })
+
+  const ready = await waitForContentScript(tabId, 8000)
   if (!ready) {
     await chrome.tabs.remove(tabId).catch(() => {})
     return { success: false, error: 'no_linkedin_session' }

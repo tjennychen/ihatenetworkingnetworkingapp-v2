@@ -11560,25 +11560,6 @@ ${suffix}`;
   }
 
   // background/service-worker.ts
-  var linkedinWindowId = null;
-  async function getOrCreateLinkedinWindow(url) {
-    if (linkedinWindowId !== null) {
-      try {
-        const win2 = await chrome.windows.get(linkedinWindowId);
-        if (win2) {
-          const tab = await chrome.tabs.create({ url, active: false, windowId: linkedinWindowId });
-          return { tabId: tab.id, windowId: linkedinWindowId, opened: true };
-        }
-      } catch {
-      }
-      linkedinWindowId = null;
-    }
-    const win = await chrome.windows.create({ url, state: "minimized", focused: false });
-    linkedinWindowId = win.id;
-    const tabId = win.tabs?.[0]?.id;
-    if (!tabId) throw new Error("no tab in new window");
-    return { tabId, windowId: win.id, opened: true };
-  }
   chrome.runtime.onInstalled.addListener(() => {
     chrome.alarms.create("checkQueue", { periodInMinutes: 2 });
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -11641,6 +11622,34 @@ ${suffix}`;
     }
     if (msg.type === "SAVE_CONTACTS") {
       saveContacts(msg.data).then((count) => sendResponse({ saved: count }));
+      return true;
+    }
+    if (msg.type === "GET_CONFIG") {
+      ;
+      (async () => {
+        const CONFIG_TTL_MS = 60 * 60 * 1e3;
+        const stored = await chrome.storage.local.get(["extension_config", "config_fetched_at"]);
+        const cachedConfig = stored.extension_config ?? null;
+        const fetchedAt = stored.config_fetched_at ?? 0;
+        const isFresh = fetchedAt > 0 && Date.now() - fetchedAt < CONFIG_TTL_MS;
+        if (isFresh && cachedConfig) {
+          sendResponse({ config: cachedConfig });
+          return;
+        }
+        try {
+          const supabase = getSupabase();
+          const { data, error } = await supabase.from("extension_config").select("key, value");
+          if (error || !data) throw error ?? new Error("no data");
+          const config = {};
+          for (const row of data) {
+            config[row.key] = row.value;
+          }
+          await chrome.storage.local.set({ extension_config: config, config_fetched_at: Date.now() });
+          sendResponse({ config });
+        } catch {
+          sendResponse({ config: cachedConfig });
+        }
+      })();
       return true;
     }
     if (msg.type === "START_ENRICHMENT") {
@@ -11752,7 +11761,7 @@ ${suffix}`;
           return { date: d, cumulative: cum };
         });
         const { data: events } = await supabase.from("events").select("id, name, contacts(id, name, linkedin_url, instagram_url, twitter_url, website_url)").eq("user_id", session.user.id).order("created_at", { ascending: false });
-        const { data: allQueue } = await supabase.from("connection_queue").select("contact_id, status, error").eq("user_id", session.user.id);
+        const { data: allQueue } = await supabase.from("connection_queue").select("contact_id, status, error, sent_at").eq("user_id", session.user.id);
         const queueByContact = /* @__PURE__ */ new Map();
         for (const q of allQueue ?? []) {
           if (!queueByContact.has(q.contact_id)) queueByContact.set(q.contact_id, q);
@@ -11833,15 +11842,18 @@ ${suffix}`;
           return;
         }
         const supabase = getAuthedSupabase(session.access_token);
-        const { data: contacts } = await supabase.from("contacts").select("id, name, linkedin_url, linkedin_name, is_host").eq("event_id", msg.eventId).eq("user_id", session.user.id);
+        const { data: contacts } = await supabase.from("contacts").select("id, name, linkedin_url, linkedin_name, instagram_url, twitter_url, is_host").eq("event_id", msg.eventId).eq("user_id", session.user.id);
         if (!contacts) {
           sendResponse(null);
           return;
         }
         const hosts = contacts.filter((c) => c.is_host);
         const guests = contacts.filter((c) => !c.is_host);
-        const shuffled = [...guests].sort(() => Math.random() - 0.5);
-        const sample = shuffled.slice(0, 15);
+        const rand = () => Math.random() - 0.5;
+        const withBoth = [...guests.filter((g) => g.instagram_url && g.twitter_url)].sort(rand);
+        const withOne = [...guests.filter((g) => (g.instagram_url || g.twitter_url) && !(g.instagram_url && g.twitter_url))].sort(rand);
+        const withNone = [...guests.filter((g) => !g.instagram_url && !g.twitter_url)].sort(rand);
+        const sample = [...withBoth, ...withOne, ...withNone].slice(0, 15);
         sendResponse({ hosts, guests: sample, totalGuests: guests.length });
       });
       return true;
@@ -11888,11 +11900,9 @@ ${suffix}`;
         }
         if (openedTabId) chrome.tabs.remove(openedTabId).catch(() => {
         });
-        for (const r of results) {
-          if (r.linkedin_name && !/^(LinkedIn|Log In|Sign In|Sign Up)$/i.test(r.linkedin_name.trim())) {
-            await supabase.from("contacts").update({ linkedin_name: r.linkedin_name }).eq("id", r.id);
-          }
-        }
+        const validResults = results.filter((r) => r.linkedin_name && !/^(LinkedIn|Log In|Sign In|Sign Up)$/i.test(r.linkedin_name.trim()));
+        Promise.all(validResults.map((r) => supabase.from("contacts").update({ linkedin_name: r.linkedin_name }).eq("id", r.id))).catch(() => {
+        });
         sendResponse(results);
       });
       return true;
@@ -12151,7 +12161,7 @@ ${suffix}`;
           status: "failed",
           error: result.error ?? "unknown"
         }).eq("id", item.id);
-        const isExpectedSkip = result.error === "already_connected" || result.error === "already_pending";
+        const isExpectedSkip = result.error === "already_connected" || result.error === "already_pending" || (result.error?.startsWith("api_error_400:") ?? false);
         if (!isExpectedSkip) {
           consecutiveFailures++;
           const { queuePending: sp } = await chrome.storage.local.get("queuePending");
@@ -12159,7 +12169,7 @@ ${suffix}`;
           if (consecutiveFailures >= 5) {
             await chrome.storage.local.set({
               campaignPaused: true,
-              pauseReason: `Auto-paused: ${consecutiveFailures} connections failed in a row (${result.error ?? "unknown"})`
+              pauseReason: `Auto-paused: ${consecutiveFailures} unexpected errors in a row. Check your LinkedIn session and resume when ready.`
             });
             updateBadge();
             return;
@@ -12189,9 +12199,19 @@ ${suffix}`;
     return false;
   }
   async function sendViaLinkedInRelay(vanityName, note, csrfToken) {
-    const relay = await getOrCreateLinkedinWindow("https://www.linkedin.com/feed/");
-    const tabId = relay.tabId;
-    const ready = await waitForContentScript(tabId, 12e3);
+    const tab = await chrome.tabs.create({ url: "https://www.linkedin.com/feed/", active: false });
+    const tabId = tab.id;
+    await new Promise((resolve) => {
+      const timeout = setTimeout(resolve, 15e3);
+      chrome.tabs.onUpdated.addListener(function listener(tid, info) {
+        if (tid === tabId && info.status === "complete") {
+          chrome.tabs.onUpdated.removeListener(listener);
+          clearTimeout(timeout);
+          setTimeout(resolve, 1e3);
+        }
+      });
+    });
+    const ready = await waitForContentScript(tabId, 8e3);
     if (!ready) {
       await chrome.tabs.remove(tabId).catch(() => {
       });

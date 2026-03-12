@@ -19,12 +19,11 @@
     return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
   }
   function generateCsv(selectedIds, events) {
-    const rows = ["Event,Name,LinkedIn URL,Instagram,Twitter,Website,Status"];
+    const rows = ["Event,Name,LinkedIn URL,Instagram,Twitter,Website"];
     for (const ev of events) {
       if (!selectedIds.has(ev.id ?? "")) continue;
       for (const c of ev.contacts ?? []) {
-        const status = c.connection_queue?.[0]?.status ?? "";
-        const row = [ev.name ?? "", c.name ?? "", c.linkedin_url ?? "", c.instagram_url ?? "", c.twitter_url ?? "", c.website_url ?? "", status].map((v) => `"${v.replace(/"/g, '""')}"`).join(",");
+        const row = [ev.name ?? "", c.name ?? "", c.linkedin_url ?? "", c.instagram_url ?? "", c.twitter_url ?? "", c.website_url ?? ""].map((v) => `"${v.replace(/"/g, '""')}"`).join(",");
         rows.push(row);
       }
     }
@@ -52,7 +51,7 @@
     const words = s.split(/\s+/);
     if (words.length <= 4) return s.toLowerCase();
     const m = s.match(/\b(hackathon|meetup|mixer|workshop|night|summit|conference|brunch|social|happy hour|bootcamp|jam|sprint|demo day|pitch night|office hours)\b/i);
-    if (m) return m[0].toLowerCase();
+    if (m && m.index !== void 0) return s.slice(0, m.index + m[0].length).trim().toLowerCase();
     return words.slice(0, 3).join(" ").toLowerCase();
   }
   function defaultNote(eventName) {
@@ -200,7 +199,7 @@
           new Promise(
             (resolve) => chrome.runtime.sendMessage({ type: "GET_LINKEDIN_NAMES", contacts: needFetch.map((c) => ({ id: c.id, linkedin_url: c.linkedin_url })) }, resolve)
           ),
-          new Promise((resolve) => setTimeout(() => resolve(null), 3e4))
+          new Promise((resolve) => setTimeout(() => resolve(null), 9e4))
         ]);
         fetchedNames = Array.isArray(raw) ? raw : [];
       } catch (e) {
@@ -211,6 +210,7 @@
   }
   var _draftFetchContext = null;
   function finishDraft(eventId, eventName, hosts, guests, totalGuests, fetchedNames, state) {
+    if (draftState === "closed") return;
     if (typeof draftState === "object" && draftState.stage === "ready") return;
     _draftFetchContext = null;
     const isBadName = (n) => !n || /^(LinkedIn|Log In|Sign In|Sign Up)$/i.test(n.trim());
@@ -221,8 +221,18 @@
     const hostMentions = hosts.map((h) => fetchedMap.get(h.id) || !isBadName(h.linkedin_name) && h.linkedin_name || !isBadName(h.name) && h.name || "").filter(Boolean).map((n) => `@${n}`).join(" ");
     const shortName = eventName.replace(/\s*·\s*[^·]+$/, "").replace(/\s*·\s*[^·]+$/, "").trim();
     const postText = hostMentions ? `Thanks ${hostMentions} for organizing the ${shortName} event!` : `Thanks everyone for organizing the ${shortName} event!`;
-    const guestNames = guests.map((g) => nameMap.get(g.id) || g.name || "").filter(Boolean);
-    draftState = { stage: "ready", eventId, eventName, postText, guestNames, totalGuests };
+    const extractHandle = (url) => {
+      if (!url) return "";
+      const cleaned = url.replace(/\/$/, "");
+      const parts = cleaned.split("/");
+      return parts[parts.length - 1] || "";
+    };
+    const isFullName = (n) => n.trim().split(/\s+/).length >= 2;
+    const guestEntries = guests.map((g) => {
+      const name = nameMap.get(g.id) || g.name || "";
+      return { name, ig: extractHandle(g.instagram_url || ""), x: extractHandle(g.twitter_url || "") };
+    }).filter((ge) => isFullName(ge.name));
+    draftState = { stage: "ready", eventId, eventName, postText, guests: guestEntries, totalGuests };
     renderDraftView(state);
   }
   async function renderDraftView(state) {
@@ -237,6 +247,7 @@
       document.getElementById("btnBackDraft")?.addEventListener("click", () => {
         draftViewOpen = false;
         draftState = "closed";
+        _draftFetchContext = null;
         render();
       });
     };
@@ -272,7 +283,7 @@
       root.innerHTML = backBtn + `
       <div style="text-align:center;padding:60px 20px;">
         <div style="color:#9ca3af;font-size:13px;" id="draftNamesProgress">
-          ${n > 0 ? `Looking up ${n} LinkedIn names${hint}` : "Building your post draft\u2026"}
+          ${n > 0 ? `Looking up ${n} social handles${hint}` : "Building your post draft\u2026"}
         </div>
         ${n > 0 ? '<div style="color:#b0b5bd;font-size:11px;margin-top:6px;">So you can @ them in your post</div>' : ""}
       </div>
@@ -282,7 +293,19 @@
     }
     if (typeof draftState === "object" && draftState.stage === "ready") {
       const s = draftState;
-      const hasGuests = s.guestNames.length > 0;
+      const hasGuests = s.guests.length > 0;
+      const copyAllLinkedIn = s.guests.map((g) => `@${g.name}`).join(" ");
+      const copyAllIg = s.guests.filter((g) => g.ig).map((g) => `@${g.ig}`).join(" ");
+      const copyAllX = s.guests.filter((g) => g.x).map((g) => `@${g.x}`).join(" ");
+      const tableRows = s.guests.map((g, i) => {
+        const hasIg = !!g.ig;
+        const hasX = !!g.x;
+        return `<tr>
+        <td style="padding:5px 8px 5px 0;font-size:12px;color:#374151;cursor:pointer;white-space:nowrap;" class="draft-copy-name" data-name="${escHtml(g.name)}" data-idx="${i}">${escHtml(g.name)}</td>
+        <td style="padding:5px 4px;font-size:12px;color:${hasIg ? "#374151" : "#d1d5db"};text-align:center;${hasIg ? "cursor:pointer;" : ""}" class="${hasIg ? "draft-copy-handle" : ""}" data-handle="${hasIg ? escHtml(g.ig) : ""}">${hasIg ? escHtml(g.ig) : "\u2013"}</td>
+        <td style="padding:5px 0 5px 4px;font-size:12px;color:${hasX ? "#374151" : "#d1d5db"};text-align:center;${hasX ? "cursor:pointer;" : ""}" class="${hasX ? "draft-copy-handle" : ""}" data-handle="${hasX ? escHtml(g.x) : ""}">${hasX ? escHtml(g.x) : "\u2013"}</td>
+      </tr>`;
+      }).join("");
       root.innerHTML = backBtn + `
       <div style="padding:20px;">
         <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Post draft</div>
@@ -294,11 +317,24 @@
           <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Tip: Tag attendees for more reach</div>
           <p style="font-size:13px;color:#6b7280;line-height:1.5;margin:0;">In the LinkedIn app: tap your photo \u2192 Tag people \u2192 search each name below</p>
         </div>
-        <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Guest names</div>
-        <div style="margin-bottom:8px;">
-          ${s.guestNames.map((n) => `<div class="draft-name-row">${escHtml(n)}</div>`).join("")}
-        </div>
-        ${s.totalGuests >= 15 ? `<button class="btn btn-secondary" id="btnDraftShuffle" style="margin-bottom:16px;">Shuffle (${s.totalGuests} total)</button>` : ""}
+        <div style="font-size:11px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Guest names <span style="font-size:10px;color:#9ca3af;font-weight:400;text-transform:none;">(click to copy)</span></div>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+          <thead>
+            <tr style="border-bottom:1px solid #e5e7eb;">
+              <th style="padding:4px 8px 4px 0;font-size:10px;font-weight:600;color:#9ca3af;text-align:left;text-transform:uppercase;">LinkedIn</th>
+              <th style="padding:4px 4px;font-size:10px;font-weight:600;color:#9ca3af;text-align:center;text-transform:uppercase;">ig</th>
+              <th style="padding:4px 0 4px 4px;font-size:10px;font-weight:600;color:#9ca3af;text-align:center;text-transform:uppercase;">x</th>
+            </tr>
+            <tr>
+              <td style="padding:2px 8px 6px 0;"><span id="btnCopyAllLinkedIn" data-copyall="${escHtml(copyAllLinkedIn)}" style="display:inline-block;font-size:10px;font-weight:500;color:#374151;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;padding:2px 7px;cursor:pointer;white-space:nowrap;">Copy all</span></td>
+              <td style="padding:2px 4px 6px;text-align:center;">${copyAllIg ? `<span id="btnCopyAllIg" data-copyall="${escHtml(copyAllIg)}" style="display:inline-block;font-size:10px;font-weight:500;color:#374151;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;padding:2px 7px;cursor:pointer;white-space:nowrap;">Copy all</span>` : ""}</td>
+              <td style="padding:2px 0 6px 4px;text-align:center;">${copyAllX ? `<span id="btnCopyAllX" data-copyall="${escHtml(copyAllX)}" style="display:inline-block;font-size:10px;font-weight:500;color:#374151;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;padding:2px 7px;cursor:pointer;white-space:nowrap;">Copy all</span>` : ""}</td>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+        <div id="draftCopiedMsg" style="font-size:11px;color:#059669;min-height:16px;margin-bottom:4px;"></div>
+        ${s.totalGuests >= 15 ? `<button class="btn btn-secondary" id="btnDraftShuffle" style="margin-bottom:16px;">Shuffle for new 15 (${s.totalGuests} total)</button>` : ""}
         ` : ""}
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
@@ -316,6 +352,54 @@
         }).catch(() => {
         });
       });
+      document.querySelectorAll(".draft-copy-name").forEach((cell) => {
+        cell.addEventListener("click", () => {
+          const name = cell.getAttribute("data-name") ?? "";
+          navigator.clipboard.writeText(name).then(() => {
+            const msg = document.getElementById("draftCopiedMsg");
+            if (msg) {
+              msg.textContent = `Copied: ${name}`;
+              setTimeout(() => {
+                if (msg) msg.textContent = "";
+              }, 1500);
+            }
+          }).catch(() => {
+          });
+        });
+      });
+      document.querySelectorAll(".draft-copy-handle").forEach((cell) => {
+        cell.addEventListener("click", () => {
+          const handle = cell.getAttribute("data-handle") ?? "";
+          if (!handle) return;
+          navigator.clipboard.writeText(handle).then(() => {
+            const msg = document.getElementById("draftCopiedMsg");
+            if (msg) {
+              msg.textContent = `Copied: ${handle}`;
+              setTimeout(() => {
+                if (msg) msg.textContent = "";
+              }, 1500);
+            }
+          }).catch(() => {
+          });
+        });
+      });
+      ["btnCopyAllLinkedIn", "btnCopyAllIg", "btnCopyAllX"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener("click", () => {
+          const text = el.getAttribute("data-copyall") ?? "";
+          navigator.clipboard.writeText(text).then(() => {
+            const msg = document.getElementById("draftCopiedMsg");
+            if (msg) {
+              msg.textContent = "Copied all!";
+              setTimeout(() => {
+                if (msg) msg.textContent = "";
+              }, 1500);
+            }
+          }).catch(() => {
+          });
+        });
+      });
       document.getElementById("btnDraftShuffle")?.addEventListener("click", () => {
         if (typeof draftState === "object" && draftState.stage === "ready") {
           startDraftFetch(s.eventId, s.eventName, state);
@@ -327,7 +411,7 @@
   function nextConnectionLabel(nextAt) {
     if (!nextAt) return "";
     const diff = new Date(nextAt).getTime() - Date.now();
-    if (diff <= 0) return "Processing now...";
+    if (diff <= 0) return "Next: now";
     const mins = Math.ceil(diff / 6e4);
     if (mins >= 60) {
       const hrs = Math.floor(mins / 60);
@@ -372,34 +456,40 @@
     const events = progressResp?.events ?? [];
     const dailyCounts = progressResp?.dailyCounts ?? {};
     const nextAt = storageData.nextScheduledAt ?? null;
-    let sent = 0, dbPending = 0, failed = 0;
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1e3;
+    let allSent = 0, dbPending = 0, allFailed = 0, sent7d = 0;
     for (const event of events) {
       for (const contact of event.contacts ?? []) {
-        const status = contact.connection_queue?.[0]?.status;
-        if (status === "sent" || status === "accepted") sent++;
-        else if (status === "pending") dbPending++;
-        else if (status === "failed") failed++;
+        const q = contact.connection_queue?.[0];
+        const status = q?.status;
+        if (status === "sent" || status === "accepted") {
+          allSent++;
+          const sentAt = q?.sent_at ? new Date(q.sent_at).getTime() : 0;
+          if (sentAt >= sevenDaysAgo) sent7d++;
+        } else if (status === "pending") dbPending++;
+        else if (status === "failed") allFailed++;
       }
     }
-    const total = sent + dbPending + failed;
-    const pct = total > 0 ? Math.round(sent / total * 100) : 0;
-    const isRunning = state.pending > 0 && !state.paused;
+    const total = allSent + dbPending + allFailed;
+    const pct = total > 0 ? Math.round((allSent + allFailed) / total * 100) : 0;
+    const isRunning = dbPending > 0 && !state.paused;
     const pauseReason = storageData.pauseReason ?? "";
     const statusHtml = isRunning ? `<span class="status-pill pill-running"><span class="dot"></span>Running</span>` : state.paused ? `<span class="status-pill pill-paused"><span class="dot"></span>Paused</span>` : `<span class="status-pill pill-done"><span class="dot"></span>Done</span>`;
     const pauseReasonHtml = state.paused && pauseReason ? `<div style="font-size:12px;color:#ef4444;padding:4px 16px 0;line-height:1.4;">${escHtml(pauseReason)}</div>` : "";
     const statsHtml = `
+    <div style="font-size:9px;color:#9ca3af;text-align:right;margin:0 16px 4px;text-transform:uppercase;letter-spacing:0.05em;">Last 7 days</div>
     <div class="stats-row" style="margin:0 16px;">
       <div class="stat-card">
-        <div class="stat-num green">${sent}</div>
+        <div class="stat-num green">${sent7d}</div>
         <div class="stat-label">Connected</div>
       </div>
       <div class="stat-card">
         <div class="stat-num">${dbPending}</div>
         <div class="stat-label">Queued</div>
       </div>
-      ${failed > 0 ? `
+      ${allFailed > 0 ? `
       <div class="stat-card">
-        <div class="stat-num" style="color:#9ca3af;">${failed}</div>
+        <div class="stat-num" style="color:#9ca3af;">${allFailed}</div>
         <div class="stat-label">Skipped</div>
         <div style="font-size:9px;color:#d1d5db;margin-top:2px;line-height:1.3;">already connected<br>or unavailable</div>
       </div>` : ""}
@@ -526,7 +616,7 @@
     <div class="section">
       ${statsHtml}
       ${progressHtml}
-      ${state.pending > 0 ? `<div class="pause-row"><button class="btn btn-secondary" id="${pauseBtnId}">${pauseBtnLabel}</button></div>` : ""}
+      ${dbPending > 0 || state.paused ? `<div class="pause-row"><button class="btn btn-secondary" id="${pauseBtnId}">${pauseBtnLabel}</button></div>` : ""}
     </div>
 
     ${renderDailyChart(dailyCounts)}
@@ -737,7 +827,7 @@
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `;
       document.getElementById("btnRescan").addEventListener("click", () => startScan(ctx, hasCampaign));
-      document.getElementById("btnViewProgress").addEventListener("click", () => {
+      document.getElementById("btnViewProgress")?.addEventListener("click", () => {
         scanState = { type: "idle" };
         render();
       });
@@ -943,6 +1033,7 @@
     }
   }
   async function render() {
+    if (_draftFetchContext) return;
     renderLoading();
     try {
       const [state, ctx] = await Promise.all([resolveAppState(), resolveTabContext()]);
