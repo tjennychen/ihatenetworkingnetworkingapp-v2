@@ -27,6 +27,7 @@ const DASHBOARD_LOGIN_URL = 'https://ihatenetworking.space/login'
 let expandedEvents = new Set<string>()
 let exportMode = false
 let exportSelected = new Set<string>()
+let cachedContacts: any[] = []
 type GuestEntry = { name: string; ig: string; x: string }
 type DraftState =
   | 'closed'
