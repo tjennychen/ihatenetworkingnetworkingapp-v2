@@ -1,0 +1,10 @@
+{
+  "name": "ihn-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0",
+    "dotenv": "^16.0.0",
+    "@supabase/supabase-js": "^2.0.0"
+  }
+}

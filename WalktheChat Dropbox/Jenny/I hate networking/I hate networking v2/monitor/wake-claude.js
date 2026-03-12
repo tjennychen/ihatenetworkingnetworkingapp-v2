@@ -6,21 +6,21 @@
 require('dotenv').config({ path: '/etc/ihn-agent/.env' });
 
 const { execSync } = require('child_process');
-const https = require('https');
+const http = require('http');
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
 const SUPABASE_PROJECT_ID = 'urgibxjxbcyvprdejplp';
 
+// Route all Telegram sends through the bot HTTP server (centralises token management).
 function sendTelegram(text) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
-  const body = JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'Markdown' });
-  const req = https.request({
-    hostname: 'api.telegram.org',
-    path: `/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+  const body = JSON.stringify({ text, parse_mode: 'Markdown' });
+  const req = http.request({
+    hostname: '127.0.0.1',
+    port: 3456,
+    path: '/send',
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
   });
+  req.on('error', err => console.error('bot /send error:', err.message));
   req.write(body);
   req.end();
 }

@@ -6,14 +6,12 @@
 require('dotenv').config({ path: '/etc/ihn-agent/.env' });
 
 const { createClient } = require('@supabase/supabase-js');
-const https = require('https');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
 
 const LAST_POLL_FILE = path.join(__dirname, '.last-poll');
 
@@ -30,19 +28,17 @@ function writeLastPoll(ts) {
   fs.writeFileSync(LAST_POLL_FILE, ts, 'utf8');
 }
 
+// Route all Telegram sends through the bot HTTP server (centralises token management).
 function sendTelegram(text) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.log('Telegram not configured — would send:', text);
-    return;
-  }
-  const body = JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'Markdown' });
-  const req = https.request({
-    hostname: 'api.telegram.org',
-    path: `/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+  const body = JSON.stringify({ text, parse_mode: 'Markdown' });
+  const req = http.request({
+    hostname: '127.0.0.1',
+    port: 3456,
+    path: '/send',
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
   });
-  req.on('error', err => console.error('Telegram send error:', err.message));
+  req.on('error', err => console.error('bot /send error:', err.message));
   req.write(body);
   req.end();
 }
