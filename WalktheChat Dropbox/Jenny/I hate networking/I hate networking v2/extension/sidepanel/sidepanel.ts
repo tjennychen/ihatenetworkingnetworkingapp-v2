@@ -44,7 +44,8 @@ function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function initials(name: string): string {
+function initials(name: string | null | undefined): string {
+  if (!name) return '?'
   const parts = name.trim().split(/\s+/)
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase()
 }
@@ -1293,9 +1294,9 @@ chrome.runtime.onMessage.addListener(async (msg) => {
         data: {
           ...msg.scanDebug,
           eventName: (scanState as any).eventName ?? '',
-          totalContacts: msg.total,
-          linkedInCount: msg.found,
-          errorType: msg.total === 0 ? 'no_contacts' : msg.found === 0 ? 'no_linkedin' : '',
+          totalContacts: (scanState as any).total,
+          linkedInCount: (scanState as any).found,
+          errorType: (scanState as any).total === 0 ? 'no_contacts' : (scanState as any).found === 0 ? 'no_linkedin' : '',
         },
       })
     }

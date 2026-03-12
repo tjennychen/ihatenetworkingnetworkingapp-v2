@@ -16,6 +16,7 @@
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
   function initials(name) {
+    if (!name) return "?";
     const parts = name.trim().split(/\s+/);
     return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
   }
@@ -1151,9 +1152,9 @@
           data: {
             ...msg.scanDebug,
             eventName: scanState.eventName ?? "",
-            totalContacts: msg.total,
-            linkedInCount: msg.found,
-            errorType: msg.total === 0 ? "no_contacts" : msg.found === 0 ? "no_linkedin" : ""
+            totalContacts: scanState.total,
+            linkedInCount: scanState.found,
+            errorType: scanState.total === 0 ? "no_contacts" : scanState.found === 0 ? "no_linkedin" : ""
           }
         });
       }
