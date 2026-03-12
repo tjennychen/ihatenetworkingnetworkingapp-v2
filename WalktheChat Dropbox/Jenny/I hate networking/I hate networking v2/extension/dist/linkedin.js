@@ -186,7 +186,10 @@
           const url = c.linkedin_url.replace("https://linkedin.com/", "https://www.linkedin.com/");
           let linkedinName = "";
           try {
-            const resp = await fetch(url, { credentials: "include" });
+            const ac = new AbortController();
+            const timer = setTimeout(() => ac.abort(), 8e3);
+            const resp = await fetch(url, { credentials: "include", signal: ac.signal });
+            clearTimeout(timer);
             if (resp.url.includes("/in/")) {
               const html = await resp.text();
               linkedinName = extractNameFromHtml(html);

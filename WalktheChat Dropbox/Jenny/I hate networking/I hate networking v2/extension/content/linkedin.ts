@@ -288,12 +288,15 @@ if (typeof chrome !== 'undefined' && chrome.runtime) chrome.runtime.onMessage.ad
         const url = c.linkedin_url.replace('https://linkedin.com/', 'https://www.linkedin.com/')
         let linkedinName = ''
         try {
-          const resp = await fetch(url, { credentials: 'include' })
+          const ac = new AbortController()
+          const timer = setTimeout(() => ac.abort(), 8000)
+          const resp = await fetch(url, { credentials: 'include', signal: ac.signal })
+          clearTimeout(timer)
           if (resp.url.includes('/in/')) {
             const html = await resp.text()
             linkedinName = extractNameFromHtml(html)
           }
-        } catch { /* ignore */ }
+        } catch { /* ignore — timeout or network error */ }
         results.push({ id: c.id, linkedin_name: linkedinName })
         chrome.runtime.sendMessage({ type: 'LINKEDIN_NAMES_PROGRESS', done: results.length, total: contacts.length }).catch(() => {})
       }
