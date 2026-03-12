@@ -980,6 +980,16 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
     const s = scanState
     const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0
     const eta = s.total > 0 ? etaString(s.done, s.total, s.startTime) : ''
+    const scanningCachedHtml = cachedContacts.filter(c => c.linkedInUrl).map(c => `
+      <div class="lead-row">
+        <div class="lead-initials">${escHtml(initials(c.name))}</div>
+        <div class="lead-name">${escHtml(c.name)}</div>
+        <div class="lead-badges">
+          ${c.linkedInUrl ? `<a href="${escHtml(c.linkedInUrl)}" target="_blank" class="badge badge-li">in</a>` : ''}
+          ${c.instagramUrl ? `<a href="${escHtml(c.instagramUrl)}" target="_blank" class="badge badge-ig">ig</a>` : ''}
+          ${c.twitterUrl ? `<a href="${escHtml(c.twitterUrl)}" target="_blank" class="badge badge-x">x</a>` : ''}
+        </div>
+      </div>`).join('')
     root.innerHTML = `
       <div class="compact-header">
         <div class="compact-brand">
@@ -992,6 +1002,7 @@ async function renderEventPage(ctx: Extract<TabContext, { kind: 'luma-event' }>,
         <div class="scanning-label">Scanning <strong>${escHtml(s.currentName || '...')}</strong></div>
         <div class="progress-bg"><div class="progress-fill" style="width:${pct}%"></div></div>
         <div class="progress-meta"><span>${s.done}/${s.total || '?'}</span><span>${eta}</span></div>
+        ${scanningCachedHtml.length > 0 ? `<div class="leads-list" style="margin-top:12px;">${scanningCachedHtml}</div>` : ''}
       </div>
       <div class="byline">by <a href="https://www.linkedin.com/in/tingyi-jenny-chen" target="_blank">Jenny Chen</a></div>
     `
