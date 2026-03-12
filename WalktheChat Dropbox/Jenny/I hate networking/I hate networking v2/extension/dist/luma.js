@@ -309,7 +309,7 @@
     });
     return urls;
   }
-  async function runScan() {
+  async function runScan(existingUrls = []) {
     const eventName = document.querySelector("h1")?.textContent?.trim() ?? document.title;
     const lumaUrl = location.href;
     let remoteConfig = null;
@@ -412,11 +412,14 @@
     }
     const apiHadSocial = contacts.some((c) => c.linkedInUrl);
     console.log("[IHN] Contacts from API:", contacts.length, "with LinkedIn from API:", contacts.filter((c) => c.linkedInUrl).length);
-    chrome.runtime.sendMessage({ type: "SCAN_PROGRESS", phase: "scraping_done", total: contacts.length, eventName, lumaUrl });
-    if (!apiHadSocial && contacts.length > 0) {
+    const existingUrlsSet = new Set(existingUrls);
+    const newContacts = existingUrlsSet.size > 0 ? contacts.filter((c) => !existingUrlsSet.has(c.url)) : contacts;
+    console.log("[IHN] Delta scan: existingUrls:", existingUrlsSet.size, "newContacts:", newContacts.length);
+    chrome.runtime.sendMessage({ type: "SCAN_PROGRESS", phase: "scraping_done", total: newContacts.length, eventName, lumaUrl });
+    if (!apiHadSocial && newContacts.length > 0) {
       console.log("[IHN] API had no social data, fetching profile pages as fallback");
       let done = 0;
-      for (const contact of contacts) {
+      for (const contact of newContacts) {
         try {
           const resp = await fetch(contact.url, { credentials: "include" });
           const html = await resp.text();
@@ -438,20 +441,20 @@
           console.error("[IHN] Fetch failed for", contact.url, err);
         }
         done++;
-        chrome.runtime.sendMessage({ type: "SCAN_PROGRESS", phase: "enriching", done, total: contacts.length, currentName: contact.name });
+        chrome.runtime.sendMessage({ type: "SCAN_PROGRESS", phase: "enriching", done, total: newContacts.length, currentName: contact.name });
       }
     }
     console.log("[IHN] Enrichment done. Contacts:", contacts.length, "with LinkedIn:", contacts.filter((c) => c.linkedInUrl).length);
     chrome.runtime.sendMessage({ type: "SCAN_PROGRESS", phase: "saving", done: contacts.length, total: contacts.length });
     const saveResult = await Promise.race([
       new Promise((resolve) => {
-        chrome.runtime.sendMessage({ type: "START_ENRICHMENT", data: { tabId: 0, lumaUrl, eventName, contacts } }, resolve);
+        chrome.runtime.sendMessage({ type: "START_ENRICHMENT", data: { tabId: 0, lumaUrl, eventName, contacts: newContacts } }, resolve);
       }),
-      new Promise((resolve) => setTimeout(() => resolve({ eventId: "", found: 0, total: contacts.length }), 15e3))
+      new Promise((resolve) => setTimeout(() => resolve({ eventId: "", found: 0, total: newContacts.length }), 15e3))
     ]);
-    const actualTotal = contacts.length;
-    const actualFound = contacts.filter((c) => c.linkedInUrl).length;
-    console.log("[IHN] SCAN_COMPLETE sending. total:", actualTotal, "found:", actualFound, "eventId:", saveResult.eventId || "(save failed)");
+    const actualTotal = newContacts.length;
+    const actualFound = newContacts.filter((c) => c.linkedInUrl).length;
+    console.log("[IHN] SCAN_COMPLETE sending. newContacts:", actualTotal, "found:", actualFound, "eventId:", saveResult.eventId || "(save failed)");
     const scanDebug = {
       eventUrl: lumaUrl,
       buttonClicked,
@@ -462,11 +465,11 @@
       modalFound: !!modal,
       apiHadSocial
     };
-    chrome.runtime.sendMessage({ type: "SCAN_COMPLETE", eventId: saveResult.eventId, total: actualTotal, found: actualFound, contacts, scanDebug });
+    chrome.runtime.sendMessage({ type: "SCAN_COMPLETE", eventId: saveResult.eventId, total: actualTotal, found: actualFound, contacts: newContacts, newCount: actualFound, scanDebug });
   }
   if (typeof chrome !== "undefined" && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "START_SCAN") {
-      runScan();
+      runScan(msg.existingUrls ?? []);
       sendResponse({ started: true });
       return true;
     }

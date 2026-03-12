@@ -382,7 +382,7 @@ function extractGuestProfileUrlsFromPage(): string[] {
 
 // ── Scan runner ──────────────────────────────────────────────────────────────
 
-async function runScan(): Promise<void> {
+async function runScan(existingUrls: string[] = []): Promise<void> {
   const eventName = document.querySelector('h1')?.textContent?.trim() ?? document.title
   const lumaUrl = location.href
 
@@ -508,13 +508,17 @@ async function runScan(): Promise<void> {
   const apiHadSocial = contacts.some(c => c.linkedInUrl)
   console.log('[IHN] Contacts from API:', contacts.length, 'with LinkedIn from API:', contacts.filter(c => c.linkedInUrl).length)
 
-  chrome.runtime.sendMessage({ type: 'SCAN_PROGRESS', phase: 'scraping_done', total: contacts.length, eventName, lumaUrl })
+  const existingUrlsSet = new Set(existingUrls)
+  const newContacts = existingUrlsSet.size > 0 ? contacts.filter(c => !existingUrlsSet.has(c.url)) : contacts
+  console.log('[IHN] Delta scan: existingUrls:', existingUrlsSet.size, 'newContacts:', newContacts.length)
+
+  chrome.runtime.sendMessage({ type: 'SCAN_PROGRESS', phase: 'scraping_done', total: newContacts.length, eventName, lumaUrl })
 
   // Only fetch individual profile pages if the API didn't return social handles
-  if (!apiHadSocial && contacts.length > 0) {
+  if (!apiHadSocial && newContacts.length > 0) {
     console.log('[IHN] API had no social data, fetching profile pages as fallback')
     let done = 0
-    for (const contact of contacts) {
+    for (const contact of newContacts) {
       try {
         const resp = await fetch(contact.url, { credentials: 'include' })
         const html = await resp.text()
@@ -536,7 +540,7 @@ async function runScan(): Promise<void> {
         console.error('[IHN] Fetch failed for', contact.url, err)
       }
       done++
-      chrome.runtime.sendMessage({ type: 'SCAN_PROGRESS', phase: 'enriching', done, total: contacts.length, currentName: contact.name })
+      chrome.runtime.sendMessage({ type: 'SCAN_PROGRESS', phase: 'enriching', done, total: newContacts.length, currentName: contact.name })
     }
   }
 
@@ -546,15 +550,15 @@ async function runScan(): Promise<void> {
 
   const saveResult: { eventId: string; found: number; total: number } = await Promise.race([
     new Promise<any>(resolve => {
-      chrome.runtime.sendMessage({ type: 'START_ENRICHMENT', data: { tabId: 0, lumaUrl, eventName, contacts } }, resolve)
+      chrome.runtime.sendMessage({ type: 'START_ENRICHMENT', data: { tabId: 0, lumaUrl, eventName, contacts: newContacts } }, resolve)
     }),
-    new Promise<any>(resolve => setTimeout(() => resolve({ eventId: '', found: 0, total: contacts.length }), 15000)),
+    new Promise<any>(resolve => setTimeout(() => resolve({ eventId: '', found: 0, total: newContacts.length }), 15000)),
   ])
 
   // Use actual content-script counts — saveResult may return 0s if session/save failed
-  const actualTotal = contacts.length
-  const actualFound = contacts.filter(c => c.linkedInUrl).length
-  console.log('[IHN] SCAN_COMPLETE sending. total:', actualTotal, 'found:', actualFound, 'eventId:', saveResult.eventId || '(save failed)')
+  const actualTotal = newContacts.length
+  const actualFound = newContacts.filter(c => c.linkedInUrl).length
+  console.log('[IHN] SCAN_COMPLETE sending. newContacts:', actualTotal, 'found:', actualFound, 'eventId:', saveResult.eventId || '(save failed)')
 
   // Always send diagnostics — not just on zero contacts
   const scanDebug = {
@@ -568,14 +572,14 @@ async function runScan(): Promise<void> {
     apiHadSocial,
   }
 
-  chrome.runtime.sendMessage({ type: 'SCAN_COMPLETE', eventId: saveResult.eventId, total: actualTotal, found: actualFound, contacts, scanDebug })
+  chrome.runtime.sendMessage({ type: 'SCAN_COMPLETE', eventId: saveResult.eventId, total: actualTotal, found: actualFound, contacts: newContacts, newCount: actualFound, scanDebug })
 }
 
 // ── Message listener ─────────────────────────────────────────────────────────
 
 if (typeof chrome !== 'undefined' && chrome.runtime) chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'START_SCAN') {
-    runScan() // fire and forget — progress sent back via runtime.sendMessage
+    runScan(msg.existingUrls ?? []) // fire and forget — progress sent back via runtime.sendMessage
     sendResponse({ started: true })
     return true
   }
