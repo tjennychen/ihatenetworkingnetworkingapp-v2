@@ -989,7 +989,7 @@
       </div>
       <div class="section">
         <div class="results-count">Found ${s.found} contacts</div>
-        <div class="results-sub">out of ${s.total} attendees scanned</div>
+        <div class="results-sub">out of ${s.total} attendees scanned${s.newCount != null && s.newCount > 0 ? ` \xB7 <span style="color:#16a34a">+${s.newCount} new</span>` : s.newCount === 0 ? " \xB7 no new attendees" : ""}</div>
         <a href="#" id="btnDownloadCsv" style="font-size:12px;color:#6b7280;text-decoration:underline;display:inline-block;margin:6px 0 2px;">Download CSV</a>
         ${s.contacts.length > 0 ? `<div class="leads-list">${leadsHtml}</div>` : ""}
         <div class="field-label">Message <span class="char-count" id="charCount">(optional) ${noteValue.length}/${MAX_NOTE}</span></div>
@@ -1131,15 +1131,19 @@
       const tabUrl = await new Promise(
         (resolve) => chrome.tabs.query({ active: true, currentWindow: true }, ([t]) => resolve(t?.url ?? ""))
       );
+      const isDelta = cachedContacts.length > 0;
+      const mergedContacts = isDelta ? [...cachedContacts, ...msg.contacts ?? []] : msg.contacts ?? [];
+      cachedContacts = [];
       scanState = {
         type: "results",
-        found: msg.found,
-        total: msg.total,
+        found: mergedContacts.filter((c) => c.linkedInUrl).length,
+        total: mergedContacts.length,
         eventId: msg.eventId,
         eventName: scanState.eventName ?? "",
         eventUrl: tabUrl,
-        contacts: msg.contacts ?? [],
-        scanDebug: msg.scanDebug
+        contacts: mergedContacts,
+        scanDebug: msg.scanDebug,
+        newCount: isDelta ? msg.newCount ?? 0 : void 0
       };
       if (msg.scanDebug) {
         chrome.runtime.sendMessage({
