@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "I Hate Networking",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Connect with Luma event attendees on LinkedIn",
   "permissions": [
     "storage",

@@ -12146,9 +12146,7 @@ ${suffix}`;
         });
         return;
       } else if (result.error === "no_linkedin_session" || result.error === "no_csrf_token") {
-        await supabase.from("connection_queue").update({
-          scheduled_at: new Date(Date.now() + 10 * 6e4).toISOString()
-        }).eq("id", item.id);
+        console.log("[IHN] LinkedIn unreachable, will retry on next tick");
         return;
       } else if (result.error === "weekly_limit_reached") {
         await supabase.from("connection_queue").update({
@@ -12213,9 +12211,7 @@ ${suffix}`;
     const existingTabId = existingTabs[0]?.id ?? null;
     let tabId;
     let openedTabId = null;
-    if (existingTabId) {
-      tabId = existingTabId;
-    } else {
+    async function openFreshTab() {
       const tab = await chrome.tabs.create({ url: "https://www.linkedin.com/feed/", active: false });
       openedTabId = tab.id;
       tabId = openedTabId;
@@ -12230,7 +12226,23 @@ ${suffix}`;
         });
       });
     }
-    const ready = await waitForContentScript(tabId, 8e3);
+    if (existingTabId) {
+      tabId = existingTabId;
+      console.log("[IHN] Using existing LinkedIn tab", existingTabId, existingTabs[0]?.url);
+    } else {
+      console.log("[IHN] No existing LinkedIn tab, opening fresh one");
+      await openFreshTab();
+      console.log("[IHN] Fresh tab loaded, id=", tabId);
+    }
+    let ready = await waitForContentScript(tabId, 8e3);
+    console.log("[IHN] waitForContentScript (first):", ready, "tabId=", tabId);
+    if (!ready && existingTabId) {
+      console.log("[IHN] Existing LinkedIn tab unresponsive, opening fresh tab");
+      await openFreshTab();
+      console.log("[IHN] Fresh tab loaded (fallback), id=", tabId);
+      ready = await waitForContentScript(tabId, 8e3);
+      console.log("[IHN] waitForContentScript (fallback):", ready);
+    }
     if (!ready) {
       if (openedTabId) await chrome.tabs.remove(openedTabId).catch(() => {
       });

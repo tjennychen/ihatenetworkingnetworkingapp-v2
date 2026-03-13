@@ -781,10 +781,9 @@ async function processNextQueueItem(): Promise<void> {
       return // ← only wait after a successful send
 
     } else if (result.error === 'no_linkedin_session' || result.error === 'no_csrf_token') {
-      // Not logged into LinkedIn — defer and stop
-      await supabase.from('connection_queue').update({
-        scheduled_at: new Date(Date.now() + 10 * 60000).toISOString(),
-      }).eq('id', item.id)
+      // Couldn't reach LinkedIn (tab not ready / not logged in) — don't defer, just stop.
+      // The alarm fires every 2 min so it will retry naturally without pushing the item further out.
+      console.log('[IHN] LinkedIn unreachable, will retry on next tick')
       return
 
     } else if (result.error === 'weekly_limit_reached') {
@@ -872,22 +871,19 @@ async function sendViaLinkedInRelay(
   note: string,
   csrfToken: string
 ): Promise<{ success: boolean; error?: string }> {
-  // Prefer an existing LinkedIn tab — avoids opening a visible new tab
+  // Prefer an existing LinkedIn tab — avoids opening a visible new tab.
+  // But after an extension reload, content scripts aren't re-injected into existing tabs,
+  // so if the existing tab doesn't respond, fall back to opening a fresh tab.
   const existingTabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })
   const existingTabId = existingTabs[0]?.id ?? null
 
   let tabId: number
   let openedTabId: number | null = null
 
-  if (existingTabId) {
-    tabId = existingTabId
-  } else {
-    // No LinkedIn tab open — open a background tab (NOT a minimized window — per FIXES.md)
+  async function openFreshTab(): Promise<void> {
     const tab = await chrome.tabs.create({ url: 'https://www.linkedin.com/feed/', active: false })
     openedTabId = tab.id!
     tabId = openedTabId
-
-    // Wait for the tab to finish loading before probing the content script
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(resolve, 15000)
       chrome.tabs.onUpdated.addListener(function listener(tid, info) {
@@ -900,7 +896,26 @@ async function sendViaLinkedInRelay(
     })
   }
 
-  const ready = await waitForContentScript(tabId, 8000)
+  if (existingTabId) {
+    tabId = existingTabId
+    console.log('[IHN] Using existing LinkedIn tab', existingTabId, existingTabs[0]?.url)
+  } else {
+    console.log('[IHN] No existing LinkedIn tab, opening fresh one')
+    await openFreshTab()
+    console.log('[IHN] Fresh tab loaded, id=', tabId)
+  }
+
+  let ready = await waitForContentScript(tabId, 8000)
+  console.log('[IHN] waitForContentScript (first):', ready, 'tabId=', tabId)
+  if (!ready && existingTabId) {
+    // Existing tab's content script not responding (e.g. extension just reloaded).
+    // Fall back to a fresh tab which will get the content script injected on load.
+    console.log('[IHN] Existing LinkedIn tab unresponsive, opening fresh tab')
+    await openFreshTab()
+    console.log('[IHN] Fresh tab loaded (fallback), id=', tabId)
+    ready = await waitForContentScript(tabId, 8000)
+    console.log('[IHN] waitForContentScript (fallback):', ready)
+  }
   if (!ready) {
     if (openedTabId) await chrome.tabs.remove(openedTabId).catch(() => {})
     return { success: false, error: 'no_linkedin_session' }

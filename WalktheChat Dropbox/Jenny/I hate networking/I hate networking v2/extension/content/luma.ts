@@ -383,7 +383,12 @@ function extractGuestProfileUrlsFromPage(): string[] {
 // ── Scan runner ──────────────────────────────────────────────────────────────
 
 async function runScan(existingUrls: string[] = []): Promise<void> {
-  const eventName = document.querySelector('h1')?.textContent?.trim() ?? document.title
+  const rawTitle = document.querySelector('h1')?.textContent?.trim()
+    ?? document.querySelector('[class*="event-title"]')?.textContent?.trim()
+    ?? document.querySelector('meta[property="og:title"]')?.getAttribute('content')?.trim()
+    ?? document.title
+  // Don't store URL-like strings as event names (e.g. "luma.com/abc?tk=xyz")
+  const eventName = /^(https?:\/\/|lu\.ma\/|luma\.com\/)/.test(rawTitle) ? '' : rawTitle
   const lumaUrl = location.href
 
   // Fetch remote config (falls back to hardcoded defaults if unavailable)

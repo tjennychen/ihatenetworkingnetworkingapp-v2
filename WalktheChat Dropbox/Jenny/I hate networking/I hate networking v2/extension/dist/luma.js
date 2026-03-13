@@ -310,7 +310,8 @@
     return urls;
   }
   async function runScan(existingUrls = []) {
-    const eventName = document.querySelector("h1")?.textContent?.trim() ?? document.title;
+    const rawTitle = document.querySelector("h1")?.textContent?.trim() ?? document.querySelector('[class*="event-title"]')?.textContent?.trim() ?? document.querySelector('meta[property="og:title"]')?.getAttribute("content")?.trim() ?? document.title;
+    const eventName = /^(https?:\/\/|lu\.ma\/|luma\.com\/)/.test(rawTitle) ? "" : rawTitle;
     const lumaUrl = location.href;
     let remoteConfig = null;
     try {
