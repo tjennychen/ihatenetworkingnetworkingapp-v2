@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IHN — Download Page</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@800;900&family=Barlow:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --black: #111;
+      --white: #fafafa;
+      --muted: #888;
+      --border: #ddd;
+    }
+
+    body {
+      background: var(--white);
+      color: var(--black);
+      font-family: 'Barlow', sans-serif;
+      font-size: 1rem;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Header ── */
+    header {
+      padding: 14px 20px;
+      border-bottom: 2px solid var(--black);
+      background: var(--black);
+      color: var(--white);
+    }
+
+    .logo-mark {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+
+    .logo-mark img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      filter: invert(1);
+    }
+
+    .header-brand {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800;
+      font-size: 1.1rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .header-version {
+      font-family: 'Barlow', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: #aaa;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 40px 20px 32px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero-headline {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 900;
+      font-size: clamp(3.8rem, 18vw, 5.6rem);
+      line-height: 0.92;
+      text-transform: uppercase;
+      letter-spacing: -0.01em;
+      margin-bottom: 16px;
+    }
+
+    .hero-sub {
+      font-style: italic;
+      font-size: 0.9rem;
+      color: #444;
+      line-height: 1.5;
+      max-width: 300px;
+      margin-bottom: 28px;
+    }
+
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--black);
+      color: var(--white);
+      text-decoration: none;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800;
+      font-size: 1rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      padding: 14px 22px;
+      border: 2px solid var(--black);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .download-btn:hover {
+      background: var(--white);
+      color: var(--black);
+    }
+
+    .download-btn svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    .hero-meta {
+      margin-top: 12px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+    }
+
+    .hero-meta span { margin: 0 4px; }
+
+    /* ── Install Steps ── */
+    .install-section {
+      padding: 36px 20px 60px;
+    }
+
+    .install-heading {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800;
+      font-size: clamp(1.8rem, 8vw, 2.4rem);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 28px;
+      border-bottom: 3px solid var(--black);
+      padding-bottom: 10px;
+    }
+
+    .step {
+      margin-bottom: 28px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .step:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+    }
+
+    .step-num {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 900;
+      font-size: 2.6rem;
+      line-height: 1;
+      color: var(--black);
+      margin-bottom: 4px;
+    }
+
+    .step-title {
+      font-weight: 600;
+      font-size: 1rem;
+      margin-bottom: 4px;
+    }
+
+    .step-desc {
+      font-style: italic;
+      font-size: 0.88rem;
+      color: #555;
+      line-height: 1.5;
+      max-width: 320px;
+    }
+
+    .step-desc code {
+      font-style: normal;
+      font-family: monospace;
+      background: #eee;
+      padding: 1px 5px;
+      font-size: 0.82rem;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 2px solid var(--black);
+      padding: 16px 20px;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    footer a {
+      color: var(--muted);
+      text-decoration: underline;
+    }
+
+    .header-link {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    /* ── Desktop centering ── */
+    .inner {
+      width: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <a href="https://ihatenetworking.space" class="header-link">
+      <div class="inner" style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="logo-mark">
+          <img src="assets/icon128.png" alt="IHN">
+        </div>
+        <div class="header-brand">IHN</div>
+        <div class="header-version">V1.3.2</div>
+      </div>
+    </a>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="inner">
+      <h1 class="hero-headline">Get the<br>Latest<br>Version</h1>
+      <p class="hero-sub">Chrome Web Store is still reviewing. Download directly and install in under 2 minutes.</p>
+
+      <a class="download-btn" href="ihn-extension-v1.3.2.zip" download>
+        Download ZIP
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12l7 7 7-7"/>
+          <line x1="4" y1="20" x2="20" y2="20"/>
+        </svg>
+      </a>
+
+      <p class="hero-meta">v1.3.2 <span>·</span> Chrome only <span>·</span> Free</p>
+    </div>
+  </section>
+
+  <!-- Install Steps -->
+  <section class="install-section">
+    <div class="inner">
+      <h2 class="install-heading">How to Install</h2>
+
+      <div class="step">
+        <div class="step-num">01</div>
+        <div class="step-title">Unzip the file</div>
+        <p class="step-desc">Download and unzip the file to a folder on your computer.</p>
+      </div>
+
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-title">Open Chrome Extensions</div>
+        <p class="step-desc">Go to <code>chrome://extensions</code> and turn on Developer Mode (top right toggle).</p>
+      </div>
+
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-title">Load Unpacked</div>
+        <p class="step-desc">Click "Load unpacked" and select the unzipped folder.</p>
+      </div>
+
+      <div class="step">
+        <div class="step-num">04</div>
+        <div class="step-title">Pin It</div>
+        <p class="step-desc">Click the puzzle icon in Chrome's toolbar and pin IHN for easy access.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="inner" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;width:100%;">
+      <span>I Hate Networking © 2026</span>
+      <a href="/privacy-policy">Privacy Policy</a>
+    </div>
+  </footer>
+
+</body>
+</html>
